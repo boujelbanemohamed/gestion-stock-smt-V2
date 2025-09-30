@@ -699,8 +699,10 @@ export default function LocationsManagement() {
           ) : (
             <Accordion type="single" collapsible className="w-full">
               {locations.map((location) => {
-                const cards = cardsByLocation.get(location.id) || []
-                const totalCards = cards.reduce((sum, item) => sum + item.quantity, 0)
+                // Calculer les cartes pour cette location
+                const locationCards = cards.filter(c => c.bankId === location.bankId)
+                const uniqueTypes = new Set(locationCards.map(c => c.type))
+                const totalCards = locationCards.reduce((sum, card) => sum + card.quantity, 0)
 
                 return (
                   <AccordionItem key={location.id} value={location.id}>
@@ -714,7 +716,7 @@ export default function LocationsManagement() {
                         </div>
                         <div className="flex items-center gap-4">
                           <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                            {cards.length} type{cards.length !== 1 ? "s" : ""} de carte{cards.length !== 1 ? "s" : ""}
+                            {uniqueTypes.size} type{uniqueTypes.size !== 1 ? "s" : ""} de carte{uniqueTypes.size !== 1 ? "s" : ""}
                           </Badge>
                           <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
                             {totalCards} carte{totalCards !== 1 ? "s" : ""}
