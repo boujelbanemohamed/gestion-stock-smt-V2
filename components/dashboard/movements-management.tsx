@@ -829,6 +829,7 @@ export default function MovementsManagement() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date et Heure</TableHead>
+                    <TableHead>Banque</TableHead>
                     <TableHead>Carte</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>De</TableHead>
@@ -847,6 +848,12 @@ export default function MovementsManagement() {
                       <TableRow key={movement.id}>
                         <TableCell className="text-sm whitespace-nowrap">
                           {formatDateTime(movement.createdAt)}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {(() => {
+                            const card = cards.find(c => c.id === movement.cardId)
+                            return card ? getBankName(card.bankId) : "N/A"
+                          })()}
                         </TableCell>
                         <TableCell className="font-medium">{getCardName(movement.cardId)}</TableCell>
                         <TableCell>
