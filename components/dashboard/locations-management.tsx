@@ -29,6 +29,7 @@ import { ListSkeleton } from "@/components/ui/loading-skeleton"
 export default function LocationsManagement() {
   const [locations, setLocations] = useState<Location[]>([])
   const [banks, setBanks] = useState<Bank[]>([])
+  const [cards, setCards] = useState<any[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [isSearchDialogOpen, setIsSearchDialogOpen] = useState(false)
@@ -67,8 +68,12 @@ export default function LocationsManagement() {
         setBanks(banksData.data || [])
       }
 
-      // Charger les cartes pour chaque location
-      setCardsByLocation(new Map())
+      // Charger les cartes
+      const cardsResponse = await fetch('/api/cards')
+      const cardsData = await cardsResponse.json()
+      if (cardsData.success) {
+        setCards(cardsData.data || [])
+      }
     } catch (error) {
       console.error('Error loading locations:', error)
     }
@@ -337,11 +342,17 @@ export default function LocationsManagement() {
     const grouped: { [bankName: string]: any[] } = {}
     banks.forEach(bank => {
       const bankLocations = locations.filter(l => l.bankId === bank.id)
-      grouped[bank.name] = bankLocations.map(location => ({
-        location,
-        totalCards: 0, // TODO: calculer le nombre réel de cartes
-        cardTypes: 0   // TODO: calculer le nombre de types de cartes
-      }))
+      grouped[bank.name] = bankLocations.map(location => {
+        // Calculer les cartes pour cette location
+        const locationCards = cards.filter(c => c.bankId === location.bankId)
+        const uniqueTypes = new Set(locationCards.map(c => c.type))
+        
+        return {
+          location,
+          totalCards: locationCards.reduce((sum, card) => sum + card.quantity, 0),
+          cardTypes: uniqueTypes.size
+        }
+      })
     })
 
     return (
