@@ -4,7 +4,6 @@ import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
-import { dataStore } from "@/lib/data-store"
 import type { DateRange } from "react-day-picker"
 import type { AuditLog } from "@/lib/types"
 import { format } from "date-fns"
@@ -21,27 +20,35 @@ export default function DashboardPage() {
   const [recentLogs, setRecentLogs] = useState<AuditLog[]>([])
 
   useEffect(() => {
-    const loadData = () => {
-      const data =
-        dateRange?.from || dateRange?.to
-          ? dataStore.getStatsByDateRange(dateRange?.from, dateRange?.to)
-          : dataStore.getStats()
+    const loadData = async () => {
+      try {
+        // Charger les stats
+        const statsResponse = await fetch('/api/stats')
+        const statsData = await statsResponse.json()
+        
+        if (statsData.success) {
+          setStats({
+            totalBanks: statsData.data.totalBanks,
+            totalCardTypes: statsData.data.totalCardTypes,
+            totalLocations: statsData.data.totalLocations,
+            movements: statsData.data.todayMovements,
+          })
+        }
 
-      setStats({
-        totalBanks: data.totalBanks,
-        totalCardTypes: data.totalCardTypes,
-        totalLocations: data.totalLocations,
-        movements: dateRange?.from || dateRange?.to ? data.movements : data.todayMovements,
-      })
+        // Charger les logs
+        const logsParams = new URLSearchParams()
+        if (dateRange?.from) logsParams.append('dateFrom', dateRange.from.toISOString())
+        if (dateRange?.to) logsParams.append('dateTo', dateRange.to.toISOString())
+        logsParams.append('limit', '10')
 
-      if (dateRange?.from || dateRange?.to) {
-        const logs = dataStore.searchLogs({
-          dateFrom: dateRange?.from,
-          dateTo: dateRange?.to,
-        })
-        setRecentLogs(logs.slice(0, 10)) // Limit to 10 most recent
-      } else {
-        setRecentLogs(dataStore.getRecentLogs(24))
+        const logsResponse = await fetch(`/api/logs?${logsParams.toString()}`)
+        const logsData = await logsResponse.json()
+        
+        if (logsData.success) {
+          setRecentLogs(logsData.data || [])
+        }
+      } catch (error) {
+        console.error('Error loading dashboard data:', error)
       }
     }
 
