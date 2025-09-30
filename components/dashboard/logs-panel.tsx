@@ -20,29 +20,38 @@ export default function LogsPanel() {
   const [endDate, setEndDate] = useState<string>("")
 
   useEffect(() => {
-    const user = dataStore.getCurrentUser()
-    if (!user) {
-      window.location.href = "/"
-      return
-    }
-
-    // Vérifier si l'utilisateur a la permission logs:read
-    if (!dataStore.hasPermission(user.id, "logs:read")) {
-      window.location.href = "/dashboard"
-      return
-    }
-
-    setCurrentUser(user)
+    loadCurrentUser()
     loadLogs()
   }, [])
+
+  const loadCurrentUser = async () => {
+    try {
+      // Pour l'instant, simuler un utilisateur admin
+      const usersResponse = await fetch('/api/users')
+      const usersData = await usersResponse.json()
+      if (usersData.success && usersData.data.length > 0) {
+        const admin = usersData.data.find((u: any) => u.role === 'admin')
+        setCurrentUser(admin || usersData.data[0])
+      }
+    } catch (error) {
+      console.error('Error loading current user:', error)
+    }
+  }
 
   useEffect(() => {
     filterLogs()
   }, [logs, searchTerm, actionFilter, moduleFilter, startDate, endDate])
 
-  const loadLogs = () => {
-    const allLogs = dataStore.getLogs()
-    setLogs(allLogs)
+  const loadLogs = async () => {
+    try {
+      const response = await fetch('/api/logs')
+      const data = await response.json()
+      if (data.success) {
+        setLogs(data.data || [])
+      }
+    } catch (error) {
+      console.error('Error loading logs:', error)
+    }
   }
 
   const filterLogs = () => {

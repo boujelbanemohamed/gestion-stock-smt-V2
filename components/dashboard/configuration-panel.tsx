@@ -19,10 +19,15 @@ export default function ConfigurationPanel() {
   const [saveMessage, setSaveMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
 
   useEffect(() => {
-    // Load config or initialize with defaults
-    const existingConfig = dataStore.getConfig()
-    if (existingConfig) {
-      setConfig(existingConfig)
+    loadConfig()
+  }, [])
+
+  const loadConfig = async () => {
+    try {
+      const response = await fetch('/api/config')
+      const data = await response.json()
+      if (data.success && data.data) {
+        setConfig(data.data)
     } else {
       const defaultConfig: AppConfig = {
         general: {
@@ -79,19 +84,37 @@ export default function ConfigurationPanel() {
         },
       }
       setConfig(defaultConfig)
-      dataStore.updateConfig(defaultConfig)
+      // Sauvegarder la config par défaut
+      await fetch('/api/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(defaultConfig)
+      })
+    } catch (error) {
+      console.error('Error loading config:', error)
     }
-  }, [])
+  }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!config) return
 
     setIsSaving(true)
     try {
-      dataStore.updateConfig(config)
-      setSaveMessage({ type: "success", text: "Configuration enregistrée avec succès" })
+      const response = await fetch('/api/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
+      })
+      const data = await response.json()
+      
+      if (data.success) {
+        setSaveMessage({ type: "success", text: "Configuration enregistrée avec succès" })
+      } else {
+        setSaveMessage({ type: "error", text: data.error || "Erreur lors de l'enregistrement" })
+      }
       setTimeout(() => setSaveMessage(null), 3000)
     } catch (error) {
+      console.error('Error saving config:', error)
       setSaveMessage({ type: "error", text: "Erreur lors de l'enregistrement" })
       setTimeout(() => setSaveMessage(null), 3000)
     } finally {
