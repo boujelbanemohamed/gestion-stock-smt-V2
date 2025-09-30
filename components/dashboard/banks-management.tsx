@@ -27,6 +27,8 @@ import { ChevronDown, ChevronRight, Download, Upload, Search, Filter, Printer } 
 
 export default function BanksManagement() {
   const [banks, setBanks] = useState<Bank[]>([])
+  const [locations, setLocations] = useState<any[]>([])
+  const [cards, setCards] = useState<any[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [editingBank, setEditingBank] = useState<Bank | null>(null)
@@ -78,6 +80,19 @@ export default function BanksManagement() {
         // Extraire les pays uniques
         const uniqueCountries = Array.from(new Set(data.data.map((b: Bank) => b.country)))
         setCountries(uniqueCountries as string[])
+      }
+
+      // Charger aussi les locations et cartes pour l'affichage des détails
+      const locationsResponse = await fetch('/api/locations')
+      const locationsData = await locationsResponse.json()
+      if (locationsData.success) {
+        setLocations(locationsData.data || [])
+      }
+
+      const cardsResponse = await fetch('/api/cards')
+      const cardsData = await cardsResponse.json()
+      if (cardsData.success) {
+        setCards(cardsData.data || [])
       }
     } catch (error) {
       console.error('Error loading banks:', error)
@@ -655,10 +670,12 @@ export default function BanksManagement() {
           ) : (
             <div className="space-y-4">
               {banks.map((bank) => {
-                const locations = expandedBanks.has(bank.id)
-                  ? dataStore.getLocations().filter((l) => l.bankId === bank.id)
+                const bankLocations = expandedBanks.has(bank.id)
+                  ? locations.filter((l) => l.bankId === bank.id)
                   : []
-                const cards = expandedBanks.has(bank.id) ? dataStore.getCards().filter((c) => c.bankId === bank.id) : []
+                const bankCards = expandedBanks.has(bank.id) 
+                  ? cards.filter((c) => c.bankId === bank.id) 
+                  : []
 
                 return (
                   <Card key={bank.id} className="border-l-4 border-l-blue-500">
@@ -739,9 +756,9 @@ export default function BanksManagement() {
                             </div>
                             <div>
                               <h4 className="font-semibold mb-2">Emplacements associés</h4>
-                              {locations.length > 0 ? (
+                              {bankLocations.length > 0 ? (
                                 <div className="space-y-1">
-                                  {locations.map((location) => (
+                                  {bankLocations.map((location) => (
                                     <Badge key={location.id} variant="outline" className="mr-1 mb-1">
                                       {location.name}
                                     </Badge>
@@ -752,11 +769,11 @@ export default function BanksManagement() {
                               )}
                             </div>
                           </div>
-                          {cards.length > 0 ? (
+                          {bankCards.length > 0 ? (
                             <div className="mt-4">
                               <h4 className="font-semibold mb-2">Cartes associées</h4>
                               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                                {cards.map((card) => (
+                                {bankCards.map((card) => (
                                   <div
                                     key={card.id}
                                     className="flex items-center justify-between p-2 bg-slate-50 rounded"
