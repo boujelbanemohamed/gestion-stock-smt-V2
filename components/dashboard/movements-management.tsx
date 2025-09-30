@@ -168,18 +168,27 @@ export default function MovementsManagement() {
       .slice()
       .reverse()
       .map(
-        (movement) => `
+        (movement) => {
+          // Pour les sorties, afficher l'adresse de la banque au lieu de l'emplacement destination
+          const card = cards.find(c => c.id === movement.cardId)
+          const bankAddress = card ? (banks.find(b => b.id === card.bankId)?.address || "Adresse non renseignée") : "N/A"
+          const destination = movement.movementType === 'exit' 
+            ? bankAddress 
+            : (movement.toLocationId ? getLocationName(movement.toLocationId) : "-")
+          
+          return `
         <tr>
           <td style="border: 1px solid #ddd; padding: 8px;">${formatDateTime(movement.createdAt)}</td>
           <td style="border: 1px solid #ddd; padding: 8px;">${getCardName(movement.cardId)}</td>
           <td style="border: 1px solid #ddd; padding: 8px;">${getMovementTypeLabel(movement.movementType)}</td>
           <td style="border: 1px solid #ddd; padding: 8px;">${movement.fromLocationId ? getLocationName(movement.fromLocationId) : "-"}</td>
-          <td style="border: 1px solid #ddd; padding: 8px;">${movement.toLocationId ? getLocationName(movement.toLocationId) : "-"}</td>
+          <td style="border: 1px solid #ddd; padding: 8px;">${destination}</td>
           <td style="border: 1px solid #ddd; padding: 8px;">${movement.quantity}</td>
           <td style="border: 1px solid #ddd; padding: 8px;">${movement.reason}</td>
           <td style="border: 1px solid #ddd; padding: 8px;">${getUserName(movement.userId)}</td>
         </tr>
-      `,
+      `
+        }
       )
       .join("")
 
@@ -249,7 +258,7 @@ export default function MovementsManagement() {
                 <th>Carte</th>
                 <th>Type</th>
                 <th>De</th>
-                <th>Vers</th>
+                <th>Vers / Adresse</th>
                 <th>Quantité</th>
                 <th>Motif</th>
                 <th>Utilisateur</th>
@@ -280,6 +289,10 @@ export default function MovementsManagement() {
     const printWindow = window.open("", "_blank")
     if (!printWindow) return
 
+    // Récupérer l'adresse de la banque pour les sorties
+    const card = cards.find(c => c.id === movement.cardId)
+    const bankAddress = card ? (banks.find(b => b.id === card.bankId)?.address || "Adresse non renseignée") : "N/A"
+
     const movementHtml = `
       <tr>
         <td style="border: 1px solid #ddd; padding: 8px;"><strong>Date et Heure:</strong></td>
@@ -298,8 +311,8 @@ export default function MovementsManagement() {
         <td style="border: 1px solid #ddd; padding: 8px;">${movement.fromLocationId ? getLocationName(movement.fromLocationId) : "-"}</td>
       </tr>
       <tr>
-        <td style="border: 1px solid #ddd; padding: 8px;"><strong>Emplacement destination:</strong></td>
-        <td style="border: 1px solid #ddd; padding: 8px;">${movement.toLocationId ? getLocationName(movement.toLocationId) : "-"}</td>
+        <td style="border: 1px solid #ddd; padding: 8px;"><strong>${movement.movementType === 'exit' ? 'Adresse de destination' : 'Emplacement destination'}:</strong></td>
+        <td style="border: 1px solid #ddd; padding: 8px;">${movement.movementType === 'exit' ? bankAddress : (movement.toLocationId ? getLocationName(movement.toLocationId) : "-")}</td>
       </tr>
       <tr>
         <td style="border: 1px solid #ddd; padding: 8px;"><strong>Quantité:</strong></td>
