@@ -267,7 +267,8 @@ export default function LocationsManagement() {
 
     const grouped: { [bankName: string]: Location[] } = {}
     banks.forEach(bank => {
-      grouped[bank.name] = locations.filter(l => l.bankId === bank.id)
+      const bankLocations = locations.filter(l => l.bankId === bank.id)
+      grouped[bank.name] = bankLocations
     })
 
     let html = `
@@ -333,9 +334,14 @@ export default function LocationsManagement() {
   }
 
   const renderGroupedView = () => {
-    const grouped: { [bankName: string]: Location[] } = {}
+    const grouped: { [bankName: string]: any[] } = {}
     banks.forEach(bank => {
-      grouped[bank.name] = locations.filter(l => l.bankId === bank.id)
+      const bankLocations = locations.filter(l => l.bankId === bank.id)
+      grouped[bank.name] = bankLocations.map(location => ({
+        location,
+        totalCards: 0, // TODO: calculer le nombre réel de cartes
+        cardTypes: 0   // TODO: calculer le nombre de types de cartes
+      }))
     })
 
     return (
