@@ -19,7 +19,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { dataStore } from "@/lib/data-store"
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 import { ListSkeleton } from "@/components/ui/loading-skeleton"
 import type { Bank, BankFilters, BankImportRow } from "@/lib/types"
