@@ -47,26 +47,31 @@ export default function LocationsManagement() {
     bankId: "",
   })
 
-  const loadData = () => {
+  const loadData = async () => {
     setIsLoading(true)
-    const filters: LocationFilters = { ...searchFilters }
+    try {
+      const params = new URLSearchParams()
+      if (searchFilters.bankId) params.append('bankId', searchFilters.bankId)
+      if (searchTerm) params.append('search', searchTerm)
 
-    if (searchTerm) {
-      filters.searchTerm = searchTerm
+      const locationsResponse = await fetch(`/api/locations?${params.toString()}`)
+      const locationsData = await locationsResponse.json()
+      
+      if (locationsData.success) {
+        setLocations(locationsData.data || [])
+      }
+
+      const banksResponse = await fetch('/api/banks?status=active')
+      const banksData = await banksResponse.json()
+      if (banksData.success) {
+        setBanks(banksData.data || [])
+      }
+
+      // Charger les cartes pour chaque location
+      setCardsByLocation(new Map())
+    } catch (error) {
+      console.error('Error loading locations:', error)
     }
-
-    const loadedLocations =
-      Object.keys(filters).length > 0 ? dataStore.searchLocations(filters) : dataStore.getAllLocations()
-
-    setLocations(loadedLocations)
-    setBanks(dataStore.getActiveBanks())
-
-    const cardsMap = new Map()
-    loadedLocations.forEach((location) => {
-      const cards = dataStore.getCardsByLocation(location.id)
-      cardsMap.set(location.id, cards)
-    })
-    setCardsByLocation(cardsMap)
     setIsLoading(false)
   }
 
@@ -83,18 +88,41 @@ export default function LocationsManagement() {
     return bank ? bank.name : "N/A"
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (editingLocation) {
-      dataStore.updateLocation(editingLocation.id, { ...formData, isActive: true })
-    } else {
-      dataStore.addLocation({ ...formData, isActive: true })
-    }
+    try {
+      if (editingLocation) {
+        const response = await fetch(`/api/locations/${editingLocation.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...formData, isActive: true })
+        })
+        const data = await response.json()
+        if (!data.success) {
+          alert(data.error || 'Erreur lors de la mise à jour')
+          return
+        }
+      } else {
+        const response = await fetch('/api/locations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...formData, isActive: true })
+        })
+        const data = await response.json()
+        if (!data.success) {
+          alert(data.error || 'Erreur lors de la création')
+          return
+        }
+      }
 
-    loadData()
-    resetForm()
-    setIsDialogOpen(false)
+      await loadData()
+      resetForm()
+      setIsDialogOpen(false)
+    } catch (error) {
+      console.error('Error saving location:', error)
+      alert('Erreur lors de la sauvegarde')
+    }
   }
 
   const resetForm = () => {
@@ -116,25 +144,48 @@ export default function LocationsManagement() {
     setIsDialogOpen(true)
   }
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm("Êtes-vous sûr de vouloir supprimer cet emplacement ?")) {
-      dataStore.deleteLocation(id)
-      loadData()
+      try {
+        const response = await fetch(`/api/locations/${id}`, {
+          method: 'DELETE'
+        })
+        const data = await response.json()
+        if (data.success) {
+          await loadData()
+        } else {
+          alert(data.error || 'Erreur lors de la suppression')
+        }
+      } catch (error) {
+        console.error('Error deleting location:', error)
+        alert('Erreur lors de la suppression')
+      }
     }
   }
 
-  const handleToggleStatus = (id: string) => {
+  const handleToggleStatus = async (id: string) => {
     const location = locations.find((l) => l.id === id)
     if (!location) return
 
     const action = location.isActive ? "désactiver" : "activer"
     if (confirm(`Êtes-vous sûr de vouloir ${action} cet emplacement ?`)) {
-      dataStore.toggleLocationStatus(id)
-      loadData()
+      try {
+        const response = await fetch(`/api/locations/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isActive: !location.isActive })
+        })
+        const data = await response.json()
+        if (data.success) {
+          await loadData()
+        }
+      } catch (error) {
+        console.error('Error toggling location status:', error)
+      }
     }
   }
 
-  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
@@ -168,10 +219,24 @@ export default function LocationsManagement() {
         }
       }
 
-      const result = dataStore.importLocations(rows)
-      setImportErrors(result.errors)
-      setImportSuccess(result.success.length)
-      loadData()
+      try {
+        const response = await fetch('/api/locations/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: rows })
+        })
+        const data = await response.json()
+        
+        setImportErrors(data.errors || [])
+        setImportSuccess(data.imported || 0)
+        
+        if (data.imported > 0) {
+          await loadData()
+        }
+      } catch (error) {
+        console.error('Error importing locations:', error)
+        setImportErrors(['Erreur lors de l\'import'])
+      }
     }
 
     reader.readAsText(file)
@@ -200,7 +265,10 @@ export default function LocationsManagement() {
     const printWindow = window.open("", "_blank")
     if (!printWindow) return
 
-    const grouped = dataStore.getLocationsGroupedByBank()
+    const grouped: { [bankName: string]: Location[] } = {}
+    banks.forEach(bank => {
+      grouped[bank.name] = locations.filter(l => l.bankId === bank.id)
+    })
 
     let html = `
       <!DOCTYPE html>
@@ -265,7 +333,10 @@ export default function LocationsManagement() {
   }
 
   const renderGroupedView = () => {
-    const grouped = dataStore.getLocationsGroupedByBank()
+    const grouped: { [bankName: string]: Location[] } = {}
+    banks.forEach(bank => {
+      grouped[bank.name] = locations.filter(l => l.bankId === bank.id)
+    })
 
     return (
       <Accordion type="single" collapsible className="w-full">

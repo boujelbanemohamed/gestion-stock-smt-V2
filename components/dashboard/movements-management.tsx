@@ -28,6 +28,7 @@ export default function MovementsManagement() {
   const [movements, setMovements] = useState<Movement[]>([])
   const [cards, setCards] = useState<CardType[]>([])
   const [locations, setLocations] = useState<Location[]>([])
+  const [currentUser, setCurrentUser] = useState<any>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [formData, setFormData] = useState({
     cardId: "",
@@ -46,20 +47,49 @@ export default function MovementsManagement() {
 
   useEffect(() => {
     loadData()
+    loadCurrentUser()
   }, [])
 
-  const loadData = () => {
-    setMovements(dataStore.getMovements())
-    const allCards = dataStore.getCards()
-    const activeBanks = dataStore.getActiveBanks()
-    const activeBankIds = new Set(activeBanks.map((b) => b.id))
+  const loadCurrentUser = async () => {
+    try {
+      // Simuler un utilisateur courant (à remplacer par une vraie session)
+      const usersResponse = await fetch('/api/users')
+      const usersData = await usersResponse.json()
+      if (usersData.success && usersData.data.length > 0) {
+        // Prendre le premier admin
+        const admin = usersData.data.find((u: any) => u.role === 'admin')
+        setCurrentUser(admin || usersData.data[0])
+      }
+    } catch (error) {
+      console.error('Error loading current user:', error)
+    }
+  }
 
-    const activeCards = allCards.filter((card) => activeBankIds.has(card.bankId))
-    setCards(activeCards)
+  const loadData = async () => {
+    try {
+      // Charger les mouvements
+      const movementsResponse = await fetch('/api/movements')
+      const movementsData = await movementsResponse.json()
+      if (movementsData.success) {
+        setMovements(movementsData.data || [])
+      }
 
-    const allLocations = dataStore.getAllLocations()
-    const activeLocations = allLocations.filter((location) => location.isActive)
-    setLocations(activeLocations)
+      // Charger les cartes
+      const cardsResponse = await fetch('/api/cards')
+      const cardsData = await cardsResponse.json()
+      if (cardsData.success) {
+        setCards(cardsData.data || [])
+      }
+
+      // Charger les emplacements
+      const locationsResponse = await fetch('/api/locations')
+      const locationsData = await locationsResponse.json()
+      if (locationsData.success) {
+        setLocations(locationsData.data.filter((l: any) => l.isActive) || [])
+      }
+    } catch (error) {
+      console.error('Error loading data:', error)
+    }
   }
 
   useDataSync(["movements", "cards", "locations", "banks"], loadData)
@@ -76,8 +106,13 @@ export default function MovementsManagement() {
   }
 
   const getUserName = (userId: string) => {
-    const user = dataStore.getUserById(userId)
-    return user ? `${user.firstName} ${user.lastName}` : "N/A"
+    // Récupérer le nom depuis le mouvement qui contient déjà les infos user
+    const movement = movements.find(m => m.userId === userId)
+    if (movement && (movement as any).user) {
+      const user = (movement as any).user
+      return `${user.firstName} ${user.lastName}`
+    }
+    return "N/A"
   }
 
   const formatDateTime = (date: Date) => {
@@ -117,7 +152,7 @@ export default function MovementsManagement() {
   }
 
   const printMovementSlip = () => {
-    const currentUser = dataStore.getCurrentUser()
+    if (!currentUser) return
     const printWindow = window.open("", "_blank")
     if (!printWindow) return
 
@@ -233,7 +268,7 @@ export default function MovementsManagement() {
   }
 
   const printSingleMovement = (movement: Movement) => {
-    const currentUser = dataStore.getCurrentUser()
+    if (!currentUser) return
     const printWindow = window.open("", "_blank")
     if (!printWindow) return
 
@@ -354,7 +389,7 @@ export default function MovementsManagement() {
     if (!card) return 0
 
     // Get all movements for this card and location
-    const cardMovements = dataStore.getMovements().filter((m) => m.cardId === cardId)
+    const cardMovements = movements.filter((m) => m.cardId === cardId)
 
     // Calculate stock at this location
     let stock = 0
@@ -370,10 +405,10 @@ export default function MovementsManagement() {
     return stock
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    const currentUser = dataStore.getCurrentUser()
+    if (!currentUser) return
     if (!currentUser) return
 
     const errors: {
@@ -414,16 +449,31 @@ export default function MovementsManagement() {
 
     const movementData = {
       ...formData,
-      userId: currentUser.id,
-      fromLocationId: formData.movementType === "entry" ? undefined : formData.fromLocationId,
-      toLocationId: formData.movementType === "exit" ? undefined : formData.toLocationId,
+      userId: currentUser?.id || '',
+      fromLocationId: formData.movementType === "entry" ? null : formData.fromLocationId || null,
+      toLocationId: formData.movementType === "exit" ? null : formData.toLocationId || null,
     }
 
-    dataStore.addMovement(movementData)
+    try {
+      const response = await fetch('/api/movements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(movementData)
+      })
 
-    loadData()
-    resetForm()
-    setIsDialogOpen(false)
+      const data = await response.json()
+      if (!data.success) {
+        alert(data.error || 'Erreur lors de la création du mouvement')
+        return
+      }
+
+      await loadData()
+      resetForm()
+      setIsDialogOpen(false)
+    } catch (error) {
+      console.error('Error creating movement:', error)
+      alert('Erreur lors de la création du mouvement')
+    }
   }
 
   const resetForm = () => {
