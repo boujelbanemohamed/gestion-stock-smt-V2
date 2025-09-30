@@ -1,0 +1,189 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Modèle utilisateur
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  firstName String
+  lastName  String
+  role      String   @default("user")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  movements Movement[]
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+// Modèle banque
+model Bank {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  address   String
+  phone     String
+  email     String
+  country   String
+  swiftCode String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  cards     Card[]
+  locations Location[]
+
+  @@map("banks")
+}
+
+// Modèle carte
+model Card {
+  id           String   @id @default(cuid())
+  name         String
+  type         String   // Type (ex. Carte débit)
+  subType      String   // Sous-type (ex. Mastercard)
+  subSubType   String   // Sous-sous-type (ex. National)
+  bankId       String
+  quantity     Int      @default(0)
+  minThreshold Int      @default(100)
+  maxThreshold Int      @default(1000)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  bank        Bank         @relation(fields: [bankId], references: [id], onDelete: Cascade)
+  movements   Movement[]
+  stockLevels StockLevel[]
+
+  @@map("cards")
+}
+
+// Modèle emplacement
+model Location {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  bankId      String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  bank              Bank         @relation(fields: [bankId], references: [id], onDelete: Cascade)
+  movementsFrom     Movement[]   @relation("MovementFrom")
+  movementsTo       Movement[]   @relation("MovementTo")
+  stockLevels       StockLevel[]
+
+  @@map("locations")
+}
+
+// Modèle mouvement
+model Movement {
+  id             String   @id @default(cuid())
+  cardId         String
+  fromLocationId String?
+  toLocationId   String?
+  movementType   String   // "entry", "exit", "transfer"
+  quantity       Int
+  reason         String
+  userId         String
+  createdAt      DateTime @default(now())
+
+  // Relations
+  card         Card      @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  fromLocation Location? @relation("MovementFrom", fields: [fromLocationId], references: [id])
+  toLocation   Location? @relation("MovementTo", fields: [toLocationId], references: [id])
+  user         User      @relation(fields: [userId], references: [id])
+
+  @@map("movements")
+}
+
+// Modèle niveau de stock
+model StockLevel {
+  id          String   @id @default(cuid())
+  cardId      String
+  locationId  String
+  quantity    Int      @default(0)
+  lastUpdated DateTime @default(now()) @updatedAt
+
+  // Relations
+  card     Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([cardId, locationId])
+  @@map("stock_levels")
+}
+
+// Modèle permissions de rôle
+model RolePermission {
+  id          String   @id @default(cuid())
+  role        String   @unique
+  permissions String[] // Array de permissions comme "banks:create", "cards:read", etc.
+  description String
+  isCustom    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("role_permissions")
+}
+
+// Modèle notification
+model Notification {
+  id        String   @id @default(cuid())
+  type      String   // "info", "warning", "error", "success"
+  title     String
+  message   String
+  userId    String?  // Si null, notification pour tous les utilisateurs
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}
+
+// Modèle journal d'audit
+model AuditLog {
+  id           String   @id @default(cuid())
+  timestamp    DateTime @default(now())
+  userId       String
+  userEmail    String
+  action       String   // "create", "update", "delete", "login", "logout"
+  module       String   // "banks", "cards", "locations", etc.
+  entityType   String   // "user", "bank", "card", "role"
+  entityId     String?
+  entityName   String?
+  details      String
+  ipAddress    String?
+  userAgent    String?
+  status       String   // "success", "failure"
+  errorMessage String?
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+// Modèle configuration de l'application
+model AppConfig {
+  id    String @id @default("singleton")
+  config Json   // Stockage de toute la configuration en JSON
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("app_config")
+}
