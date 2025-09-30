@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { dataStore } from "@/lib/data-store"
+import { prisma } from "@/lib/db"
 import type { ImportResponse } from "@/lib/api-types"
 import type { BankImportRow } from "@/lib/types"
 
@@ -19,14 +19,57 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const result = dataStore.importBanks(body.data as BankImportRow[])
+    const data = body.data as BankImportRow[]
+    const errors: string[] = []
+    let imported = 0
+
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i]
+      
+      try {
+        // Validation
+        if (!row.CodeBanque || !row.NomBanque || !row.Pays || !row.SwiftCode) {
+          errors.push(`Ligne ${i + 1}: Champs requis manquants`)
+          continue
+        }
+
+        // Vérifier si la banque existe déjà
+        const existing = await prisma.bank.findUnique({
+          where: { code: row.CodeBanque }
+        })
+
+        if (existing) {
+          errors.push(`Ligne ${i + 1}: Banque ${row.CodeBanque} existe déjà`)
+          continue
+        }
+
+        // Créer la banque
+        await prisma.bank.create({
+          data: {
+            code: row.CodeBanque,
+            name: row.NomBanque,
+            country: row.Pays,
+            swiftCode: row.SwiftCode,
+            address: row.Adresse || "",
+            phone: row.Telephone || "",
+            email: row.Email || "",
+            isActive: true,
+          }
+        })
+
+        imported++
+      } catch (error) {
+        errors.push(`Ligne ${i + 1}: ${error instanceof Error ? error.message : 'Erreur inconnue'}`)
+      }
+    }
 
     return NextResponse.json<ImportResponse>({
-      success: result.errors.length === 0,
-      imported: result.success.length,
-      errors: result.errors,
+      success: errors.length === 0,
+      imported,
+      errors,
     })
   } catch (error) {
+    console.error('Import banks error:', error)
     return NextResponse.json<ImportResponse>(
       {
         success: false,

@@ -1,14 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { dataStore } from "@/lib/data-store"
+import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
-import type { Card, CardFilters } from "@/lib/types"
+import type { Card } from "@/lib/types"
 
 // GET /api/cards - Récupérer toutes les cartes avec filtres optionnels
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
-    const filters: CardFilters = {}
-
     const bankId = searchParams.get("bankId")
     const type = searchParams.get("type")
     const subType = searchParams.get("subType")
@@ -16,20 +14,40 @@ export async function GET(request: NextRequest) {
     const lowStock = searchParams.get("lowStock")
     const searchTerm = searchParams.get("search")
 
-    if (bankId) filters.bankId = bankId
-    if (type) filters.type = type
-    if (subType) filters.subType = subType
-    if (subSubType) filters.subSubType = subSubType
-    if (lowStock === "true") filters.lowStock = true
-    if (searchTerm) filters.searchTerm = searchTerm
+    const where: any = {}
 
-    const cards = Object.keys(filters).length > 0 ? dataStore.searchCards(filters) : dataStore.getCards()
+    if (bankId) where.bankId = bankId
+    if (type) where.type = type
+    if (subType) where.subType = subType
+    if (subSubType) where.subSubType = subSubType
+    
+    if (searchTerm) {
+      where.OR = [
+        { name: { contains: searchTerm, mode: 'insensitive' } },
+        { type: { contains: searchTerm, mode: 'insensitive' } },
+        { subType: { contains: searchTerm, mode: 'insensitive' } },
+      ]
+    }
+
+    let cards = await prisma.card.findMany({
+      where,
+      include: {
+        bank: true
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+
+    // Filtrer les cartes en stock faible si demandé
+    if (lowStock === "true") {
+      cards = cards.filter(card => card.quantity < card.minThreshold)
+    }
 
     return NextResponse.json<ApiResponse<Card[]>>({
       success: true,
-      data: cards,
+      data: cards as Card[],
     })
   } catch (error) {
+    console.error('Error fetching cards:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,
@@ -79,27 +97,30 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const newCard = dataStore.addCard({
-      name: body.name,
-      type: body.type,
-      subType: body.subType,
-      subSubType: body.subSubType,
-      bankId: body.bankId,
-      quantity: body.quantity || 0,
-      minThreshold,
-      maxThreshold,
-      isActive: body.isActive !== undefined ? body.isActive : true,
+    const newCard = await prisma.card.create({
+      data: {
+        name: body.name,
+        type: body.type,
+        subType: body.subType,
+        subSubType: body.subSubType,
+        bankId: body.bankId,
+        quantity: body.quantity || 0,
+        minThreshold,
+        maxThreshold,
+        isActive: body.isActive !== undefined ? body.isActive : true,
+      }
     })
 
     return NextResponse.json<ApiResponse<Card>>(
       {
         success: true,
-        data: newCard,
+        data: newCard as Card,
         message: "Carte créée avec succès",
       },
       { status: 201 },
     )
   } catch (error) {
+    console.error('Error creating card:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,

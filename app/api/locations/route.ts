@@ -1,32 +1,40 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { dataStore } from "@/lib/data-store"
+import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
-import type { Location, LocationFilters } from "@/lib/types"
+import type { Location } from "@/lib/types"
 
 // GET /api/locations - Récupérer tous les emplacements avec filtres optionnels
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
-    const filters: LocationFilters = {}
-
     const bankId = searchParams.get("bankId")
-    const name = searchParams.get("name")
-    const hasStock = searchParams.get("hasStock")
     const searchTerm = searchParams.get("search")
 
-    if (bankId) filters.bankId = bankId
-    if (name) filters.name = name
-    if (hasStock === "true") filters.hasStock = true
-    if (hasStock === "false") filters.hasStock = false
-    if (searchTerm) filters.searchTerm = searchTerm
+    const where: any = {}
 
-    const locations = Object.keys(filters).length > 0 ? dataStore.searchLocations(filters) : dataStore.getLocations()
+    if (bankId) where.bankId = bankId
+    
+    if (searchTerm) {
+      where.OR = [
+        { name: { contains: searchTerm, mode: 'insensitive' } },
+        { description: { contains: searchTerm, mode: 'insensitive' } },
+      ]
+    }
+
+    const locations = await prisma.location.findMany({
+      where,
+      include: {
+        bank: true
+      },
+      orderBy: { createdAt: 'desc' }
+    })
 
     return NextResponse.json<ApiResponse<Location[]>>({
       success: true,
-      data: locations,
+      data: locations as Location[],
     })
   } catch (error) {
+    console.error('Error fetching locations:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,
@@ -40,7 +48,7 @@ export async function GET(request: NextRequest) {
 // POST /api/locations - Créer un nouvel emplacement
 export async function POST(request: NextRequest) {
   try {
-    const body: CreateLocationRequest = await request.json()
+    const body = await request.json()
 
     // Validation des champs requis
     if (!body.name || !body.bankId) {
@@ -53,32 +61,25 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (body.name.trim().length < 2) {
-      return NextResponse.json<ApiResponse>(
-        {
-          success: false,
-          error: "Le nom doit contenir au moins 2 caractères",
-        },
-        { status: 400 },
-      )
-    }
-
-    const newLocation = dataStore.addLocation({
-      name: body.name,
-      description: body.description || "",
-      bankId: body.bankId,
-      isActive: body.isActive !== undefined ? body.isActive : true,
+    const newLocation = await prisma.location.create({
+      data: {
+        name: body.name,
+        description: body.description || null,
+        bankId: body.bankId,
+        isActive: body.isActive !== undefined ? body.isActive : true,
+      }
     })
 
     return NextResponse.json<ApiResponse<Location>>(
       {
         success: true,
-        data: newLocation,
+        data: newLocation as Location,
         message: "Emplacement créé avec succès",
       },
       { status: 201 },
     )
   } catch (error) {
+    console.error('Error creating location:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,
@@ -87,11 +88,4 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     )
   }
-}
-
-interface CreateLocationRequest {
-  name: string
-  bankId: string
-  description?: string
-  isActive?: boolean
 }

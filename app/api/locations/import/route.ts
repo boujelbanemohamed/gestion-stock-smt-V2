@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { dataStore } from "@/lib/data-store"
+import { prisma } from "@/lib/db"
 import type { ImportResponse } from "@/lib/api-types"
 import type { LocationImportRow } from "@/lib/types"
 
@@ -19,14 +19,53 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const result = dataStore.importLocations(body.data as LocationImportRow[])
+    const data = body.data as LocationImportRow[]
+    const errors: string[] = []
+    let imported = 0
+
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i]
+      
+      try {
+        // Validation
+        if (!row.Banque || !row.NomEmplacement) {
+          errors.push(`Ligne ${i + 1}: Champs requis manquants`)
+          continue
+        }
+
+        // Trouver la banque par code
+        const bank = await prisma.bank.findUnique({
+          where: { code: row.Banque }
+        })
+
+        if (!bank) {
+          errors.push(`Ligne ${i + 1}: Banque ${row.Banque} non trouvée`)
+          continue
+        }
+
+        // Créer l'emplacement
+        await prisma.location.create({
+          data: {
+            name: row.NomEmplacement,
+            description: row.Description || null,
+            bankId: bank.id,
+            isActive: true,
+          }
+        })
+
+        imported++
+      } catch (error) {
+        errors.push(`Ligne ${i + 1}: ${error instanceof Error ? error.message : 'Erreur inconnue'}`)
+      }
+    }
 
     return NextResponse.json<ImportResponse>({
-      success: result.errors.length === 0,
-      imported: result.success.length,
-      errors: result.errors,
+      success: errors.length === 0,
+      imported,
+      errors,
     })
   } catch (error) {
+    console.error('Import locations error:', error)
     return NextResponse.json<ImportResponse>(
       {
         success: false,

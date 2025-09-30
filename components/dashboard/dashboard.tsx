@@ -32,9 +32,16 @@ export default function Dashboard({ user, onLogout }: DashboardProps) {
     activeUsers: 0,
   })
 
-  const loadStats = () => {
-    const statistics = dataStore.getStats()
-    setStats(statistics)
+  const loadStats = async () => {
+    try {
+      const response = await fetch('/api/stats')
+      const data = await response.json()
+      if (data.success) {
+        setStats(data.data)
+      }
+    } catch (error) {
+      console.error('Error loading stats:', error)
+    }
   }
 
   useEffect(() => {

@@ -1,16 +1,17 @@
-import { NextResponse } from "next/server"
-import { dataStore } from "@/lib/data-store"
+import { type NextRequest, NextResponse } from "next/server"
 import type { ApiResponse } from "@/lib/api-types"
 
-export async function POST() {
+// POST /api/auth/logout - Déconnexion
+export async function POST(request: NextRequest) {
   try {
-    dataStore.logout()
-
+    // Dans une vraie app, on supprimerait le token/session ici
+    // Pour l'instant, on retourne juste success
     return NextResponse.json<ApiResponse>({
       success: true,
       message: "Déconnexion réussie",
     })
   } catch (error) {
+    console.error('Logout error:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,

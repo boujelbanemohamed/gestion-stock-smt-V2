@@ -1,27 +1,26 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { dataStore } from "@/lib/data-store"
+import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 
-// PUT /api/notifications/[id] - Marquer une notification comme lue
+// PUT /api/notifications/[id] - Marquer comme lue
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const success = dataStore.markNotificationAsRead(params.id)
+    const body = await request.json()
 
-    if (!success) {
-      return NextResponse.json<ApiResponse>(
-        {
-          success: false,
-          error: "Notification non trouvée",
-        },
-        { status: 404 },
-      )
-    }
+    const updatedNotification = await prisma.notification.update({
+      where: { id: params.id },
+      data: {
+        ...(body.isRead !== undefined && { isRead: body.isRead }),
+      }
+    })
 
     return NextResponse.json<ApiResponse>({
       success: true,
-      message: "Notification marquée comme lue",
+      data: updatedNotification,
+      message: "Notification mise à jour avec succès",
     })
   } catch (error) {
+    console.error('Error updating notification:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,
@@ -35,23 +34,16 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 // DELETE /api/notifications/[id] - Supprimer une notification
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const success = dataStore.deleteNotification(params.id)
-
-    if (!success) {
-      return NextResponse.json<ApiResponse>(
-        {
-          success: false,
-          error: "Notification non trouvée",
-        },
-        { status: 404 },
-      )
-    }
+    await prisma.notification.delete({
+      where: { id: params.id }
+    })
 
     return NextResponse.json<ApiResponse>({
       success: true,
       message: "Notification supprimée avec succès",
     })
   } catch (error) {
+    console.error('Error deleting notification:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,

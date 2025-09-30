@@ -1,18 +1,89 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { dataStore } from "@/lib/data-store"
+import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { AppConfig } from "@/lib/types"
 
-// GET /api/config - Récupérer la configuration
-export async function GET() {
+// GET /api/config - Récupérer la configuration de l'application
+export async function GET(request: NextRequest) {
   try {
-    const config = dataStore.getConfig()
+    const config = await prisma.appConfig.findUnique({
+      where: { id: 'singleton' }
+    })
+
+    if (!config) {
+      // Créer une configuration par défaut si elle n'existe pas
+      const defaultConfig = await prisma.appConfig.create({
+        data: {
+          id: 'singleton',
+          config: {
+            general: {
+              companyName: 'Monetique Tunisie',
+              logo: '/images/monetique-logo.png',
+              language: 'fr',
+              currency: 'TND',
+              timezone: 'Africa/Tunis'
+            },
+            smtp: {
+              host: 'smtp.gmail.com',
+              port: 587,
+              secure: false,
+              username: '',
+              password: '',
+              fromEmail: 'noreply@monetique.tn',
+              fromName: 'Monetique Tunisie'
+            },
+            notifications: {
+              enabled: true,
+              lowStockAlerts: true,
+              movementNotifications: true,
+              userActivityAlerts: true,
+              lowStockThreshold: 100,
+              criticalStockThreshold: 50,
+              emailNotifications: true,
+              inAppNotifications: true,
+              emailRecipients: []
+            },
+            display: {
+              dateFormat: 'DD/MM/YYYY',
+              timeFormat: '24h',
+              numberFormat: 'fr-TN',
+              itemsPerPage: 10,
+              theme: 'auto'
+            },
+            security: {
+              sessionDuration: 480,
+              requireStrongPassword: true,
+              minPasswordLength: 8,
+              twoFactor: {
+                enabled: false,
+                appName: 'Monetique Tunisie',
+                issuer: 'Monetique',
+                codeLength: 6,
+                codePeriod: 30,
+                algorithm: 'SHA1',
+                mandatory: false,
+                mandatoryRoles: [],
+                gracePeriodDays: 7
+              },
+              maxLoginAttempts: 5,
+              lockoutDuration: 30
+            }
+          }
+        }
+      })
+      
+      return NextResponse.json<ApiResponse<AppConfig>>({
+        success: true,
+        data: defaultConfig.config as AppConfig,
+      })
+    }
 
     return NextResponse.json<ApiResponse<AppConfig>>({
       success: true,
-      data: config,
+      data: config.config as AppConfig,
     })
   } catch (error) {
+    console.error('Error fetching config:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,
@@ -28,14 +99,24 @@ export async function PUT(request: NextRequest) {
   try {
     const body = await request.json()
 
-    dataStore.updateConfig(body)
+    const updatedConfig = await prisma.appConfig.upsert({
+      where: { id: 'singleton' },
+      update: {
+        config: body
+      },
+      create: {
+        id: 'singleton',
+        config: body
+      }
+    })
 
     return NextResponse.json<ApiResponse<AppConfig>>({
       success: true,
-      data: body,
+      data: updatedConfig.config as AppConfig,
       message: "Configuration mise à jour avec succès",
     })
   } catch (error) {
+    console.error('Error updating config:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,

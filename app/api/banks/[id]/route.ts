@@ -1,97 +1,72 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { dataStore } from "@/lib/data-store"
+import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { Bank } from "@/lib/types"
 
-// GET /api/banks/[id] - Récupérer une banque par ID
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
-  try {
-    const bank = dataStore.getBankById(params.id)
-
-    if (!bank) {
-      return NextResponse.json<ApiResponse>(
-        {
-          success: false,
-          error: "Banque non trouvée",
-        },
-        { status: 404 },
-      )
-    }
-
-    return NextResponse.json<ApiResponse<Bank>>({
-      success: true,
-      data: bank,
-    })
-  } catch (error) {
-    return NextResponse.json<ApiResponse>(
-      {
-        success: false,
-        error: "Erreur lors de la récupération de la banque",
-      },
-      { status: 500 },
-    )
-  }
-}
-
 // PUT /api/banks/[id] - Mettre à jour une banque
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const body = await request.json()
+    const { id } = params
 
-    const updatedBank = dataStore.updateBank(params.id, body)
-
-    if (!updatedBank) {
-      return NextResponse.json<ApiResponse>(
-        {
-          success: false,
-          error: "Banque non trouvée",
-        },
-        { status: 404 },
-      )
-    }
+    const updatedBank = await prisma.bank.update({
+      where: { id },
+      data: {
+        ...(body.name !== undefined && { name: body.name }),
+        ...(body.code !== undefined && { code: body.code }),
+        ...(body.country !== undefined && { country: body.country }),
+        ...(body.swiftCode !== undefined && { swiftCode: body.swiftCode }),
+        ...(body.address !== undefined && { address: body.address }),
+        ...(body.phone !== undefined && { phone: body.phone }),
+        ...(body.email !== undefined && { email: body.email }),
+        ...(body.isActive !== undefined && { isActive: body.isActive }),
+      }
+    })
 
     return NextResponse.json<ApiResponse<Bank>>({
       success: true,
-      data: updatedBank,
-      message: "Banque mise à jour avec succès",
+      data: updatedBank as Bank,
+      message: "Banque mise à jour avec succès"
     })
   } catch (error) {
+    console.error('Error updating bank:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,
-        error: "Erreur lors de la mise à jour de la banque",
+        error: "Erreur lors de la mise à jour de la banque"
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }
 
-// DELETE /api/banks/[id] - Supprimer (désactiver) une banque
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+// DELETE /api/banks/[id] - Supprimer une banque
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
-    const success = dataStore.deleteBank(params.id)
+    const { id } = params
 
-    if (!success) {
-      return NextResponse.json<ApiResponse>(
-        {
-          success: false,
-          error: "Banque non trouvée",
-        },
-        { status: 404 },
-      )
-    }
+    await prisma.bank.delete({
+      where: { id }
+    })
 
     return NextResponse.json<ApiResponse>({
       success: true,
-      message: "Banque supprimée avec succès",
+      message: "Banque supprimée avec succès"
     })
   } catch (error) {
+    console.error('Error deleting bank:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,
-        error: "Erreur lors de la suppression de la banque",
+        error: "Erreur lors de la suppression de la banque"
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }

@@ -1,18 +1,21 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { dataStore } from "@/lib/data-store"
+import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { RolePermissions } from "@/lib/types"
 
-// GET /api/roles - Récupérer tous les rôles et permissions
-export async function GET() {
+// GET /api/roles - Récupérer tous les rôles
+export async function GET(request: NextRequest) {
   try {
-    const roles = dataStore.getRolePermissions()
+    const roles = await prisma.rolePermission.findMany({
+      orderBy: { role: 'asc' }
+    })
 
     return NextResponse.json<ApiResponse<RolePermissions[]>>({
       success: true,
-      data: roles,
+      data: roles as RolePermissions[],
     })
   } catch (error) {
+    console.error('Error fetching roles:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,
@@ -23,37 +26,40 @@ export async function GET() {
   }
 }
 
-// POST /api/roles - Créer un nouveau rôle personnalisé
+// POST /api/roles - Créer un nouveau rôle
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
 
-    if (!body.role || !body.permissions || !Array.isArray(body.permissions)) {
+    if (!body.role || !body.permissions) {
       return NextResponse.json<ApiResponse>(
         {
           success: false,
-          error: "Champs requis manquants: role, permissions (array)",
+          error: "Champs requis manquants: role, permissions",
         },
         { status: 400 },
       )
     }
 
-    const newRole = dataStore.addRole({
-      role: body.role,
-      permissions: body.permissions,
-      description: body.description || "",
-      isCustom: true,
+    const newRole = await prisma.rolePermission.create({
+      data: {
+        role: body.role,
+        permissions: body.permissions,
+        description: body.description || "",
+        isCustom: body.isCustom !== undefined ? body.isCustom : true,
+      }
     })
 
     return NextResponse.json<ApiResponse<RolePermissions>>(
       {
         success: true,
-        data: newRole,
+        data: newRole as RolePermissions,
         message: "Rôle créé avec succès",
       },
       { status: 201 },
     )
   } catch (error) {
+    console.error('Error creating role:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,

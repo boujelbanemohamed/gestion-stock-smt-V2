@@ -61,16 +61,35 @@ export default function UsersManagement() {
     loadData()
   }, [filters])
 
-  const loadData = () => {
-    const allUsers = dataStore.searchUsers(filters)
-    setUsers(allUsers)
-    setRolePermissions(dataStore.getRolePermissions())
+  const loadData = async () => {
+    try {
+      // Charger les utilisateurs
+      const params = new URLSearchParams()
+      if (filters.role && filters.role !== 'all') params.append('role', filters.role)
+      if (filters.status && filters.status !== 'all') params.append('status', filters.status)
+      if (filters.searchTerm) params.append('search', filters.searchTerm)
+      
+      const usersResponse = await fetch(`/api/users?${params.toString()}`)
+      const usersData = await usersResponse.json()
+      if (usersData.success) {
+        setUsers(usersData.data || [])
+      }
+
+      // Charger les rôles
+      const rolesResponse = await fetch('/api/roles')
+      const rolesData = await rolesResponse.json()
+      if (rolesData.success) {
+        setRolePermissions(rolesData.data || [])
+      }
+    } catch (error) {
+      console.error('Error loading data:', error)
+    }
   }
 
   useDataSync(["users"], loadData)
   useAutoRefresh(loadData, 30000)
 
-  const handleAddUser = () => {
+  const handleAddUser = async () => {
     const errors: {
       email?: string
       firstName?: string
@@ -101,20 +120,36 @@ export default function UsersManagement() {
 
     setFormErrors({})
 
-    dataStore.addUser({
-      email: formData.email,
-      firstName: formData.firstName,
-      lastName: formData.lastName,
-      role: formData.role,
-      isActive: true,
-    })
+    try {
+      const response = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: formData.email,
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          role: formData.role,
+          password: "password123",
+          isActive: true,
+        })
+      })
 
-    setIsAddDialogOpen(false)
-    resetForm()
-    loadData()
+      const data = await response.json()
+      if (!data.success) {
+        alert(data.error || 'Erreur lors de la création')
+        return
+      }
+
+      setIsAddDialogOpen(false)
+      resetForm()
+      await loadData()
+    } catch (error) {
+      console.error('Error adding user:', error)
+      alert('Erreur lors de la création')
+    }
   }
 
-  const handleEditUser = () => {
+  const handleEditUser = async () => {
     if (!selectedUser) return
 
     const errors: {
@@ -147,28 +182,72 @@ export default function UsersManagement() {
 
     setFormErrors({})
 
-    dataStore.updateUser(selectedUser.id, {
-      email: formData.email,
-      firstName: formData.firstName,
-      lastName: formData.lastName,
-      role: formData.role,
-    })
+    try {
+      const response = await fetch(`/api/users/${selectedUser.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: formData.email,
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          role: formData.role,
+        })
+      })
 
-    setIsEditDialogOpen(false)
-    setSelectedUser(null)
-    resetForm()
-    loadData()
+      const data = await response.json()
+      if (!data.success) {
+        alert(data.error || 'Erreur lors de la mise à jour')
+        return
+      }
+
+      setIsEditDialogOpen(false)
+      setSelectedUser(null)
+      resetForm()
+      await loadData()
+    } catch (error) {
+      console.error('Error updating user:', error)
+      alert('Erreur lors de la mise à jour')
+    }
   }
 
-  const handleToggleStatus = (userId: string) => {
-    dataStore.toggleUserStatus(userId)
-    loadData()
+  const handleToggleStatus = async (userId: string) => {
+    try {
+      const user = users.find(u => u.id === userId)
+      if (!user) return
+
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          isActive: !user.isActive
+        })
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        await loadData()
+      }
+    } catch (error) {
+      console.error('Error toggling user status:', error)
+    }
   }
 
-  const handleDeleteUser = (userId: string) => {
+  const handleDeleteUser = async (userId: string) => {
     if (confirm("Êtes-vous sûr de vouloir désactiver cet utilisateur ?")) {
-      dataStore.deleteUser(userId)
-      loadData()
+      try {
+        const response = await fetch(`/api/users/${userId}`, {
+          method: 'DELETE'
+        })
+        const data = await response.json()
+        if (data.success) {
+          await loadData()
+        } else {
+          alert(data.error || 'Erreur lors de la suppression')
+        }
+      } catch (error) {
+        console.error('Error deleting user:', error)
+        alert('Erreur lors de la suppression')
+      }
     }
   }
 

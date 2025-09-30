@@ -17,8 +17,8 @@ interface LoginFormProps {
 }
 
 export default function LoginForm({ onLogin }: LoginFormProps) {
-  const [email, setEmail] = useState("admin@stockmanagement.com")
-  const [password, setPassword] = useState("admin123")
+  const [email, setEmail] = useState("admin@monetique.tn")
+  const [password, setPassword] = useState("password123")
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
 
@@ -27,15 +27,26 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
     setIsLoading(true)
     setError("")
 
-    setTimeout(() => {
-      const result = dataStore.login(email, password)
-      if (result.success && result.user) {
-        onLogin(result.user)
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      })
+
+      const result = await response.json()
+
+      if (result.success && result.data) {
+        onLogin(result.data)
       } else {
         setError(result.error || "Email ou mot de passe incorrect")
       }
-      setIsLoading(false)
-    }, 1000)
+    } catch (error) {
+      console.error('Login error:', error)
+      setError("Erreur de connexion au serveur")
+    }
+    
+    setIsLoading(false)
   }
 
   return (

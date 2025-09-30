@@ -1,18 +1,64 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { dataStore } from "@/lib/data-store"
+import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { Movement } from "@/lib/types"
 
 // GET /api/movements - Récupérer tous les mouvements
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const movements = dataStore.getMovements()
+    const searchParams = request.nextUrl.searchParams
+    const cardId = searchParams.get("cardId")
+    const locationId = searchParams.get("locationId")
+    const movementType = searchParams.get("type")
+    const dateFrom = searchParams.get("dateFrom")
+    const dateTo = searchParams.get("dateTo")
+
+    const where: any = {}
+
+    if (cardId) where.cardId = cardId
+    if (movementType) where.movementType = movementType
+    
+    if (locationId) {
+      where.OR = [
+        { fromLocationId: locationId },
+        { toLocationId: locationId }
+      ]
+    }
+
+    if (dateFrom || dateTo) {
+      where.createdAt = {}
+      if (dateFrom) where.createdAt.gte = new Date(dateFrom)
+      if (dateTo) where.createdAt.lte = new Date(dateTo)
+    }
+
+    const movements = await prisma.movement.findMany({
+      where,
+      include: {
+        card: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            role: true,
+            isActive: true,
+            createdAt: true,
+            updatedAt: true,
+          }
+        },
+        fromLocation: true,
+        toLocation: true,
+      },
+      orderBy: { createdAt: 'desc' }
+    })
 
     return NextResponse.json<ApiResponse<Movement[]>>({
       success: true,
-      data: movements,
+      data: movements as Movement[],
     })
   } catch (error) {
+    console.error('Error fetching movements:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,
@@ -40,66 +86,55 @@ export async function POST(request: NextRequest) {
     }
 
     // Validation du type de mouvement
-    if (!["entry", "exit", "transfer"].includes(body.movementType)) {
+    if (!['entry', 'exit', 'transfer'].includes(body.movementType)) {
       return NextResponse.json<ApiResponse>(
         {
           success: false,
-          error: "Type de mouvement invalide. Valeurs acceptées: entry, exit, transfer",
+          error: "Type de mouvement invalide (entry, exit, ou transfer)",
         },
         { status: 400 },
       )
     }
 
-    // Validation des emplacements selon le type de mouvement
-    if (body.movementType === "entry" && !body.toLocationId) {
-      return NextResponse.json<ApiResponse>(
-        {
-          success: false,
-          error: "toLocationId requis pour un mouvement d'entrée",
+    const newMovement = await prisma.movement.create({
+      data: {
+        cardId: body.cardId,
+        fromLocationId: body.fromLocationId || null,
+        toLocationId: body.toLocationId || null,
+        movementType: body.movementType,
+        quantity: body.quantity,
+        reason: body.reason || "",
+        userId: body.userId,
+      },
+      include: {
+        card: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            role: true,
+            isActive: true,
+            createdAt: true,
+            updatedAt: true,
+          }
         },
-        { status: 400 },
-      )
-    }
-
-    if (body.movementType === "exit" && !body.fromLocationId) {
-      return NextResponse.json<ApiResponse>(
-        {
-          success: false,
-          error: "fromLocationId requis pour un mouvement de sortie",
-        },
-        { status: 400 },
-      )
-    }
-
-    if (body.movementType === "transfer" && (!body.fromLocationId || !body.toLocationId)) {
-      return NextResponse.json<ApiResponse>(
-        {
-          success: false,
-          error: "fromLocationId et toLocationId requis pour un transfert",
-        },
-        { status: 400 },
-      )
-    }
-
-    const newMovement = dataStore.addMovement({
-      cardId: body.cardId,
-      fromLocationId: body.fromLocationId,
-      toLocationId: body.toLocationId,
-      movementType: body.movementType,
-      quantity: body.quantity,
-      reason: body.reason || "",
-      userId: body.userId,
+        fromLocation: true,
+        toLocation: true,
+      }
     })
 
     return NextResponse.json<ApiResponse<Movement>>(
       {
         success: true,
-        data: newMovement,
+        data: newMovement as Movement,
         message: "Mouvement créé avec succès",
       },
       { status: 201 },
     )
   } catch (error) {
+    console.error('Error creating movement:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,

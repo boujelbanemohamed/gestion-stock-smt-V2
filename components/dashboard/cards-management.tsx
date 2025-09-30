@@ -43,15 +43,49 @@ export default function CardsManagement() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  const loadData = () => {
+  const loadData = async () => {
     setIsLoading(true)
-    const filteredCards = dataStore.searchCards(filters)
-    setCards(filteredCards)
-    setBanks(dataStore.getActiveBanks())
-    setCardTypes(dataStore.getCardTypes())
-    setCardSubTypes(dataStore.getCardSubTypes())
-    setCardSubSubTypes(dataStore.getCardSubSubTypes())
-    setGroupedCards(dataStore.getCardsGroupedByBank())
+    try {
+      // Charger les cartes
+      const params = new URLSearchParams()
+      if (filters.bankId) params.append('bankId', filters.bankId)
+      if (filters.type) params.append('type', filters.type)
+      if (filters.subType) params.append('subType', filters.subType)
+      if (filters.subSubType) params.append('subSubType', filters.subSubType)
+      if (filters.lowStock) params.append('lowStock', 'true')
+      if (filters.searchTerm) params.append('search', filters.searchTerm)
+
+      const cardsResponse = await fetch(`/api/cards?${params.toString()}`)
+      const cardsData = await cardsResponse.json()
+      if (cardsData.success) {
+        setCards(cardsData.data || [])
+        // Extraire les types uniques
+        const types = Array.from(new Set(cardsData.data.map((c: any) => c.type)))
+        const subTypes = Array.from(new Set(cardsData.data.map((c: any) => c.subType)))
+        const subSubTypes = Array.from(new Set(cardsData.data.map((c: any) => c.subSubType)))
+        setCardTypes(types as string[])
+        setCardSubTypes(subTypes as string[])
+        setCardSubSubTypes(subSubTypes as string[])
+      }
+
+      // Charger les banques actives
+      const banksResponse = await fetch('/api/banks?status=active')
+      const banksData = await banksResponse.json()
+      if (banksData.success) {
+        setBanks(banksData.data || [])
+      }
+
+      // Grouper les cartes par banque
+      if (cardsData.success && banksData.success) {
+        const grouped: any = {}
+        banksData.data.forEach((bank: any) => {
+          grouped[bank.name] = cardsData.data.filter((c: any) => c.bankId === bank.id)
+        })
+        setGroupedCards(grouped)
+      }
+    } catch (error) {
+      console.error('Error loading cards:', error)
+    }
     setIsLoading(false)
   }
 
@@ -68,7 +102,7 @@ export default function CardsManagement() {
     return bank ? bank.name : "N/A"
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     const errors: {
@@ -96,23 +130,46 @@ export default function CardsManagement() {
 
     setFormErrors({})
 
-    if (editingCard) {
-      dataStore.updateCard(editingCard.id, {
-        ...formData,
-        quantity: editingCard.quantity, // Preserve existing quantity
-        isActive: true,
-      })
-    } else {
-      dataStore.addCard({
-        ...formData,
-        quantity: 0, // New cards start with 0 stock
-        isActive: true,
-      })
-    }
+    try {
+      if (editingCard) {
+        const response = await fetch(`/api/cards/${editingCard.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...formData,
+            quantity: editingCard.quantity,
+            isActive: true,
+          })
+        })
+        const data = await response.json()
+        if (!data.success) {
+          alert(data.error || 'Erreur lors de la mise à jour')
+          return
+        }
+      } else {
+        const response = await fetch('/api/cards', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...formData,
+            quantity: 0,
+            isActive: true,
+          })
+        })
+        const data = await response.json()
+        if (!data.success) {
+          alert(data.error || 'Erreur lors de la création')
+          return
+        }
+      }
 
-    loadData()
-    resetForm()
-    setIsDialogOpen(false)
+      await loadData()
+      resetForm()
+      setIsDialogOpen(false)
+    } catch (error) {
+      console.error('Error saving card:', error)
+      alert('Erreur lors de la sauvegarde')
+    }
   }
 
   const resetForm = () => {
@@ -143,10 +200,22 @@ export default function CardsManagement() {
     setIsDialogOpen(true)
   }
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm("Êtes-vous sûr de vouloir supprimer cette carte ?")) {
-      dataStore.deleteCard(id)
-      loadData()
+      try {
+        const response = await fetch(`/api/cards/${id}`, {
+          method: 'DELETE'
+        })
+        const data = await response.json()
+        if (data.success) {
+          await loadData()
+        } else {
+          alert(data.error || 'Erreur lors de la suppression')
+        }
+      } catch (error) {
+        console.error('Error deleting card:', error)
+        alert('Erreur lors de la suppression')
+      }
     }
   }
 
@@ -165,7 +234,7 @@ export default function CardsManagement() {
     document.body.removeChild(link)
   }
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
       setImportFile(file)
@@ -192,11 +261,28 @@ export default function CardsManagement() {
       cards.push(card as CardImportRow)
     }
 
-    const results = dataStore.importCards(cards)
-    setImportResults(results)
+    try {
+      const response = await fetch('/api/cards/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: cards })
+      })
+      const data = await response.json()
+      
+      setImportResults({
+        success: data.imported > 0 ? cards.slice(0, data.imported) : [],
+        errors: data.errors || []
+      })
 
-    if (results.success.length > 0) {
-      loadData()
+      if (data.imported > 0) {
+        await loadData()
+      }
+    } catch (error) {
+      console.error('Error importing cards:', error)
+      setImportResults({
+        success: [],
+        errors: ['Erreur lors de l\'import']
+      })
     }
   }
 

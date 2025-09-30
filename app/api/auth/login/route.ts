@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { dataStore } from "@/lib/data-store"
+import { prisma } from "@/lib/db"
+import * as bcrypt from "bcryptjs"
 import type { ApiResponse } from "@/lib/api-types"
 import type { User } from "@/lib/types"
 
@@ -18,24 +19,55 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const result = dataStore.login(email, password)
+    // Chercher l'utilisateur par email
+    const user = await prisma.user.findUnique({
+      where: { email }
+    })
 
-    if (!result.success) {
+    if (!user) {
       return NextResponse.json<ApiResponse>(
         {
           success: false,
-          error: result.error,
+          error: "Email ou mot de passe incorrect",
         },
         { status: 401 },
       )
     }
 
+    // Vérifier le mot de passe
+    const isValidPassword = await bcrypt.compare(password, user.password)
+
+    if (!isValidPassword) {
+      return NextResponse.json<ApiResponse>(
+        {
+          success: false,
+          error: "Email ou mot de passe incorrect",
+        },
+        { status: 401 },
+      )
+    }
+
+    // Vérifier que l'utilisateur est actif
+    if (!user.isActive) {
+      return NextResponse.json<ApiResponse>(
+        {
+          success: false,
+          error: "Ce compte est désactivé",
+        },
+        { status: 403 },
+      )
+    }
+
+    // Ne pas retourner le mot de passe
+    const { password: _, ...userWithoutPassword } = user
+
     return NextResponse.json<ApiResponse<User>>({
       success: true,
-      data: result.user!,
+      data: userWithoutPassword as User,
       message: "Connexion réussie",
     })
   } catch (error) {
+    console.error('Login error:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,

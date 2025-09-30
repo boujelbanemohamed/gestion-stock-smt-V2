@@ -63,9 +63,25 @@ export default function BanksManagement() {
 
   const loadBanks = async () => {
     setIsLoading(true)
-    const filteredBanks = dataStore.searchBanks(filters)
-    setBanks(filteredBanks)
-    setCountries(dataStore.getCountries())
+    try {
+      // Construire l'URL avec les filtres
+      const params = new URLSearchParams()
+      if (filters.country) params.append('country', filters.country)
+      if (filters.status && filters.status !== 'all') params.append('status', filters.status)
+      if (filters.searchTerm) params.append('search', filters.searchTerm)
+      
+      const response = await fetch(`/api/banks?${params.toString()}`)
+      const data = await response.json()
+      
+      if (data.success) {
+        setBanks(data.data || [])
+        // Extraire les pays uniques
+        const uniqueCountries = Array.from(new Set(data.data.map((b: Bank) => b.country)))
+        setCountries(uniqueCountries as string[])
+      }
+    } catch (error) {
+      console.error('Error loading banks:', error)
+    }
     setIsLoading(false)
   }
 
@@ -78,7 +94,8 @@ export default function BanksManagement() {
     loadBanks()
   }, [filters])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Gestion de la soumission du formulaire (async pour les appels API)
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     const errors: {
@@ -139,15 +156,38 @@ export default function BanksManagement() {
 
     setFormErrors({})
 
-    if (editingBank) {
-      dataStore.updateBank(editingBank.id, { ...formData, isActive: true })
-    } else {
-      dataStore.addBank({ ...formData, isActive: true })
-    }
+    try {
+      if (editingBank) {
+        const response = await fetch(`/api/banks/${editingBank.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...formData, isActive: true })
+        })
+        const data = await response.json()
+        if (!data.success) {
+          alert(data.error || 'Erreur lors de la mise à jour')
+          return
+        }
+      } else {
+        const response = await fetch('/api/banks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...formData, isActive: true })
+        })
+        const data = await response.json()
+        if (!data.success) {
+          alert(data.error || 'Erreur lors de la création')
+          return
+        }
+      }
 
-    loadBanks()
-    resetForm()
-    setIsDialogOpen(false)
+      await loadBanks()
+      resetForm()
+      setIsDialogOpen(false)
+    } catch (error) {
+      console.error('Error saving bank:', error)
+      alert('Erreur lors de la sauvegarde')
+    }
   }
 
   const resetForm = () => {
@@ -178,22 +218,45 @@ export default function BanksManagement() {
     setIsDialogOpen(true)
   }
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm("Êtes-vous sûr de vouloir supprimer cette banque ?")) {
-      dataStore.deleteBank(id)
-      loadBanks()
+      try {
+        const response = await fetch(`/api/banks/${id}`, {
+          method: 'DELETE'
+        })
+        const data = await response.json()
+        if (data.success) {
+          await loadBanks()
+        } else {
+          alert(data.error || 'Erreur lors de la suppression')
+        }
+      } catch (error) {
+        console.error('Error deleting bank:', error)
+        alert('Erreur lors de la suppression')
+      }
     }
   }
 
-  const handleToggleStatus = (bank: Bank) => {
+  const handleToggleStatus = async (bank: Bank) => {
     const action = bank.isActive ? "désactiver" : "activer"
     const message = bank.isActive
       ? "Êtes-vous sûr de vouloir désactiver cette banque ? Vous ne pourrez plus ajouter de cartes, d'emplacements ou effectuer de mouvements affiliés à cette banque."
       : "Êtes-vous sûr de vouloir activer cette banque ?"
 
     if (confirm(message)) {
-      dataStore.toggleBankStatus(bank.id)
-      loadBanks()
+      try {
+        const response = await fetch(`/api/banks/${bank.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isActive: !bank.isActive })
+        })
+        const data = await response.json()
+        if (data.success) {
+          await loadBanks()
+        }
+      } catch (error) {
+        console.error('Error toggling bank status:', error)
+      }
     }
   }
 

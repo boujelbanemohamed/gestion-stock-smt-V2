@@ -1,35 +1,50 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { dataStore } from "@/lib/data-store"
+import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
-import type { Bank, BankFilters } from "@/lib/types"
+import type { Bank } from "@/lib/types"
 
 // GET /api/banks - Récupérer toutes les banques avec filtres optionnels
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
-    const filters: BankFilters = {}
-
     const country = searchParams.get("country")
     const status = searchParams.get("status")
     const searchTerm = searchParams.get("search")
     const dateFrom = searchParams.get("dateFrom")
     const dateTo = searchParams.get("dateTo")
 
-    if (country) filters.country = country
-    if (status && (status === "active" || status === "inactive" || status === "all")) {
-      filters.status = status
-    }
-    if (searchTerm) filters.searchTerm = searchTerm
-    if (dateFrom) filters.dateFrom = new Date(dateFrom)
-    if (dateTo) filters.dateTo = new Date(dateTo)
+    // Construire le filtre Prisma
+    const where: any = {}
 
-    const banks = Object.keys(filters).length > 0 ? dataStore.searchBanks(filters) : dataStore.getAllBanks()
+    if (country) where.country = country
+    if (status === "active") where.isActive = true
+    if (status === "inactive") where.isActive = false
+    
+    if (searchTerm) {
+      where.OR = [
+        { name: { contains: searchTerm, mode: 'insensitive' } },
+        { code: { contains: searchTerm, mode: 'insensitive' } },
+        { swiftCode: { contains: searchTerm, mode: 'insensitive' } },
+      ]
+    }
+
+    if (dateFrom || dateTo) {
+      where.createdAt = {}
+      if (dateFrom) where.createdAt.gte = new Date(dateFrom)
+      if (dateTo) where.createdAt.lte = new Date(dateTo)
+    }
+
+    const banks = await prisma.bank.findMany({
+      where,
+      orderBy: { createdAt: 'desc' }
+    })
 
     return NextResponse.json<ApiResponse<Bank[]>>({
       success: true,
-      data: banks,
+      data: banks as Bank[],
     })
   } catch (error) {
+    console.error('Error fetching banks:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,
@@ -76,26 +91,44 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const newBank = dataStore.addBank({
-      name: body.name,
-      code: body.code,
-      country: body.country,
-      swiftCode: body.swiftCode,
-      address: body.address || "",
-      phone: body.phone || "",
-      email: body.email || "",
-      isActive: body.isActive !== undefined ? body.isActive : true,
+    // Vérifier si le code existe déjà
+    const existingBank = await prisma.bank.findUnique({
+      where: { code: body.code }
+    })
+
+    if (existingBank) {
+      return NextResponse.json<ApiResponse>(
+        {
+          success: false,
+          error: "Une banque avec ce code existe déjà",
+        },
+        { status: 400 },
+      )
+    }
+
+    const newBank = await prisma.bank.create({
+      data: {
+        name: body.name,
+        code: body.code,
+        country: body.country,
+        swiftCode: body.swiftCode,
+        address: body.address || "",
+        phone: body.phone || "",
+        email: body.email || "",
+        isActive: body.isActive !== undefined ? body.isActive : true,
+      }
     })
 
     return NextResponse.json<ApiResponse<Bank>>(
       {
         success: true,
-        data: newBank,
+        data: newBank as Bank,
         message: "Banque créée avec succès",
       },
       { status: 201 },
     )
   } catch (error) {
+    console.error('Error creating bank:', error)
     return NextResponse.json<ApiResponse>(
       {
         success: false,
