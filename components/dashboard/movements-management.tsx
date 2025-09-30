@@ -20,17 +20,18 @@ import {
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { dataStore } from "@/lib/data-store"
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
-import type { Movement, Card as CardType, Location } from "@/lib/types"
+import type { Movement, Card as CardType, Location, Bank } from "@/lib/types"
 
 export default function MovementsManagement() {
   const [movements, setMovements] = useState<Movement[]>([])
   const [cards, setCards] = useState<CardType[]>([])
   const [locations, setLocations] = useState<Location[]>([])
+  const [banks, setBanks] = useState<Bank[]>([])
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [formData, setFormData] = useState({
+    bankId: "",
     cardId: "",
     fromLocationId: "",
     toLocationId: "",
@@ -86,6 +87,13 @@ export default function MovementsManagement() {
       const locationsData = await locationsResponse.json()
       if (locationsData.success) {
         setLocations(locationsData.data.filter((l: any) => l.isActive) || [])
+      }
+
+      // Charger les banques
+      const banksResponse = await fetch('/api/banks?status=active')
+      const banksData = await banksResponse.json()
+      if (banksData.success) {
+        setBanks(banksData.data || [])
       }
     } catch (error) {
       console.error('Error loading data:', error)
@@ -409,7 +417,6 @@ export default function MovementsManagement() {
     e.preventDefault()
 
     if (!currentUser) return
-    if (!currentUser) return
 
     const errors: {
       quantity?: string
@@ -417,9 +424,39 @@ export default function MovementsManagement() {
       toLocationId?: string
     } = {}
 
+    // Validate bankId
+    if (!formData.bankId) {
+      alert("Veuillez sélectionner une banque")
+      return
+    }
+
     // Validate quantity is positive
     if (formData.quantity <= 0) {
       errors.quantity = "La quantité doit être supérieure à 0"
+    }
+
+    // Validate card belongs to selected bank
+    if (formData.cardId) {
+      const card = cards.find(c => c.id === formData.cardId)
+      if (card && card.bankId !== formData.bankId) {
+        alert("La carte sélectionnée n'appartient pas à la banque choisie")
+        return
+      }
+    }
+
+    // Validate locations belong to selected bank
+    if (formData.fromLocationId) {
+      const fromLocation = locations.find(l => l.id === formData.fromLocationId)
+      if (fromLocation && fromLocation.bankId !== formData.bankId) {
+        errors.fromLocationId = "L'emplacement source n'appartient pas à la banque choisie"
+      }
+    }
+
+    if (formData.toLocationId) {
+      const toLocation = locations.find(l => l.id === formData.toLocationId)
+      if (toLocation && toLocation.bankId !== formData.bankId) {
+        errors.toLocationId = "L'emplacement destination n'appartient pas à la banque choisie"
+      }
     }
 
     // Validate transfer to same location
@@ -478,6 +515,7 @@ export default function MovementsManagement() {
 
   const resetForm = () => {
     setFormData({
+      bankId: "",
       cardId: "",
       fromLocationId: "",
       toLocationId: "",
@@ -486,6 +524,30 @@ export default function MovementsManagement() {
       reason: "",
     })
     setFormErrors({})
+  }
+
+  // Filtrer les cartes par banque sélectionnée
+  const getFilteredCards = () => {
+    if (!formData.bankId) return []
+    return cards.filter(card => card.bankId === formData.bankId)
+  }
+
+  // Filtrer les emplacements par banque sélectionnée
+  const getFilteredLocations = () => {
+    if (!formData.bankId) return []
+    return locations.filter(location => location.bankId === formData.bankId)
+  }
+
+  // Obtenir l'adresse de la banque pour les sorties
+  const getBankAddress = () => {
+    if (!formData.bankId) return ""
+    const bank = banks.find(b => b.id === formData.bankId)
+    return bank?.address || "Adresse non renseignée"
+  }
+
+  const getBankName = (bankId: string) => {
+    const bank = banks.find(b => b.id === bankId)
+    return bank ? bank.name : "N/A"
   }
 
   return (
@@ -525,34 +587,34 @@ export default function MovementsManagement() {
               </DialogHeader>
               <form onSubmit={handleSubmit}>
                 <div className="grid gap-4 py-4">
+                  {/* 1. Sélection de la banque (OBLIGATOIRE EN PREMIER) */}
                   <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="card" className="text-right">
-                      Carte
+                    <Label htmlFor="bank" className="text-right font-semibold">
+                      Banque *
                     </Label>
                     <Select
-                      value={formData.cardId}
+                      value={formData.bankId}
                       onValueChange={(value) => {
-                        setFormData({ ...formData, cardId: value })
-                        if (formErrors.quantity) {
-                          setFormErrors({ ...formErrors, quantity: undefined })
-                        }
+                        setFormData({ ...formData, bankId: value, cardId: "", fromLocationId: "", toLocationId: "" })
                       }}
                     >
                       <SelectTrigger className="col-span-3">
-                        <SelectValue placeholder="Sélectionner une carte" />
+                        <SelectValue placeholder="Sélectionner une banque" />
                       </SelectTrigger>
                       <SelectContent>
-                        {cards.map((card) => (
-                          <SelectItem key={card.id} value={card.id}>
-                            {card.name}
+                        {banks.map((bank) => (
+                          <SelectItem key={bank.id} value={bank.id}>
+                            {bank.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
+
+                  {/* 2. Type de mouvement */}
                   <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="movementType" className="text-right">
-                      Type
+                    <Label htmlFor="movementType" className="text-right font-semibold">
+                      Type *
                     </Label>
                     <Select
                       value={formData.movementType}
@@ -570,10 +632,12 @@ export default function MovementsManagement() {
                       </SelectContent>
                     </Select>
                   </div>
+
+                  {/* 3. Emplacement source (pour Sortie et Transfert) */}
                   {(formData.movementType === "exit" || formData.movementType === "transfer") && (
                     <div className="grid grid-cols-4 items-center gap-4">
-                      <Label htmlFor="fromLocation" className="text-right">
-                        De
+                      <Label htmlFor="fromLocation" className="text-right font-semibold">
+                        Emplacement (De) *
                       </Label>
                       <div className="col-span-3">
                         <Select
@@ -587,12 +651,13 @@ export default function MovementsManagement() {
                               setFormErrors({ ...formErrors, quantity: undefined })
                             }
                           }}
+                          disabled={!formData.bankId}
                         >
                           <SelectTrigger className={formErrors.fromLocationId ? "border-red-500" : ""}>
-                            <SelectValue placeholder="Emplacement source" />
+                            <SelectValue placeholder={formData.bankId ? "Emplacement source" : "Sélectionnez d'abord une banque"} />
                           </SelectTrigger>
                           <SelectContent>
-                            {locations.map((location) => (
+                            {getFilteredLocations().map((location) => (
                               <SelectItem key={location.id} value={location.id}>
                                 {location.name}
                               </SelectItem>
@@ -605,10 +670,12 @@ export default function MovementsManagement() {
                       </div>
                     </div>
                   )}
+
+                  {/* 4. Emplacement destination (pour Entrée et Transfert uniquement) */}
                   {(formData.movementType === "entry" || formData.movementType === "transfer") && (
                     <div className="grid grid-cols-4 items-center gap-4">
-                      <Label htmlFor="toLocation" className="text-right">
-                        Vers
+                      <Label htmlFor="toLocation" className="text-right font-semibold">
+                        Emplacement (Vers) *
                       </Label>
                       <div className="col-span-3">
                         <Select
@@ -619,12 +686,13 @@ export default function MovementsManagement() {
                               setFormErrors({ ...formErrors, toLocationId: undefined })
                             }
                           }}
+                          disabled={!formData.bankId}
                         >
                           <SelectTrigger className={formErrors.toLocationId ? "border-red-500" : ""}>
-                            <SelectValue placeholder="Emplacement destination" />
+                            <SelectValue placeholder={formData.bankId ? "Emplacement destination" : "Sélectionnez d'abord une banque"} />
                           </SelectTrigger>
                           <SelectContent>
-                            {locations.map((location) => (
+                            {getFilteredLocations().map((location) => (
                               <SelectItem key={location.id} value={location.id}>
                                 {location.name}
                               </SelectItem>
@@ -637,9 +705,51 @@ export default function MovementsManagement() {
                       </div>
                     </div>
                   )}
+
+                  {/* 5. Adresse destination automatique (SORTIE UNIQUEMENT - NON ÉDITABLE) */}
+                  {formData.movementType === "exit" && formData.bankId && (
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label className="text-right font-semibold">
+                        Adresse destination
+                      </Label>
+                      <div className="col-span-3 p-2 bg-slate-100 rounded text-sm text-slate-700 border">
+                        {getBankAddress()}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 6. Sélection de la carte (filtrée par banque) */}
                   <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="quantity" className="text-right">
-                      Quantité
+                    <Label htmlFor="card" className="text-right font-semibold">
+                      Carte *
+                    </Label>
+                    <Select
+                      value={formData.cardId}
+                      onValueChange={(value) => {
+                        setFormData({ ...formData, cardId: value })
+                        if (formErrors.quantity) {
+                          setFormErrors({ ...formErrors, quantity: undefined })
+                        }
+                      }}
+                      disabled={!formData.bankId}
+                    >
+                      <SelectTrigger className="col-span-3">
+                        <SelectValue placeholder={formData.bankId ? "Sélectionner une carte" : "Sélectionnez d'abord une banque"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {getFilteredCards().map((card) => (
+                          <SelectItem key={card.id} value={card.id}>
+                            {card.name} ({card.type} - {card.subType})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* 7. Quantité */}
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="quantity" className="text-right font-semibold">
+                      Quantité *
                     </Label>
                     <div className="col-span-3">
                       <Input
@@ -666,9 +776,11 @@ export default function MovementsManagement() {
                         )}
                     </div>
                   </div>
+
+                  {/* 8. Motif */}
                   <div className="grid grid-cols-4 items-start gap-4">
-                    <Label htmlFor="reason" className="text-right mt-2">
-                      Motif
+                    <Label htmlFor="reason" className="text-right mt-2 font-semibold">
+                      Motif *
                     </Label>
                     <Textarea
                       id="reason"
@@ -681,7 +793,7 @@ export default function MovementsManagement() {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button type="submit">Enregistrer</Button>
+                  <Button type="submit" disabled={!formData.bankId}>Enregistrer</Button>
                 </DialogFooter>
               </form>
             </DialogContent>
