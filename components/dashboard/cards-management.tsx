@@ -75,11 +75,17 @@ export default function CardsManagement() {
         setBanks(banksData.data || [])
       }
 
-      // Grouper les cartes par banque
+      // Grouper les cartes par banque avec la structure CardDetails
       if (cardsData.success && banksData.success) {
         const grouped: any = {}
         banksData.data.forEach((bank: any) => {
-          grouped[bank.name] = cardsData.data.filter((c: any) => c.bankId === bank.id)
+          const bankCards = cardsData.data
+            .filter((c: any) => c.bankId === bank.id)
+            .map((c: any) => ({
+              card: c,
+              remainingQuantity: c.quantity // La quantité restante est la quantité de la carte
+            }))
+          grouped[bank.name] = bankCards
         })
         setGroupedCards(grouped)
       }
