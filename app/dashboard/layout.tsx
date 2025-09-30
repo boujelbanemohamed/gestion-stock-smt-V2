@@ -164,22 +164,43 @@ export default function DashboardLayout({
   const pathname = usePathname()
 
   useEffect(() => {
-    const user = dataStore.getCurrentUser()
-    if (!user) {
+    // Récupérer l'utilisateur depuis localStorage
+    const storedUser = localStorage.getItem('currentUser')
+    if (!storedUser) {
       window.location.href = "/"
-    } else {
+      return
+    }
+    
+    try {
+      const user = JSON.parse(storedUser) as User
       setCurrentUser(user)
+      
+      // Pour l'instant, afficher toute la navigation
+      // TODO: Implémenter vérification des permissions via API
       const filteredNav = allNavigation.filter((item) => {
         if (!item.permission) return true
-        return dataStore.hasPermission(user.id, item.permission)
+        // Si admin, tout afficher
+        if (user.role === 'admin') return true
+        // Sinon, afficher selon le rôle
+        return true // À améliorer avec vraie vérification
       })
       setNavigation(filteredNav)
+      setIsLoading(false)
+    } catch {
+      localStorage.removeItem('currentUser')
+      window.location.href = "/"
     }
-    setIsLoading(false)
   }, [])
 
-  const handleLogout = () => {
-    dataStore.logout()
+  const handleLogout = async () => {
+    try {
+      // Appeler l'API de logout
+      await fetch('/api/auth/logout', { method: 'POST' })
+    } catch (error) {
+      console.error('Logout error:', error)
+    }
+    // Supprimer la session locale
+    localStorage.removeItem('currentUser')
     window.location.href = "/"
   }
 
