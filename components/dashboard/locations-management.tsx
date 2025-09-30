@@ -190,7 +190,7 @@ export default function LocationsManagement() {
     if (!file) return
 
     const reader = new FileReader()
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const text = event.target?.result as string
       const lines = text.split("\n").filter((line) => line.trim())
 

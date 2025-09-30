@@ -90,6 +90,7 @@ export default function ConfigurationPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(defaultConfig)
       })
+    }
     } catch (error) {
       console.error('Error loading config:', error)
     }
