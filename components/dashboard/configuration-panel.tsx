@@ -9,7 +9,6 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { dataStore } from "@/lib/data-store"
 import type { AppConfig } from "@/lib/types"
 import { Mail, Bell, Eye, Shield, Save, Building2 } from "lucide-react"
 

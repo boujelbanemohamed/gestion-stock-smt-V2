@@ -3,7 +3,7 @@
 import { useEffect, useCallback, useState } from "react"
 import { eventBus, type EventType } from "@/lib/event-bus"
 
-type EntityName = "banks" | "cards" | "locations" | "movements" | "users" | "config"
+type EntityName = "banks" | "cards" | "locations" | "movements" | "users" | "roles" | "config"
 
 function entityToEvents(entity: EntityName): EventType[] {
   const eventMap: Record<EntityName, EventType[]> = {
@@ -12,6 +12,7 @@ function entityToEvents(entity: EntityName): EventType[] {
     locations: ["location:created", "location:updated", "location:deleted"],
     movements: ["movement:created", "movement:updated", "movement:deleted"],
     users: ["user:created", "user:updated", "user:deleted"],
+    roles: ["role:created", "role:updated", "role:deleted"],
     config: ["config:updated"],
   }
   return eventMap[entity] || []

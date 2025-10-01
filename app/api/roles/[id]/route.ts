@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { RolePermissions } from "@/lib/types"
+import { eventBus } from "@/lib/event-bus"
 
 // PUT /api/roles/[id] - Mettre à jour un rôle
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
@@ -22,12 +23,13 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       )
     }
 
-    // Ne pas permettre la modification des rôles système
-    if (!role.isCustom) {
+    // Permettre la modification des permissions des rôles système
+    // mais empêcher la modification du nom du rôle pour les rôles système
+    if (!role.isCustom && body.role !== undefined && body.role !== role.role) {
       return NextResponse.json<ApiResponse>(
         {
           success: false,
-          error: "Impossible de modifier un rôle système",
+          error: "Impossible de modifier le nom d'un rôle système",
         },
         { status: 403 },
       )
@@ -41,6 +43,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
         ...(body.description !== undefined && { description: body.description }),
       }
     })
+
+    // Émettre l'événement de synchronisation
+    eventBus.emit("role:updated", { roleId: params.id, role: updatedRole.role })
 
     return NextResponse.json<ApiResponse<RolePermissions>>({
       success: true,
@@ -90,6 +95,9 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     await prisma.rolePermission.delete({
       where: { id: params.id }
     })
+
+    // Émettre l'événement de synchronisation
+    eventBus.emit("role:deleted", { roleId: params.id, role: role.role })
 
     return NextResponse.json<ApiResponse>({
       success: true,

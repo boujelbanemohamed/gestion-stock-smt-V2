@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { dataStore } from "@/lib/data-store"
 import type { User } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -27,36 +26,62 @@ export default function ProfilePage() {
   })
 
   useEffect(() => {
-    const user = dataStore.getCurrentUser()
-    if (user) {
-      setCurrentUser(user)
-      setFormData({
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        phone: user.phone || "",
-      })
+    // Récupérer l'utilisateur depuis localStorage
+    const storedUser = localStorage.getItem('currentUser')
+    if (storedUser) {
+      try {
+        const user = JSON.parse(storedUser)
+        setCurrentUser(user)
+        setFormData({
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phone: user.phone || "",
+        })
+      } catch (error) {
+        console.error('Error parsing stored user:', error)
+        localStorage.removeItem('currentUser')
+      }
     }
   }, [])
 
-  const handleSaveProfile = () => {
+  const handleSaveProfile = async () => {
     if (!currentUser) return
 
-    const updatedUser = {
-      ...currentUser,
-      ...formData,
-    }
+    try {
+      const response = await fetch(`/api/users/${currentUser.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      })
 
-    dataStore.updateUser(updatedUser)
-    setCurrentUser(updatedUser)
-    setIsEditing(false)
-    toast({
-      title: "Profil mis à jour",
-      description: "Vos informations ont été sauvegardées avec succès.",
-    })
+      if (response.ok) {
+        const updatedUser = { ...currentUser, ...formData }
+        localStorage.setItem('currentUser', JSON.stringify(updatedUser))
+        setCurrentUser(updatedUser)
+        setIsEditing(false)
+        toast({
+          title: "Profil mis à jour",
+          description: "Vos informations ont été sauvegardées avec succès.",
+        })
+      } else {
+        toast({
+          title: "Erreur",
+          description: "Impossible de mettre à jour le profil.",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error('Error updating profile:', error)
+      toast({
+        title: "Erreur",
+        description: "Erreur lors de la mise à jour du profil.",
+        variant: "destructive",
+      })
+    }
   }
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     if (!currentUser) return
 
     if (passwordData.newPassword !== passwordData.confirmPassword) {
@@ -77,23 +102,39 @@ export default function ProfilePage() {
       return
     }
 
-    // In a real app, you would verify the current password
-    const updatedUser = {
-      ...currentUser,
-      password: passwordData.newPassword,
-    }
+    try {
+      const response = await fetch(`/api/users/${currentUser.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: passwordData.newPassword })
+      })
 
-    dataStore.updateUser(updatedUser)
-    setPasswordData({
-      currentPassword: "",
-      newPassword: "",
-      confirmPassword: "",
-    })
-    setIsChangingPassword(false)
-    toast({
-      title: "Mot de passe modifié",
-      description: "Votre mot de passe a été mis à jour avec succès.",
-    })
+      if (response.ok) {
+        setPasswordData({
+          currentPassword: "",
+          newPassword: "",
+          confirmPassword: "",
+        })
+        setIsChangingPassword(false)
+        toast({
+          title: "Mot de passe modifié",
+          description: "Votre mot de passe a été mis à jour avec succès.",
+        })
+      } else {
+        toast({
+          title: "Erreur",
+          description: "Impossible de modifier le mot de passe.",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error('Error changing password:', error)
+      toast({
+        title: "Erreur",
+        description: "Erreur lors du changement de mot de passe.",
+        variant: "destructive",
+      })
+    }
   }
 
   if (!currentUser) {

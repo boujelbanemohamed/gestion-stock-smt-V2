@@ -8,6 +8,7 @@ import type { DateRange } from "react-day-picker"
 import type { AuditLog } from "@/lib/types"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
+import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 
 export default function DashboardPage() {
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined)
@@ -19,48 +20,48 @@ export default function DashboardPage() {
   })
   const [recentLogs, setRecentLogs] = useState<AuditLog[]>([])
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        // Construire les paramètres de date pour les deux APIs
-        const params = new URLSearchParams()
-        if (dateRange?.from) params.append('dateFrom', dateRange.from.toISOString())
-        if (dateRange?.to) params.append('dateTo', dateRange.to.toISOString())
+  const loadData = async () => {
+    try {
+      // Construire les paramètres de date pour les deux APIs
+      const params = new URLSearchParams()
+      if (dateRange?.from) params.append('dateFrom', dateRange.from.toISOString())
+      if (dateRange?.to) params.append('dateTo', dateRange.to.toISOString())
 
-        // Charger les stats avec filtre de date
-        const statsUrl = params.toString() ? `/api/stats?${params.toString()}` : '/api/stats'
-        const statsResponse = await fetch(statsUrl)
-        const statsData = await statsResponse.json()
-        
-        if (statsData.success) {
-          setStats({
-            totalBanks: statsData.data.totalBanks,
-            totalCardTypes: statsData.data.totalCardTypes,
-            totalLocations: statsData.data.totalLocations,
-            movements: statsData.data.todayMovements,
-          })
-        }
-
-        // Charger les logs avec filtre de date
-        const logsParams = new URLSearchParams(params)
-        logsParams.append('limit', '10')
-        const logsResponse = await fetch(`/api/logs?${logsParams.toString()}`)
-        const logsData = await logsResponse.json()
-        
-        if (logsData.success) {
-          setRecentLogs(logsData.data || [])
-        }
-      } catch (error) {
-        console.error('Error loading dashboard data:', error)
+      // Charger les stats avec filtre de date
+      const statsUrl = params.toString() ? `/api/stats?${params.toString()}` : '/api/stats'
+      const statsResponse = await fetch(statsUrl)
+      const statsData = await statsResponse.json()
+      
+      if (statsData.success) {
+        setStats({
+          totalBanks: statsData.data.totalBanks,
+          totalCardTypes: statsData.data.totalCardTypes,
+          totalLocations: statsData.data.totalLocations,
+          movements: statsData.data.todayMovements,
+        })
       }
+
+      // Charger les logs avec filtre de date
+      const logsParams = new URLSearchParams(params)
+      logsParams.append('limit', '10')
+      const logsResponse = await fetch(`/api/logs?${logsParams.toString()}`)
+      const logsData = await logsResponse.json()
+      
+      if (logsData.success) {
+        setRecentLogs(logsData.data || [])
+      }
+    } catch (error) {
+      console.error('Error loading dashboard data:', error)
     }
+  }
 
+  useEffect(() => {
     loadData()
-
-    // Refresh data every 30 seconds
-    const interval = setInterval(loadData, 30000)
-    return () => clearInterval(interval)
   }, [dateRange])
+
+  // Utiliser les hooks pour la synchronisation (avec une fréquence plus raisonnable)
+  useDataSync(["banks", "cards", "locations", "movements", "users"], loadData)
+  useAutoRefresh(loadData, 60000) // 1 minute au lieu de 30 secondes
 
   const getActionLabel = (action: string): string => {
     const labels: { [key: string]: string } = {

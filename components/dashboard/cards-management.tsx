@@ -18,7 +18,6 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { dataStore } from "@/lib/data-store"
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 import type { Card as CardData, Bank, CardFilters, CardImportRow, CardDetails } from "@/lib/types"
 import { ChevronDown, ChevronRight, Download, Upload, Search, Filter, Printer } from "lucide-react"
@@ -101,7 +100,7 @@ export default function CardsManagement() {
   }
 
   const { isRefreshing: isSyncRefreshing } = useDataSync(["cards", "banks"], loadData)
-  const { isRefreshing: isAutoRefreshing } = useAutoRefresh(loadData, 30000)
+  const { isRefreshing: isAutoRefreshing } = useAutoRefresh(loadData, 120000) // 2 minutes
   const isRefreshing = isSyncRefreshing || isAutoRefreshing
 
   useEffect(() => {

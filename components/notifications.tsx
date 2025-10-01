@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { dataStore } from "@/lib/data-store"
 import type { Notification } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -25,32 +24,78 @@ export default function NotificationsDropdown() {
     return () => clearInterval(interval)
   }, [])
 
-  const loadNotifications = () => {
-    const currentUser = dataStore.getCurrentUser()
-    if (currentUser) {
-      const allNotifications = dataStore.getNotifications(currentUser.id)
-      setNotifications(allNotifications.slice(0, 10)) // Show last 10 notifications
-      const unread = dataStore.getUnreadNotifications(currentUser.id)
-      setUnreadCount(unread.length)
+  const loadNotifications = async () => {
+    try {
+      // Récupérer l'utilisateur actuel depuis le localStorage ou le contexte
+      const currentUser = JSON.parse(localStorage.getItem('user') || 'null')
+      if (currentUser) {
+        // Récupérer toutes les notifications
+        const response = await fetch(`/api/notifications?userId=${currentUser.id}`)
+        const data = await response.json()
+        if (data.success) {
+          const allNotifications = data.data.slice(0, 10) // Show last 10 notifications
+          setNotifications(allNotifications)
+          
+          // Compter les notifications non lues
+          const unreadCount = allNotifications.filter((n: Notification) => !n.isRead).length
+          setUnreadCount(unreadCount)
+        }
+      }
+    } catch (error) {
+      console.error('Error loading notifications:', error)
     }
   }
 
-  const handleMarkAsRead = (id: string) => {
-    dataStore.markNotificationAsRead(id)
-    loadNotifications()
-  }
-
-  const handleMarkAllAsRead = () => {
-    const currentUser = dataStore.getCurrentUser()
-    if (currentUser) {
-      dataStore.markAllNotificationsAsRead(currentUser.id)
-      loadNotifications()
+  const handleMarkAsRead = async (id: string) => {
+    try {
+      const response = await fetch(`/api/notifications/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isRead: true })
+      })
+      
+      if (response.ok) {
+        await loadNotifications()
+      }
+    } catch (error) {
+      console.error('Error marking notification as read:', error)
     }
   }
 
-  const handleDeleteNotification = (id: string) => {
-    dataStore.deleteNotification(id)
-    loadNotifications()
+  const handleMarkAllAsRead = async () => {
+    try {
+      const currentUser = JSON.parse(localStorage.getItem('user') || 'null')
+      if (currentUser) {
+        // Marquer toutes les notifications non lues comme lues
+        const unreadNotifications = notifications.filter(n => !n.isRead)
+        const promises = unreadNotifications.map(notification => 
+          fetch(`/api/notifications/${notification.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isRead: true })
+          })
+        )
+        
+        await Promise.all(promises)
+        await loadNotifications()
+      }
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error)
+    }
+  }
+
+  const handleDeleteNotification = async (id: string) => {
+    try {
+      const response = await fetch(`/api/notifications/${id}`, {
+        method: 'DELETE'
+      })
+      
+      if (response.ok) {
+        await loadNotifications()
+      }
+    } catch (error) {
+      console.error('Error deleting notification:', error)
+    }
   }
 
   const getNotificationIcon = (type: Notification["type"]) => {

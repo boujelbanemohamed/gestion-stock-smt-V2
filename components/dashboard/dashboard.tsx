@@ -12,7 +12,6 @@ import LocationsManagement from "./locations-management"
 import MovementsManagement from "./movements-management"
 import UsersManagement from "./users-management"
 import ConfigurationPanel from "./configuration-panel"
-import { dataStore } from "@/lib/data-store"
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 
 interface DashboardProps {
@@ -49,7 +48,7 @@ export default function Dashboard({ user, onLogout }: DashboardProps) {
   }, [])
 
   useDataSync(["banks", "cards", "locations", "movements", "users"], loadStats)
-  useAutoRefresh(loadStats, 30000)
+  useAutoRefresh(loadStats, 60000) // 1 minute au lieu de 30 secondes
 
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {

@@ -100,7 +100,7 @@ export default function BanksManagement() {
   }
 
   const { isRefreshing: isSyncRefreshing } = useDataSync(["banks"], loadBanks)
-  const { isRefreshing: isAutoRefreshing, lastRefresh } = useAutoRefresh(loadBanks, 30000)
+  const { isRefreshing: isAutoRefreshing, lastRefresh } = useAutoRefresh(loadBanks, 120000) // 2 minutes
 
   const isRefreshing = isSyncRefreshing || isAutoRefreshing
 
@@ -309,29 +309,50 @@ export default function BanksManagement() {
   const processImport = async () => {
     if (!importFile) return
 
-    const text = await importFile.text()
-    const lines = text.split("\n").filter((line) => line.trim())
-    const headers = lines[0].split(";")
+    try {
+      const text = await importFile.text()
+      const lines = text.split("\n").filter((line) => line.trim())
+      const headers = lines[0].split(";")
 
-    const banks: BankImportRow[] = []
+      const banks: BankImportRow[] = []
 
-    for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(";")
-      const bank: any = {}
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(";")
+        const bank: any = {}
 
-      headers.forEach((header, index) => {
-        bank[header.trim()] = values[index]?.trim() || ""
+        headers.forEach((header, index) => {
+          bank[header.trim()] = values[index]?.trim() || ""
+        })
+
+        banks.push(bank as BankImportRow)
+      }
+
+      // Appeler l'API d'import
+      const response = await fetch('/api/banks/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: banks })
       })
 
-      banks.push(bank as BankImportRow)
-    }
+      const apiResponse = await response.json()
+      
+      // Adapter la réponse de l'API au format attendu par le composant
+      const results = {
+        success: apiResponse.success ? banks.slice(0, apiResponse.imported) : [],
+        errors: apiResponse.errors || []
+      }
+      
+      setImportResults(results)
 
-    const results = dataStore.importBanks(banks)
-    setImportResults(results)
-
-    if (results.success.length > 0) {
-      loadBanks()
-      setCountries(dataStore.getCountries())
+      if (results.success.length > 0) {
+        await loadBanks()
+      }
+    } catch (error) {
+      console.error('Error importing banks:', error)
+      setImportResults({
+        success: [],
+        errors: ['Erreur lors de l\'import du fichier']
+      })
     }
   }
 
@@ -347,16 +368,16 @@ export default function BanksManagement() {
       .map((bank) => {
         let content = `${bank.name} (${bank.code})\nPays: ${bank.country}\nSwift: ${bank.swiftCode}\nStatut: ${bank.isActive ? "Active" : "Inactive"}\n`
 
-        const locations = dataStore.getLocations().filter((l) => l.bankId === bank.id)
-        if (locations.length > 0) {
-          content += `Emplacements: ${locations.map((l) => l.name).join(", ")}\n`
+        const bankLocations = locations.filter((l) => l.bankId === bank.id)
+        if (bankLocations.length > 0) {
+          content += `Emplacements: ${bankLocations.map((l) => l.name).join(", ")}\n`
         } else {
           content += `Emplacements: N/A\n`
         }
 
-        const cards = dataStore.getCards().filter((c) => c.bankId === bank.id)
-        if (cards.length > 0) {
-          content += `Cartes:\n${cards.map((c) => `  • ${c.name} → ${c.quantity} restantes`).join("\n")}\n`
+        const bankCards = cards.filter((c) => c.bankId === bank.id)
+        if (bankCards.length > 0) {
+          content += `Cartes:\n${bankCards.map((c) => `  • ${c.name} → ${c.quantity} restantes`).join("\n")}\n`
         } else {
           content += `Cartes: N/A\n`
         }
@@ -678,63 +699,61 @@ export default function BanksManagement() {
 
                 return (
                   <Card key={bank.id} className="border-l-4 border-l-blue-500">
-                    <Collapsible>
-                      <CollapsibleTrigger className="w-full" onClick={() => toggleBankExpansion(bank.id)}>
-                        <CardHeader className="hover:bg-slate-50">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                              {expandedBanks.has(bank.id) ? (
-                                <ChevronDown className="h-5 w-5" />
-                              ) : (
-                                <ChevronRight className="h-5 w-5" />
-                              )}
-                              <div className="text-left">
-                                <CardTitle className="text-lg">{bank.name}</CardTitle>
-                                <CardDescription>
-                                  {bank.code} • {displayValue(bank.country)} • {displayValue(bank.swiftCode)}
-                                </CardDescription>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge variant={bank.isActive ? "default" : "secondary"}>
-                                {bank.isActive ? "Active" : "Inactive"}
-                              </Badge>
-                              <div className="flex space-x-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleToggleStatus(bank)
-                                  }}
-                                >
-                                  {bank.isActive ? "Désactiver" : "Activer"}
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleEdit(bank)
-                                  }}
-                                >
-                                  Modifier
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleDelete(bank.id)
-                                  }}
-                                >
-                                  Supprimer
-                                </Button>
-                              </div>
+                    <Collapsible open={expandedBanks.has(bank.id)} onOpenChange={() => toggleBankExpansion(bank.id)}>
+                      <CardHeader className="hover:bg-slate-50 cursor-pointer" onClick={() => toggleBankExpansion(bank.id)}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            {expandedBanks.has(bank.id) ? (
+                              <ChevronDown className="h-5 w-5" />
+                            ) : (
+                              <ChevronRight className="h-5 w-5" />
+                            )}
+                            <div className="text-left">
+                              <CardTitle className="text-lg">{bank.name}</CardTitle>
+                              <CardDescription>
+                                {bank.code} • {displayValue(bank.country)} • {displayValue(bank.swiftCode)}
+                              </CardDescription>
                             </div>
                           </div>
-                        </CardHeader>
-                      </CollapsibleTrigger>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={bank.isActive ? "default" : "secondary"}>
+                              {bank.isActive ? "Active" : "Inactive"}
+                            </Badge>
+                            <div className="flex space-x-2" onClick={(e) => e.stopPropagation()}>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleToggleStatus(bank)
+                                }}
+                              >
+                                {bank.isActive ? "Désactiver" : "Activer"}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleEdit(bank)
+                                }}
+                              >
+                                Modifier
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDelete(bank.id)
+                                }}
+                              >
+                                Supprimer
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </CardHeader>
                       <CollapsibleContent>
                         <CardContent className="pt-0">
                           <Separator className="mb-4" />

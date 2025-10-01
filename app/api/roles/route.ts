@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { RolePermissions } from "@/lib/types"
+import { eventBus } from "@/lib/event-bus"
 
 // GET /api/roles - Récupérer tous les rôles
 export async function GET(request: NextRequest) {
@@ -49,6 +50,9 @@ export async function POST(request: NextRequest) {
         isCustom: body.isCustom !== undefined ? body.isCustom : true,
       }
     })
+
+    // Émettre l'événement de synchronisation
+    eventBus.emit("role:created", { roleId: newRole.id, role: newRole.role })
 
     return NextResponse.json<ApiResponse<RolePermissions>>(
       {

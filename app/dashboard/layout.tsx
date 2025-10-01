@@ -6,8 +6,8 @@ import { useState, useEffect } from "react"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
 import Image from "next/image"
-import { dataStore } from "@/lib/data-store"
 import type { User } from "@/lib/types"
+import { usePermissions } from "@/hooks/use-permissions"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -24,6 +24,7 @@ const allNavigation: NavigationItem[] = [
   {
     name: "Aperçu",
     href: "/dashboard",
+    permission: "dashboard:view",
     icon: (
       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
@@ -39,6 +40,7 @@ const allNavigation: NavigationItem[] = [
   {
     name: "Banques",
     href: "/dashboard/banks",
+    permission: "banks:view",
     icon: (
       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
@@ -53,6 +55,7 @@ const allNavigation: NavigationItem[] = [
   {
     name: "Cartes",
     href: "/dashboard/cards",
+    permission: "cards:view",
     icon: (
       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
@@ -67,6 +70,7 @@ const allNavigation: NavigationItem[] = [
   {
     name: "Emplacements",
     href: "/dashboard/locations",
+    permission: "locations:view",
     icon: (
       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
@@ -82,6 +86,7 @@ const allNavigation: NavigationItem[] = [
   {
     name: "Mouvements",
     href: "/dashboard/movements",
+    permission: "movements:view",
     icon: (
       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
@@ -96,6 +101,7 @@ const allNavigation: NavigationItem[] = [
   {
     name: "Utilisateurs",
     href: "/dashboard/users",
+    permission: "users:view",
     icon: (
       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
@@ -110,7 +116,7 @@ const allNavigation: NavigationItem[] = [
   {
     name: "Logs",
     href: "/dashboard/logs",
-    permission: "logs:read",
+    permission: "logs:view",
     icon: (
       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
@@ -125,6 +131,7 @@ const allNavigation: NavigationItem[] = [
   {
     name: "Mon Profil",
     href: "/dashboard/profile",
+    permission: "users:view",
     icon: (
       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
@@ -158,39 +165,29 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode
 }) {
-  const [currentUser, setCurrentUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const { user: currentUser, hasPermission, isLoading } = usePermissions()
   const [navigation, setNavigation] = useState<NavigationItem[]>([])
   const pathname = usePathname()
 
   useEffect(() => {
-    // Récupérer l'utilisateur depuis localStorage
-    const storedUser = localStorage.getItem('currentUser')
-    if (!storedUser) {
+    if (isLoading) return
+    
+    if (!currentUser) {
       window.location.href = "/"
       return
     }
     
-    try {
-      const user = JSON.parse(storedUser) as User
-      setCurrentUser(user)
+    // Filtrer la navigation selon les permissions
+    const filteredNav = allNavigation.filter((item) => {
+      if (!item.permission) return true
       
-      // Pour l'instant, afficher toute la navigation
-      // TODO: Implémenter vérification des permissions via API
-      const filteredNav = allNavigation.filter((item) => {
-        if (!item.permission) return true
-        // Si admin, tout afficher
-        if (user.role === 'admin') return true
-        // Sinon, afficher selon le rôle
-        return true // À améliorer avec vraie vérification
-      })
-      setNavigation(filteredNav)
-      setIsLoading(false)
-    } catch {
-      localStorage.removeItem('currentUser')
-      window.location.href = "/"
-    }
-  }, [])
+      // Extraire module et action de la permission (format "module:action")
+      const [module, action] = item.permission.split(':')
+      return hasPermission(module as any, action as any)
+    })
+    
+    setNavigation(filteredNav)
+  }, [currentUser, hasPermission, isLoading])
 
   const handleLogout = async () => {
     try {
@@ -241,7 +238,7 @@ export default function DashboardLayout({
               alt="Monétique Tunisie"
               width={160}
               height={50}
-              className="object-contain"
+              className="object-contain h-12 w-auto"
               priority
             />
             <div className="text-center">

@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { dataStore } from "@/lib/data-store"
 import type { AuditLog, User } from "@/lib/types"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"

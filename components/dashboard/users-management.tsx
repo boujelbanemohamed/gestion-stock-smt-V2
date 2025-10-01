@@ -1,8 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { dataStore } from "@/lib/data-store"
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
+import { usePermissions } from "@/hooks/use-permissions"
 import type { User, RolePermissions, UserFilters, Permission, Module, Action } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,7 +23,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
+// Liste des permissions disponibles
+const ALL_PERMISSIONS: Permission[] = [
+  "dashboard:view",
+  "banks:view", "banks:create", "banks:update", "banks:delete", "banks:import", "banks:export", "banks:print",
+  "cards:view", "cards:create", "cards:update", "cards:delete", "cards:import", "cards:export", "cards:print",
+  "locations:view", "locations:create", "locations:update", "locations:delete", "locations:import", "locations:export", "locations:print",
+  "movements:view", "movements:create", "movements:update", "movements:delete", "movements:import", "movements:export", "movements:print",
+  "users:view", "users:create", "users:update", "users:delete", "users:import", "users:export", "users:print",
+  "logs:view", "logs:create", "logs:update", "logs:delete", "logs:import", "logs:export", "logs:print",
+  "config:view", "config:create", "config:update", "config:delete", "config:import", "config:export", "config:print"
+]
+
 export default function UsersManagement() {
+  const { hasPermission, isLoading: permissionsLoading } = usePermissions()
   const [users, setUsers] = useState<User[]>([])
   const [rolePermissions, setRolePermissions] = useState<RolePermissions[]>([])
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
@@ -32,6 +45,7 @@ export default function UsersManagement() {
   const [isEditRoleDialogOpen, setIsEditRoleDialogOpen] = useState(false)
   const [selectedRole, setSelectedRole] = useState<RolePermissions | null>(null)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
+  const [isUpdatingRole, setIsUpdatingRole] = useState(false)
   const [filters, setFilters] = useState<UserFilters>({
     role: "all",
     status: "all",
@@ -86,8 +100,8 @@ export default function UsersManagement() {
     }
   }
 
-  useDataSync(["users"], loadData)
-  useAutoRefresh(loadData, 30000)
+  useDataSync(["users", "roles"], loadData)
+  useAutoRefresh(loadData, 120000) // 2 minutes
 
   const handleAddUser = async () => {
     const errors: {
@@ -273,7 +287,7 @@ export default function UsersManagement() {
     setFormErrors({})
   }
 
-  const handleAddRole = () => {
+  const handleAddRole = async () => {
     if (!roleFormData.role || !roleFormData.description) {
       alert("Veuillez remplir tous les champs obligatoires")
       return
@@ -289,19 +303,34 @@ export default function UsersManagement() {
       return
     }
 
-    dataStore.addRole({
-      role: roleFormData.role,
-      description: roleFormData.description,
-      permissions: roleFormData.permissions,
-      isCustom: true,
-    })
+    try {
+      const response = await fetch('/api/roles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: roleFormData.role,
+          description: roleFormData.description,
+          permissions: roleFormData.permissions,
+          isCustom: true,
+        })
+      })
 
-    setIsAddRoleDialogOpen(false)
-    resetRoleForm()
-    loadData()
+      const data = await response.json()
+      if (!data.success) {
+        alert(data.error || 'Erreur lors de la création du rôle')
+        return
+      }
+
+      setIsAddRoleDialogOpen(false)
+      resetRoleForm()
+      await loadData()
+    } catch (error) {
+      console.error('Error creating role:', error)
+      alert('Erreur lors de la création du rôle')
+    }
   }
 
-  const handleEditRole = () => {
+  const handleEditRole = async () => {
     if (!selectedRole) return
 
     if (!roleFormData.role || !roleFormData.description) {
@@ -314,19 +343,48 @@ export default function UsersManagement() {
       return
     }
 
-    dataStore.updateRole(selectedRole.id, {
-      role: roleFormData.role,
-      description: roleFormData.description,
-      permissions: roleFormData.permissions,
-    })
+    setIsUpdatingRole(true)
+    try {
+      // Pour les rôles système, ne pas envoyer le nom du rôle
+      const updateData: any = {
+        description: roleFormData.description,
+        permissions: roleFormData.permissions,
+      }
+      
+      // Seulement envoyer le nom du rôle s'il s'agit d'un rôle personnalisé
+      if (selectedRole.isCustom) {
+        updateData.role = roleFormData.role
+      }
 
-    setIsEditRoleDialogOpen(false)
-    setSelectedRole(null)
-    resetRoleForm()
-    loadData()
+      const response = await fetch(`/api/roles/${selectedRole.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updateData)
+      })
+
+      const data = await response.json()
+      if (!data.success) {
+        alert(data.error || 'Erreur lors de la mise à jour du rôle')
+        return
+      }
+
+      setIsEditRoleDialogOpen(false)
+      setSelectedRole(null)
+      resetRoleForm()
+      
+      // Attendre un petit délai puis recharger les données
+      setTimeout(async () => {
+        await loadData()
+        setIsUpdatingRole(false)
+      }, 100)
+    } catch (error) {
+      console.error('Error updating role:', error)
+      alert('Erreur lors de la mise à jour du rôle')
+      setIsUpdatingRole(false)
+    }
   }
 
-  const handleDeleteRole = (roleId: string) => {
+  const handleDeleteRole = async (roleId: string) => {
     const role = rolePermissions.find((r) => r.id === roleId)
     if (!role) return
 
@@ -342,8 +400,22 @@ export default function UsersManagement() {
     }
 
     if (confirm(`Êtes-vous sûr de vouloir supprimer le rôle "${role.role}" ?`)) {
-      dataStore.deleteRole(roleId)
-      loadData()
+      try {
+        const response = await fetch(`/api/roles/${roleId}`, {
+          method: 'DELETE'
+        })
+
+        const data = await response.json()
+        if (!data.success) {
+          alert(data.error || 'Erreur lors de la suppression du rôle')
+          return
+        }
+
+        await loadData()
+      } catch (error) {
+        console.error('Error deleting role:', error)
+        alert('Erreur lors de la suppression du rôle')
+      }
     }
   }
 
@@ -378,7 +450,7 @@ export default function UsersManagement() {
     const actions: Action[] = ["create", "read", "update", "delete"]
     const modulePermissions = actions
       .map((action) => `${module}:${action}` as Permission)
-      .filter((perm) => dataStore.getAllPermissions().includes(perm))
+      .filter((perm) => ALL_PERMISSIONS.includes(perm))
 
     setRoleFormData((prev) => {
       let permissions = [...prev.permissions]
@@ -399,7 +471,7 @@ export default function UsersManagement() {
     const actions: Action[] = ["create", "read", "update", "delete"]
     const modulePermissions = actions
       .map((action) => `${module}:${action}` as Permission)
-      .filter((perm) => dataStore.getAllPermissions().includes(perm))
+      .filter((perm) => ALL_PERMISSIONS.includes(perm))
 
     return modulePermissions.every((perm) => roleFormData.permissions.includes(perm))
   }
@@ -479,7 +551,7 @@ export default function UsersManagement() {
     return organized
   }
 
-  const allPermissions = dataStore.getAllPermissions()
+  const allPermissions = ALL_PERMISSIONS
   const modules: Module[] = ["banks", "cards", "locations", "movements", "users", "reports", "dashboard", "config"]
 
   return (
@@ -496,17 +568,19 @@ export default function UsersManagement() {
               <h2 className="text-2xl font-bold text-slate-900">Gestion des Utilisateurs</h2>
               <p className="text-sm text-slate-600">Gérez les utilisateurs et leurs droits d'accès</p>
             </div>
-            <Button
-              onClick={() => {
-                resetForm()
-                setIsAddDialogOpen(true)
-              }}
-            >
-              <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Ajouter un utilisateur
-            </Button>
+            {hasPermission('users', 'create') && (
+              <Button
+                onClick={() => {
+                  resetForm()
+                  setIsAddDialogOpen(true)
+                }}
+              >
+                <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Ajouter un utilisateur
+              </Button>
+            )}
           </div>
 
           <Card>
@@ -592,16 +666,20 @@ export default function UsersManagement() {
                       </TableCell>
                       <TableCell>{new Date(user.createdAt).toLocaleDateString("fr-FR")}</TableCell>
                       <TableCell className="text-right space-x-2">
-                        <Button variant="outline" size="sm" onClick={() => openEditDialog(user)}>
-                          Modifier
-                        </Button>
-                        <Button
-                          variant={user.isActive ? "outline" : "default"}
-                          size="sm"
-                          onClick={() => handleToggleStatus(user.id)}
-                        >
-                          {user.isActive ? "Désactiver" : "Activer"}
-                        </Button>
+                        {hasPermission('users', 'update') && (
+                          <Button variant="outline" size="sm" onClick={() => openEditDialog(user)}>
+                            Modifier
+                          </Button>
+                        )}
+                        {hasPermission('users', 'update') && (
+                          <Button
+                            variant={user.isActive ? "outline" : "default"}
+                            size="sm"
+                            onClick={() => handleToggleStatus(user.id)}
+                          >
+                            {user.isActive ? "Désactiver" : "Activer"}
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -619,12 +697,14 @@ export default function UsersManagement() {
                 Chaque rôle dispose de permissions spécifiques pour accéder aux différentes fonctionnalités
               </p>
             </div>
-            <Button onClick={() => setIsAddRoleDialogOpen(true)}>
-              <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Créer un rôle
-            </Button>
+            {hasPermission('users', 'create') && (
+              <Button onClick={() => setIsAddRoleDialogOpen(true)}>
+                <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Créer un rôle
+              </Button>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -668,15 +748,17 @@ export default function UsersManagement() {
                         </div>
                       </div>
                       <div className="flex gap-2 pt-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="flex-1 bg-transparent"
-                          onClick={() => openEditRoleDialog(rolePermission)}
-                        >
-                          Modifier
-                        </Button>
-                        {rolePermission.isCustom && (
+                        {hasPermission('users', 'update') && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 bg-transparent"
+                            onClick={() => openEditRoleDialog(rolePermission)}
+                          >
+                            Modifier
+                          </Button>
+                        )}
+                        {hasPermission('users', 'delete') && rolePermission.isCustom && (
                           <Button
                             variant="destructive"
                             size="sm"
@@ -873,7 +955,13 @@ export default function UsersManagement() {
                 value={roleFormData.role}
                 onChange={(e) => setRoleFormData({ ...roleFormData, role: e.target.value })}
                 placeholder="Ex: Gestionnaire de stock"
+                disabled={selectedRole && !selectedRole.isCustom}
               />
+              {selectedRole && !selectedRole.isCustom && (
+                <p className="text-sm text-slate-500 mt-1">
+                  Le nom des rôles système ne peut pas être modifié
+                </p>
+              )}
             </div>
             <div>
               <Label htmlFor="role-description">Description *</Label>
@@ -1011,7 +1099,9 @@ export default function UsersManagement() {
             <Button variant="outline" onClick={() => setIsEditRoleDialogOpen(false)}>
               Annuler
             </Button>
-            <Button onClick={handleEditRole}>Enregistrer</Button>
+            <Button onClick={handleEditRole} disabled={isUpdatingRole}>
+              {isUpdatingRole ? "Enregistrement..." : "Enregistrer"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -101,7 +101,7 @@ export default function MovementsManagement() {
   }
 
   useDataSync(["movements", "cards", "locations", "banks"], loadData)
-  useAutoRefresh(loadData, 30000)
+  useAutoRefresh(loadData, 120000) // 2 minutes
 
   const getCardName = (cardId: string) => {
     const card = cards.find((c) => c.id === cardId)

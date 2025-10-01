@@ -89,7 +89,7 @@ export default function LocationsManagement() {
   }
 
   const { isRefreshing: isSyncRefreshing } = useDataSync(["locations", "banks", "cards"], loadData)
-  const { isRefreshing: isAutoRefreshing } = useAutoRefresh(loadData, 30000)
+  const { isRefreshing: isAutoRefreshing } = useAutoRefresh(loadData, 120000) // 2 minutes
   const isRefreshing = isSyncRefreshing || isAutoRefreshing
 
   useEffect(() => {
