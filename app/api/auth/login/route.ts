@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
 import * as bcrypt from "bcryptjs"
 import type { ApiResponse } from "@/lib/api-types"
 import type { User } from "@/lib/types"
+import { logAudit } from "@/lib/audit-logger"
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,6 +26,18 @@ export async function POST(request: NextRequest) {
     })
 
     if (!user) {
+      // Logger la tentative échouée (utilisateur inconnu)
+      await logAudit({
+        userId: "unknown",
+        userEmail: email,
+        action: "login",
+        module: "auth",
+        entityType: "user",
+        details: `Tentative de connexion échouée - Utilisateur non trouvé`,
+        status: "failure",
+        errorMessage: "Email ou mot de passe incorrect"
+      }, request)
+      
       return NextResponse.json<ApiResponse>(
         {
           success: false,
@@ -38,6 +51,18 @@ export async function POST(request: NextRequest) {
     const isValidPassword = await bcrypt.compare(password, user.password)
 
     if (!isValidPassword) {
+      // Logger la tentative échouée (mauvais mot de passe)
+      await logAudit({
+        userId: user.id,
+        userEmail: user.email,
+        action: "login",
+        module: "auth",
+        entityType: "user",
+        details: `Tentative de connexion échouée - Mot de passe incorrect`,
+        status: "failure",
+        errorMessage: "Email ou mot de passe incorrect"
+      }, request)
+      
       return NextResponse.json<ApiResponse>(
         {
           success: false,
@@ -49,6 +74,18 @@ export async function POST(request: NextRequest) {
 
     // Vérifier que l'utilisateur est actif
     if (!user.isActive) {
+      // Logger la tentative échouée (compte désactivé)
+      await logAudit({
+        userId: user.id,
+        userEmail: user.email,
+        action: "login",
+        module: "auth",
+        entityType: "user",
+        details: `Tentative de connexion échouée - Compte désactivé`,
+        status: "failure",
+        errorMessage: "Ce compte est désactivé"
+      }, request)
+      
       return NextResponse.json<ApiResponse>(
         {
           success: false,
@@ -57,6 +94,19 @@ export async function POST(request: NextRequest) {
         { status: 403 },
       )
     }
+
+    // Logger la connexion réussie
+    await logAudit({
+      userId: user.id,
+      userEmail: user.email,
+      action: "login",
+      module: "auth",
+      entityType: "user",
+      entityId: user.id,
+      entityName: `${user.firstName} ${user.lastName}`,
+      details: `Connexion réussie`,
+      status: "success"
+    }, request)
 
     // Ne pas retourner le mot de passe
     const { password: _, ...userWithoutPassword } = user

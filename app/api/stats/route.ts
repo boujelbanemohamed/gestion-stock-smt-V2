@@ -30,19 +30,27 @@ export async function GET(request: NextRequest) {
       where: { isActive: true }
     })
 
-    // Compter les mouvements d'aujourd'hui
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
+    // Compter les mouvements selon la période sélectionnée
+    let movementsWhere: any = {}
+    
+    if (hasDateFilter) {
+      // Si une période est sélectionnée, utiliser cette période
+      movementsWhere.createdAt = dateFilter
+    } else {
+      // Sinon, utiliser aujourd'hui par défaut
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const tomorrow = new Date(today)
+      tomorrow.setDate(tomorrow.getDate() + 1)
+      
+      movementsWhere.createdAt = {
+        gte: today,
+        lt: tomorrow
+      }
+    }
     
     const todayMovements = await prisma.movement.count({
-      where: {
-        createdAt: {
-          gte: today,
-          lt: tomorrow
-        }
-      }
+      where: movementsWhere
     })
 
     // Total des cartes (somme des quantités)

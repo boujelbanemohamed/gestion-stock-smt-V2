@@ -22,8 +22,14 @@ export default function DashboardPage() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        // Charger les stats
-        const statsResponse = await fetch('/api/stats')
+        // Construire les paramètres de date pour les deux APIs
+        const params = new URLSearchParams()
+        if (dateRange?.from) params.append('dateFrom', dateRange.from.toISOString())
+        if (dateRange?.to) params.append('dateTo', dateRange.to.toISOString())
+
+        // Charger les stats avec filtre de date
+        const statsUrl = params.toString() ? `/api/stats?${params.toString()}` : '/api/stats'
+        const statsResponse = await fetch(statsUrl)
         const statsData = await statsResponse.json()
         
         if (statsData.success) {
@@ -35,12 +41,9 @@ export default function DashboardPage() {
           })
         }
 
-        // Charger les logs
-        const logsParams = new URLSearchParams()
-        if (dateRange?.from) logsParams.append('dateFrom', dateRange.from.toISOString())
-        if (dateRange?.to) logsParams.append('dateTo', dateRange.to.toISOString())
+        // Charger les logs avec filtre de date
+        const logsParams = new URLSearchParams(params)
         logsParams.append('limit', '10')
-
         const logsResponse = await fetch(`/api/logs?${logsParams.toString()}`)
         const logsData = await logsResponse.json()
         

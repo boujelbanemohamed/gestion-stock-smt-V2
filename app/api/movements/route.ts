@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { Movement } from "@/lib/types"
+import { logAudit } from "@/lib/audit-logger"
 
 // GET /api/movements - Récupérer tous les mouvements
 export async function GET(request: NextRequest) {
@@ -124,6 +125,20 @@ export async function POST(request: NextRequest) {
         toLocation: true,
       }
     })
+
+    // Logger la création du mouvement
+    const movementTypeLabel = { entry: "Entrée", exit: "Sortie", transfer: "Transfert" }[body.movementType] || body.movementType
+    await logAudit({
+      userId: newMovement.user.id,
+      userEmail: newMovement.user.email,
+      action: "create",
+      module: "movements",
+      entityType: "movement",
+      entityId: newMovement.id,
+      entityName: `${movementTypeLabel} - ${newMovement.card.name}`,
+      details: `Mouvement de type ${movementTypeLabel}: ${newMovement.quantity} x ${newMovement.card.name}. Raison: ${newMovement.reason}`,
+      status: "success"
+    }, request)
 
     return NextResponse.json<ApiResponse<Movement>>(
       {
