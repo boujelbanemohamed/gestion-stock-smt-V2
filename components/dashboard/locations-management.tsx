@@ -724,10 +724,10 @@ export default function LocationsManagement() {
           ) : (
             <Accordion type="single" collapsible className="w-full">
               {locations.map((location) => {
-                // Calculer les cartes pour cette location
-                const locationCards = cards.filter(c => c.bankId === location.bankId)
-                const uniqueTypes = new Set(locationCards.map(c => c.type))
-                const totalCards = locationCards.reduce((sum, card) => sum + card.quantity, 0)
+                // Utiliser les quantités par emplacement issues de l'API (stockLevels)
+                const locItems = cardsByLocation.get(location.id) || []
+                const uniqueTypes = new Set(locItems.map(ci => ci.card?.type))
+                const totalCards = locItems.reduce((sum, ci) => sum + (ci.quantity || 0), 0)
 
                 return (
                   <AccordionItem key={location.id} value={location.id}>
@@ -778,7 +778,7 @@ export default function LocationsManagement() {
 
                         <div>
                           <h4 className="text-sm font-semibold text-slate-900 mb-3">Cartes en stock</h4>
-                          {cards.length === 0 ? (
+                          {locItems.length === 0 ? (
                             <div className="text-center py-6 bg-slate-50 rounded-lg">
                               <p className="text-sm text-slate-500">Aucune carte dans cet emplacement</p>
                             </div>
@@ -794,7 +794,7 @@ export default function LocationsManagement() {
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
-                                {cards.map((item) => (
+                                {locItems.map((item) => (
                                   <TableRow key={item.card.id}>
                                     <TableCell className="font-medium">{item.card.name}</TableCell>
                                     <TableCell>{item.card.type}</TableCell>
@@ -804,7 +804,7 @@ export default function LocationsManagement() {
                                       <Badge
                                         variant="outline"
                                         className={
-                                          item.quantity < item.card.minThreshold
+                                          item.quantity < (item.card.minThreshold || 0)
                                             ? "bg-red-50 text-red-700 border-red-200"
                                             : "bg-green-50 text-green-700 border-green-200"
                                         }
