@@ -97,33 +97,107 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const newMovement = await prisma.movement.create({
-      data: {
-        cardId: body.cardId,
-        fromLocationId: body.fromLocationId || null,
-        toLocationId: body.toLocationId || null,
-        movementType: body.movementType,
-        quantity: body.quantity,
-        reason: body.reason || "",
-        userId: body.userId,
-      },
-      include: {
-        card: true,
-        user: {
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            role: true,
-            isActive: true,
-            createdAt: true,
-            updatedAt: true,
-          }
-        },
-        fromLocation: true,
-        toLocation: true,
+    // Règles de présence des emplacements selon le type
+    if (body.movementType === 'entry' && !body.toLocationId) {
+      return NextResponse.json<ApiResponse>({ success: false, error: "Emplacement destination requis pour une entrée" }, { status: 400 })
+    }
+    if (body.movementType === 'exit' && !body.fromLocationId) {
+      return NextResponse.json<ApiResponse>({ success: false, error: "Emplacement source requis pour une sortie" }, { status: 400 })
+    }
+    if (body.movementType === 'transfer' && (!body.fromLocationId || !body.toLocationId)) {
+      return NextResponse.json<ApiResponse>({ success: false, error: "Source et destination sont requis pour un transfert" }, { status: 400 })
+    }
+
+    // Récupérer la carte
+    const card = await prisma.card.findUnique({ where: { id: body.cardId } })
+    if (!card) {
+      return NextResponse.json<ApiResponse>({ success: false, error: "Carte introuvable" }, { status: 404 })
+    }
+
+    // Helpers stock par emplacement via StockLevel
+    const getStockLevel = async (cardId: string, locationId: string) => {
+      const level = await prisma.stockLevel.findFirst({ where: { cardId, locationId } })
+      return level?.quantity ?? 0
+    }
+
+    const adjustStockLevel = async (
+      tx: typeof prisma,
+      cardId: string,
+      locationId: string,
+      delta: number
+    ) => {
+      const existing = await tx.stockLevel.findFirst({ where: { cardId, locationId } })
+      if (!existing) {
+        // Si delta est négatif et pas de stock, refuser
+        if (delta < 0) throw new Error("Stock insuffisant à l'emplacement")
+        await tx.stockLevel.create({ data: { cardId, locationId, quantity: delta } })
+      } else {
+        const newQty = existing.quantity + delta
+        if (newQty < 0) throw new Error("Stock insuffisant à l'emplacement")
+        await tx.stockLevel.update({ where: { id: existing.id }, data: { quantity: newQty } })
       }
+    }
+
+    const newMovement = await prisma.$transaction(async (tx) => {
+      // Ajustements selon le type
+      if (body.movementType === 'entry') {
+        // + carte, + stock destination
+        await tx.card.update({ where: { id: card.id }, data: { quantity: card.quantity + body.quantity } })
+        await adjustStockLevel(tx, card.id, body.toLocationId, +body.quantity)
+      } else if (body.movementType === 'exit') {
+        // Vérifier stocks
+        const locQty = await getStockLevel(card.id, body.fromLocationId)
+        if (locQty < body.quantity) {
+          throw new Error("Quantité insuffisante à l'emplacement source")
+        }
+        if (card.quantity < body.quantity) {
+          throw new Error("Quantité totale de carte insuffisante")
+        }
+        // - carte, - stock source
+        await tx.card.update({ where: { id: card.id }, data: { quantity: card.quantity - body.quantity } })
+        await adjustStockLevel(tx, card.id, body.fromLocationId, -body.quantity)
+      } else if (body.movementType === 'transfer') {
+        // Vérifier stock source
+        const locQty = await getStockLevel(card.id, body.fromLocationId)
+        if (locQty < body.quantity) {
+          throw new Error("Quantité insuffisante à l'emplacement source pour le transfert")
+        }
+        // 0 carte, - source, + destination
+        await adjustStockLevel(tx, card.id, body.fromLocationId, -body.quantity)
+        await adjustStockLevel(tx, card.id, body.toLocationId, +body.quantity)
+      }
+
+      // Créer le mouvement
+      const created = await tx.movement.create({
+        data: {
+          cardId: body.cardId,
+          fromLocationId: body.fromLocationId || null,
+          toLocationId: body.toLocationId || null,
+          movementType: body.movementType,
+          quantity: body.quantity,
+          reason: body.reason || "",
+          userId: body.userId,
+        },
+        include: {
+          card: true,
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              role: true,
+              isActive: true,
+              createdAt: true,
+              updatedAt: true,
+            }
+          },
+          fromLocation: true,
+          toLocation: true,
+        }
+      })
+
+      return created
     })
 
     // Logger la création du mouvement
