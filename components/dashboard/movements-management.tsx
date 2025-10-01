@@ -571,21 +571,28 @@ export default function MovementsManagement() {
           <p className="text-sm text-slate-600 mt-1">Suivez les mouvements de stock</p>
         </div>
         <div className="flex items-center gap-3">
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={resetForm} size="default" className="font-medium">
-                <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                Nouveau mouvement
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
-              <DialogHeader>
-                <DialogTitle>Nouveau Mouvement</DialogTitle>
-                <DialogDescription>Enregistrez un nouveau mouvement de stock.</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={handleSubmit}>
+          {/* Les boutons ont été déplacés dans l'en-tête du tableau ci-dessous */}
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+              <DialogTrigger asChild>
+                <Button onClick={resetForm} size="default" className="font-medium">
+                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Nouveau mouvement
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>Nouveau Mouvement</DialogTitle>
+                  <DialogDescription>Enregistrez un nouveau mouvement de stock.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={handleSubmit}>
                 <div className="grid gap-4 py-4">
                   {/* 1. Sélection de la banque (OBLIGATOIRE EN PREMIER) */}
                   <div className="grid grid-cols-4 items-center gap-4">
@@ -795,27 +802,24 @@ export default function MovementsManagement() {
                 <DialogFooter>
                   <Button type="submit" disabled={!formData.bankId}>Enregistrer</Button>
                 </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
-          {movements.length > 0 && (
-            <Button variant="outline" size="default" onClick={printMovementSlip} className="font-medium">
-              <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
-                />
-              </svg>
-              Imprimer le bordereau
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <Card>
-        <CardHeader>
+                </form>
+              </DialogContent>
+            </Dialog>
+            {movements.length > 0 && (
+              <Button variant="outline" size="default" onClick={printMovementSlip} className="font-medium">
+                <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
+                  />
+                </svg>
+                Imprimer le bordereau
+              </Button>
+            )}
+          </div>
+          
           <CardTitle>Historique des Mouvements</CardTitle>
           <CardDescription>
             {movements.length} mouvement{movements.length !== 1 ? "s" : ""} enregistré
