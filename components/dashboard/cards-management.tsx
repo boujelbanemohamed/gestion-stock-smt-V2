@@ -83,7 +83,12 @@ export default function CardsManagement() {
             .filter((c: any) => c.bankId === bank.id)
             .map((c: any) => ({
               card: c,
-              remainingQuantity: c.quantity // La quantité restante est la quantité de la carte
+              remainingQuantity: c.quantity,
+              perLocation: (c.stockLevels || []).map((sl: any) => ({
+                locationId: sl.location?.id,
+                locationName: sl.location?.name,
+                quantity: sl.quantity
+              }))
             }))
           grouped[bank.name] = bankCards
         })
@@ -688,9 +693,19 @@ export default function CardsManagement() {
                               >
                                 <div className="flex-1">
                                   <div className="font-medium">{card.name}</div>
-                                  <div className="text-sm text-slate-600">
-                                    {card.type} – {card.subType} – {card.subSubType}
-                                  </div>
+                              <div className="text-sm text-slate-600">
+                                {card.type} – {card.subType} – {card.subSubType}
+                              </div>
+                              {Array.isArray((cardDetail as any).perLocation) && (cardDetail as any).perLocation.length > 0 && (
+                                <div className="mt-1 text-xs text-slate-600">
+                                  {(cardDetail as any).perLocation.map((pl: any) => (
+                                    <div key={pl.locationId} className="flex justify-between">
+                                      <span>• {pl.locationName}</span>
+                                      <span className="tabular-nums">{pl.quantity}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                                 </div>
                                 <div className="flex items-center gap-3">
                                   <Badge variant={card.quantity <= card.minThreshold ? "destructive" : "default"}>

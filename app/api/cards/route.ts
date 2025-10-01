@@ -32,7 +32,14 @@ export async function GET(request: NextRequest) {
     let cards = await prisma.card.findMany({
       where,
       include: {
-        bank: true
+        bank: true,
+        stockLevels: {
+          include: {
+            location: {
+              select: { id: true, name: true, bankId: true }
+            }
+          }
+        }
       },
       orderBy: { createdAt: 'desc' }
     })
