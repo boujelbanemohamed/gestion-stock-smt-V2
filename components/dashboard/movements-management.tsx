@@ -406,23 +406,20 @@ export default function MovementsManagement() {
 
   const getAvailableStock = (cardId: string, locationId: string): number => {
     if (!cardId || !locationId) return 0
-    const card = cards.find((c) => c.id === cardId)
+    const card: any = cards.find((c: any) => c.id === cardId)
     if (!card) return 0
 
-    // Get all movements for this card and location
-    const cardMovements = movements.filter((m) => m.cardId === cardId)
+    // Source de vérité: stockLevels (quantité par emplacement) fournis par l'API
+    const level = (card.stockLevels || []).find((sl: any) => sl.locationId === locationId || sl.location?.id === locationId)
+    if (level) return Number(level.quantity) || 0
 
-    // Calculate stock at this location
+    // Fallback (ancien calcul): dériver des mouvements si stockLevels absent
+    const cardMovements = movements.filter((m) => m.cardId === cardId)
     let stock = 0
     for (const movement of cardMovements) {
-      if (movement.toLocationId === locationId) {
-        stock += movement.quantity
-      }
-      if (movement.fromLocationId === locationId) {
-        stock -= movement.quantity
-      }
+      if (movement.toLocationId === locationId) stock += movement.quantity
+      if (movement.fromLocationId === locationId) stock -= movement.quantity
     }
-
     return stock
   }
 
