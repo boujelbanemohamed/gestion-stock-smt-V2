@@ -587,7 +587,7 @@ export default function MovementsManagement() {
                   Nouveau mouvement
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[425px]">
+              <DialogContent className="w-full sm:max-w-[720px] md:max-w-[840px]">
                 <DialogHeader>
                   <DialogTitle>Nouveau Mouvement</DialogTitle>
                   <DialogDescription>Enregistrez un nouveau mouvement de stock.</DialogDescription>
