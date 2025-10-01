@@ -16,6 +16,8 @@ export default function ConfigurationPanel() {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
+  const [isTestingSmtp, setIsTestingSmtp] = useState(false)
+  const [smtpTestMessage, setSmtpTestMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
 
   useEffect(() => {
     loadConfig()
@@ -119,6 +121,49 @@ export default function ConfigurationPanel() {
       setTimeout(() => setSaveMessage(null), 3000)
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleTestSmtp = async () => {
+    if (!config) return
+
+    setIsTestingSmtp(true)
+    setSmtpTestMessage(null)
+    
+    try {
+      const response = await fetch('/api/config/test-smtp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          smtp: config.smtp,
+          testEmail: config.smtp.fromEmail || 'test@example.com'
+        })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        setSmtpTestMessage({ 
+          type: "success", 
+          text: "Email de test envoyé avec succès ! Vérifiez votre boîte de réception." 
+        })
+      } else {
+        setSmtpTestMessage({ 
+          type: "error", 
+          text: data.error || "Erreur lors du test SMTP. Vérifiez votre configuration." 
+        })
+      }
+      
+      setTimeout(() => setSmtpTestMessage(null), 5000)
+    } catch (error) {
+      console.error('Error testing SMTP:', error)
+      setSmtpTestMessage({ 
+        type: "error", 
+        text: "Erreur lors du test SMTP. Vérifiez votre configuration." 
+      })
+      setTimeout(() => setSmtpTestMessage(null), 5000)
+    } finally {
+      setIsTestingSmtp(false)
     }
   }
 
@@ -395,6 +440,58 @@ export default function ConfigurationPanel() {
                   }
                 />
               </div>
+
+              <Separator />
+
+              {/* Aide pour Gmail */}
+              {config.smtp.host?.includes('gmail') && (
+                <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+                  <h4 className="font-medium text-blue-900 mb-2">💡 Configuration Gmail</h4>
+                  <p className="text-sm text-blue-800 mb-2">
+                    Pour utiliser Gmail avec cette application, vous devez :
+                  </p>
+                  <ol className="text-sm text-blue-800 space-y-1 ml-4">
+                    <li>1. Activer l'authentification à 2 facteurs sur votre compte Google</li>
+                    <li>2. Générer un mot de passe d'application dans les paramètres de sécurité</li>
+                    <li>3. Utiliser ce mot de passe d'application (pas votre mot de passe normal)</li>
+                  </ol>
+                  <p className="text-xs text-blue-700 mt-2">
+                    <a href="https://support.google.com/accounts/answer/185833" target="_blank" rel="noopener noreferrer" className="underline">
+                      Guide complet pour créer un mot de passe d'application
+                    </a>
+                  </p>
+                </div>
+              )}
+
+              {/* Bouton de test SMTP */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Test de configuration SMTP</Label>
+                  <p className="text-sm text-slate-500">Envoyer un email de test pour vérifier la configuration</p>
+                </div>
+                <Button 
+                  onClick={handleTestSmtp} 
+                  disabled={isTestingSmtp || !config.smtp.host || !config.smtp.username}
+                  variant="outline"
+                  className="gap-2"
+                >
+                  <Mail className="h-4 w-4" />
+                  {isTestingSmtp ? "Test en cours..." : "Envoyer mail test"}
+                </Button>
+              </div>
+
+              {/* Message de résultat du test SMTP */}
+              {smtpTestMessage && (
+                <div
+                  className={`p-3 rounded-md text-sm ${
+                    smtpTestMessage.type === "success" 
+                      ? "bg-green-50 text-green-800 border border-green-200" 
+                      : "bg-red-50 text-red-800 border border-red-200"
+                  }`}
+                >
+                  {smtpTestMessage.text}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

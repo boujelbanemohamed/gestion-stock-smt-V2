@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import type { DateRange } from "react-day-picker"
 import type { AuditLog } from "@/lib/types"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 
 export default function DashboardPage() {
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined)
@@ -19,6 +21,10 @@ export default function DashboardPage() {
     movements: 0,
   })
   const [recentLogs, setRecentLogs] = useState<AuditLog[]>([])
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalLogs, setTotalLogs] = useState(0)
+  const logsPerPage = 10
 
   const loadData = async () => {
     try {
@@ -41,14 +47,18 @@ export default function DashboardPage() {
         })
       }
 
-      // Charger les logs avec filtre de date
+      // Charger les logs avec filtre de date et pagination
       const logsParams = new URLSearchParams(params)
-      logsParams.append('limit', '10')
+      logsParams.append('limit', logsPerPage.toString())
+      logsParams.append('offset', ((currentPage - 1) * logsPerPage).toString())
+      
       const logsResponse = await fetch(`/api/logs?${logsParams.toString()}`)
       const logsData = await logsResponse.json()
       
       if (logsData.success) {
         setRecentLogs(logsData.data || [])
+        setTotalLogs(logsData.total || 0)
+        setTotalPages(Math.ceil((logsData.total || 0) / logsPerPage))
       }
     } catch (error) {
       console.error('Error loading dashboard data:', error)
@@ -57,6 +67,11 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadData()
+  }, [dateRange, currentPage])
+
+  // Réinitialiser la pagination quand la plage de dates change
+  useEffect(() => {
+    setCurrentPage(1)
   }, [dateRange])
 
   // Utiliser les hooks pour la synchronisation (avec une fréquence plus raisonnable)
@@ -90,6 +105,22 @@ export default function DashboardPage() {
     if (status === "success") return "default"
     if (status === "failure") return "destructive"
     return "secondary"
+  }
+
+  const handlePreviousPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1)
+    }
+  }
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1)
+    }
+  }
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
   }
 
   return (
@@ -211,6 +242,67 @@ export default function DashboardPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+          
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-6 pt-4 border-t">
+              <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                <span>
+                  Page {currentPage} sur {totalPages} ({totalLogs} résultats au total)
+                </span>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePreviousPage}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Précédent
+                </Button>
+                
+                {/* Page numbers */}
+                <div className="flex items-center space-x-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum
+                    if (totalPages <= 5) {
+                      pageNum = i + 1
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i
+                    } else {
+                      pageNum = currentPage - 2 + i
+                    }
+                    
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => handlePageChange(pageNum)}
+                        className="w-8 h-8 p-0"
+                      >
+                        {pageNum}
+                      </Button>
+                    )
+                  })}
+                </div>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleNextPage}
+                  disabled={currentPage === totalPages}
+                >
+                  Suivant
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>

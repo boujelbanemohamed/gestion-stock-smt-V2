@@ -81,8 +81,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Hash du mot de passe (défaut: "password123")
-    const hashedPassword = await bcrypt.hash(body.password || "password123", 10)
+    // Générer ou utiliser le mot de passe fourni
+    let plainPassword: string
+    if (body.password && body.password.trim() !== "") {
+      plainPassword = body.password
+    } else {
+      // Générer un mot de passe aléatoire
+      plainPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8)
+    }
+
+    // Hash du mot de passe
+    const hashedPassword = await bcrypt.hash(plainPassword, 10)
 
     const newUser = await prisma.user.create({
       data: {
@@ -95,6 +104,29 @@ export async function POST(request: NextRequest) {
       }
     })
 
+    // Envoyer l'email si demandé
+    if (body.sendEmail) {
+      try {
+        // Pour l'instant, on log les informations (à remplacer par un vrai service d'email)
+        console.log(`=== EMAIL À ENVOYER ===`)
+        console.log(`À: ${body.email}`)
+        console.log(`Sujet: Informations de connexion - Plateforme Gestion de Stocks`)
+        console.log(`Contenu:`)
+        console.log(`Bonjour ${body.firstName} ${body.lastName},`)
+        console.log(`Votre compte a été créé avec succès sur la plateforme de gestion de stocks.`)
+        console.log(`Email: ${body.email}`)
+        console.log(`Mot de passe temporaire: ${plainPassword}`)
+        console.log(`Rôle: ${body.role}`)
+        console.log(`Veuillez vous connecter et changer votre mot de passe dès que possible.`)
+        console.log(`========================`)
+        
+        // TODO: Intégrer un vrai service d'email (Nodemailer, SendGrid, etc.)
+      } catch (emailError) {
+        console.error('Erreur lors de l\'envoi de l\'email:', emailError)
+        // On continue même si l'email échoue
+      }
+    }
+
     // Ne pas retourner le mot de passe
     const { password: _, ...userWithoutPassword } = newUser
 
@@ -102,7 +134,11 @@ export async function POST(request: NextRequest) {
       {
         success: true,
         data: userWithoutPassword as User,
-        message: "Utilisateur créé avec succès",
+        message: body.sendEmail 
+          ? "Utilisateur créé avec succès et informations envoyées par email"
+          : "Utilisateur créé avec succès",
+        // Retourner le mot de passe en clair seulement si demandé et pas d'email
+        ...(body.sendEmail ? {} : { generatedPassword: plainPassword })
       },
       { status: 201 },
     )

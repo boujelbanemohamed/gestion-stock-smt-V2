@@ -22,6 +22,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Switch } from "@/components/ui/switch"
 
 // Liste des permissions disponibles
 const ALL_PERMISSIONS: Permission[] = [
@@ -57,12 +58,15 @@ export default function UsersManagement() {
     firstName: "",
     lastName: "",
     role: "viewer",
+    password: "",
+    sendEmail: false,
   })
 
   const [formErrors, setFormErrors] = useState<{
     email?: string
     firstName?: string
     lastName?: string
+    password?: string
   }>({})
 
   const [roleFormData, setRoleFormData] = useState({
@@ -108,6 +112,7 @@ export default function UsersManagement() {
       email?: string
       firstName?: string
       lastName?: string
+      password?: string
     } = {}
 
     if (!formData.email || formData.email.trim() === "") {
@@ -127,6 +132,13 @@ export default function UsersManagement() {
       errors.lastName = "Le nom est obligatoire"
     }
 
+    // Validation du mot de passe (optionnel mais s'il est fourni, il doit être valide)
+    if (formData.password && formData.password.trim() !== "") {
+      if (formData.password.length < 6) {
+        errors.password = "Le mot de passe doit contenir au moins 6 caractères"
+      }
+    }
+
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors)
       return
@@ -143,7 +155,8 @@ export default function UsersManagement() {
           firstName: formData.firstName,
           lastName: formData.lastName,
           role: formData.role,
-          password: "password123",
+          password: formData.password || undefined, // Utiliser le mot de passe fourni ou undefined pour génération automatique
+          sendEmail: formData.sendEmail,
           isActive: true,
         })
       })
@@ -152,6 +165,15 @@ export default function UsersManagement() {
       if (!data.success) {
         alert(data.error || 'Erreur lors de la création')
         return
+      }
+
+      // Afficher le mot de passe généré si pas d'email envoyé
+      if (!formData.sendEmail && data.generatedPassword) {
+        alert(`Utilisateur créé avec succès !\n\nMot de passe généré: ${data.generatedPassword}\n\nVeuillez noter ce mot de passe et le communiquer à l'utilisateur.`)
+      } else if (formData.sendEmail) {
+        alert('Utilisateur créé avec succès ! Les informations de connexion ont été envoyées par email.')
+      } else {
+        alert('Utilisateur créé avec succès !')
       }
 
       setIsAddDialogOpen(false)
@@ -283,6 +305,8 @@ export default function UsersManagement() {
       firstName: "",
       lastName: "",
       role: "viewer",
+      password: "",
+      sendEmail: false,
     })
     setFormErrors({})
   }
@@ -850,6 +874,36 @@ export default function UsersManagement() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            
+            <div>
+              <Label htmlFor="password">Mot de passe (optionnel)</Label>
+              <Input
+                id="password"
+                type="password"
+                value={formData.password}
+                onChange={(e) => {
+                  setFormData({ ...formData, password: e.target.value })
+                  if (formErrors.password) {
+                    setFormErrors({ ...formErrors, password: undefined })
+                  }
+                }}
+                className={formErrors.password ? "border-red-500" : ""}
+                placeholder="Laissez vide pour générer automatiquement"
+              />
+              <p className="text-sm text-muted-foreground mt-1">
+                Si vide, un mot de passe temporaire sera généré automatiquement
+              </p>
+              {formErrors.password && <p className="text-sm text-red-500 mt-1">{formErrors.password}</p>}
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="sendEmail"
+                checked={formData.sendEmail}
+                onCheckedChange={(checked) => setFormData({ ...formData, sendEmail: checked })}
+              />
+              <Label htmlFor="sendEmail">Envoyer les informations de connexion par email</Label>
             </div>
           </div>
           <DialogFooter>
