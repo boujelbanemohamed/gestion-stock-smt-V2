@@ -567,26 +567,13 @@ export default function MovementsManagement() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">Gestion des Mouvements</h2>
-          <p className="text-slate-600">Suivez les mouvements de stock</p>
+          <h2 className="text-3xl font-bold text-slate-900">Gestion des Mouvements</h2>
+          <p className="text-sm text-slate-600 mt-1">Suivez les mouvements de stock</p>
         </div>
-        <div className="flex gap-2">
-          {movements.length > 0 && (
-            <Button variant="outline" onClick={printMovementSlip}>
-              <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
-                />
-              </svg>
-              Imprimer le bordereau
-            </Button>
-          )}
+        <div className="flex items-center gap-3">
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={resetForm}>
+              <Button onClick={resetForm} size="default" className="font-medium">
                 <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
@@ -811,6 +798,19 @@ export default function MovementsManagement() {
               </form>
             </DialogContent>
           </Dialog>
+          {movements.length > 0 && (
+            <Button variant="outline" size="default" onClick={printMovementSlip} className="font-medium">
+              <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
+                />
+              </svg>
+              Imprimer le bordereau
+            </Button>
+          )}
         </div>
       </div>
 
