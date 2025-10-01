@@ -626,7 +626,14 @@ export default function MovementsManagement() {
                     <Select
                       value={formData.movementType}
                       onValueChange={(value: "entry" | "exit" | "transfer") =>
-                        setFormData({ ...formData, movementType: value, fromLocationId: "", toLocationId: "" })
+                        setFormData({
+                          ...formData,
+                          movementType: value,
+                          fromLocationId: "",
+                          toLocationId: "",
+                          // Préremplir le motif pour la sortie
+                          reason: value === "exit" ? "Expédition" : formData.reason
+                        })
                       }
                     >
                       <SelectTrigger className="col-span-3">
