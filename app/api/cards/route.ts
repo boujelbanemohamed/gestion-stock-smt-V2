@@ -44,14 +44,20 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' }
     })
 
-    // Filtrer les cartes en stock faible si demandé
-    if (lowStock === "true") {
-      cards = cards.filter(card => card.quantity < card.minThreshold)
-    }
+    // Harmoniser la quantité: somme des stocks par emplacement
+    const normalized = cards.map((c: any) => {
+      const sum = (c.stockLevels || []).reduce((acc: number, sl: any) => acc + (sl.quantity || 0), 0)
+      return { ...c, quantity: sum }
+    })
+
+    // Filtrer les cartes en stock faible si demandé (basé sur quantité recalculée)
+    const result = lowStock === "true"
+      ? normalized.filter((card: any) => card.quantity < card.minThreshold)
+      : normalized
 
     return NextResponse.json<ApiResponse<Card[]>>({
       success: true,
-      data: cards as Card[],
+      data: result as Card[],
     })
   } catch (error) {
     console.error('Error fetching cards:', error)

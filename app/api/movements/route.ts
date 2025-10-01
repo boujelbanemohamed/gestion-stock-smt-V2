@@ -114,6 +114,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json<ApiResponse>({ success: false, error: "Carte introuvable" }, { status: 404 })
     }
 
+    // Vérifier cohérence banque: la carte appartient à une seule banque
+    if (body.bankId && card.bankId !== body.bankId) {
+      return NextResponse.json<ApiResponse>({ success: false, error: "La carte n'appartient pas à cette banque" }, { status: 400 })
+    }
+
     // Helpers stock par emplacement via StockLevel
     const getStockLevel = async (cardId: string, locationId: string) => {
       const level = await prisma.stockLevel.findFirst({ where: { cardId, locationId } })
