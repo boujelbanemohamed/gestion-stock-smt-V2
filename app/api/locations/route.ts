@@ -24,7 +24,14 @@ export async function GET(request: NextRequest) {
     const locations = await prisma.location.findMany({
       where,
       include: {
-        bank: true
+        bank: true,
+        stockLevels: {
+          include: {
+            card: {
+              select: { id: true, name: true, type: true }
+            }
+          }
+        }
       },
       orderBy: { createdAt: 'desc' }
     })

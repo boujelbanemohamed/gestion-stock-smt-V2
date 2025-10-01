@@ -58,7 +58,16 @@ export default function LocationsManagement() {
       const locationsData = await locationsResponse.json()
       
       if (locationsData.success) {
-        setLocations(locationsData.data || [])
+        const locs = locationsData.data || []
+        setLocations(locs)
+
+        // Construire la carte des quantités par carte pour chaque emplacement
+        const byLocation = new Map<string, { card: any; quantity: number }[]>()
+        for (const loc of locs as any[]) {
+          const items = (loc.stockLevels || []).map((sl: any) => ({ card: sl.card, quantity: sl.quantity }))
+          byLocation.set(loc.id, items)
+        }
+        setCardsByLocation(byLocation)
       }
 
       const banksResponse = await fetch('/api/banks?status=active')
@@ -342,13 +351,14 @@ export default function LocationsManagement() {
     banks.forEach(bank => {
       const bankLocations = locations.filter(l => l.bankId === bank.id)
       grouped[bank.name] = bankLocations.map(location => {
-        // Calculer les cartes pour cette location
-        const locationCards = cards.filter(c => c.bankId === location.bankId)
-        const uniqueTypes = new Set(locationCards.map(c => c.type))
+        // Utiliser la map construite depuis l'API (quantité par carte et par emplacement)
+        const locItems = cardsByLocation.get(location.id) || []
+        const uniqueTypes = new Set(locItems.map(ci => ci.card?.type))
+        const total = locItems.reduce((sum, ci) => sum + (ci.quantity || 0), 0)
         
         return {
           location,
-          totalCards: locationCards.reduce((sum, card) => sum + card.quantity, 0),
+          totalCards: total,
           cardTypes: uniqueTypes.size
         }
       })
@@ -409,6 +419,21 @@ export default function LocationsManagement() {
                           Supprimer
                         </Button>
                       </div>
+                      {cards.length > 0 && (
+                        <div className="mt-3">
+                          <h5 className="text-xs font-semibold text-slate-500 mb-2">Quantité par carte</h5>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {cards.map((ci) => (
+                              <div key={ci.card.id} className="flex items-center justify-between text-sm bg-white border rounded px-2 py-1">
+                                <span className="truncate mr-2">{ci.card.name}</span>
+                                <Badge variant="outline" className={ci.quantity < (ci.card.minThreshold || 0) ? "bg-red-50 text-red-700 border-red-200" : "bg-green-50 text-green-700 border-green-200"}>
+                                  {ci.quantity}
+                                </Badge>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
