@@ -852,6 +852,7 @@ export default function MovementsManagement() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Actions</TableHead>
                     <TableHead>Date et Heure</TableHead>
                     <TableHead>Banque</TableHead>
                     <TableHead>Carte</TableHead>
@@ -861,7 +862,6 @@ export default function MovementsManagement() {
                     <TableHead>Quantité</TableHead>
                     <TableHead>Motif</TableHead>
                     <TableHead>Utilisateur</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -870,6 +870,23 @@ export default function MovementsManagement() {
                     .reverse()
                     .map((movement) => (
                       <TableRow key={movement.id}>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => printSingleMovement(movement)}
+                            title="Imprimer ce mouvement"
+                          >
+                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
+                              />
+                            </svg>
+                          </Button>
+                        </TableCell>
                         <TableCell className="text-sm whitespace-nowrap">
                           {formatDateTime(movement.createdAt)}
                         </TableCell>
@@ -892,23 +909,6 @@ export default function MovementsManagement() {
                         <TableCell>{movement.quantity}</TableCell>
                         <TableCell className="max-w-xs truncate">{movement.reason}</TableCell>
                         <TableCell className="text-sm">{getUserName(movement.userId)}</TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => printSingleMovement(movement)}
-                            title="Imprimer ce mouvement"
-                          >
-                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
-                              />
-                            </svg>
-                          </Button>
-                        </TableCell>
                       </TableRow>
                     ))}
                 </TableBody>
