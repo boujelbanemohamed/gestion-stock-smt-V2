@@ -37,9 +37,14 @@ echo -e "${GREEN}✓ Application accessible${NC}"
 echo -e "\n${YELLOW}Récupération du rôle admin...${NC}"
 API_RESPONSE=$(curl -s "${BASE_URL}/api/roles")
 
-# Vérifier si la réponse contient 'success'
+# Vérifier si la réponse contient 'success' (format standard)
 if echo "$API_RESPONSE" | jq -e '.success' > /dev/null 2>&1; then
     ADMIN_ROLE_ID=$(echo "$API_RESPONSE" | jq -r '.data[] | select(.role == "admin") | .id')
+    echo "ID du rôle admin trouvé (format standard): $ADMIN_ROLE_ID"
+# Vérifier si c'est un tableau direct (format alternatif)
+elif echo "$API_RESPONSE" | jq -e '.[0]' > /dev/null 2>&1; then
+    ADMIN_ROLE_ID=$(echo "$API_RESPONSE" | jq -r '.[] | select(.name == "admin") | .id')
+    echo "ID du rôle admin trouvé (format tableau): $ADMIN_ROLE_ID"
 else
     echo -e "${RED}❌ L'API ne répond pas correctement${NC}"
     echo "Réponse reçue: $API_RESPONSE"
