@@ -98,11 +98,6 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
               {isLoading ? "Connexion..." : "Se connecter"}
             </Button>
           </form>
-          <div className="mt-4 text-sm text-slate-600 text-center">
-            <p>Compte de démonstration :</p>
-            <p>Email: admin@stockmanagement.com</p>
-            <p>Mot de passe: admin123</p>
-          </div>
         </CardContent>
       </Card>
     </div>
