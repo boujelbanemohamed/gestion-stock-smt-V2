@@ -42,6 +42,7 @@ export default function BanksManagement() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isLoading, setIsLoading] = useState(true)
 
+
   const [formData, setFormData] = useState({
     name: "",
     code: "",
@@ -76,6 +77,7 @@ export default function BanksManagement() {
       
       if (data.success) {
         setBanks(data.data || [])
+        
         // Extraire les pays uniques
         const uniqueCountries = Array.from(new Set(data.data.map((b: Bank) => b.country)))
         setCountries(uniqueCountries as string[])
@@ -107,6 +109,7 @@ export default function BanksManagement() {
   useEffect(() => {
     loadBanks()
   }, [filters])
+
 
   // Gestion de la soumission du formulaire (async pour les appels API)
   const handleSubmit = async (e: React.FormEvent) => {

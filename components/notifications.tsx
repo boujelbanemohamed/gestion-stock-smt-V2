@@ -64,10 +64,20 @@ export default function NotificationsDropdown() {
 
   const handleMarkAllAsRead = async () => {
     try {
-      const currentUser = JSON.parse(localStorage.getItem('user') || 'null')
+      console.log('handleMarkAllAsRead called')
+      const currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null')
+      console.log('currentUser:', currentUser)
+      
       if (currentUser) {
         // Marquer toutes les notifications non lues comme lues
         const unreadNotifications = notifications.filter(n => !n.isRead)
+        console.log('unreadNotifications count:', unreadNotifications.length)
+        
+        if (unreadNotifications.length === 0) {
+          console.log('No unread notifications to mark')
+          return
+        }
+        
         const promises = unreadNotifications.map(notification => 
           fetch(`/api/notifications/${notification.id}`, {
             method: 'PUT',
@@ -76,8 +86,13 @@ export default function NotificationsDropdown() {
           })
         )
         
-        await Promise.all(promises)
+        const results = await Promise.all(promises)
+        console.log('Mark as read results:', results.map(r => r.ok))
+        
         await loadNotifications()
+        console.log('Notifications reloaded')
+      } else {
+        console.log('No current user found')
       }
     } catch (error) {
       console.error('Error marking all notifications as read:', error)
