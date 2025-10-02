@@ -16,6 +16,9 @@ type EventType =
   | "user:created"
   | "user:updated"
   | "user:deleted"
+  | "role:created"
+  | "role:updated"
+  | "role:deleted"
   | "config:updated"
   | "data:refresh"
 

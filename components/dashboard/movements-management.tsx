@@ -245,10 +245,11 @@ export default function MovementsManagement() {
           </style>
         </head>
         <body>
-          <h1>Bordereau de Mouvements de Stock</h1>
+          <h1>Société Monétique Tunisie</h1>
+          <h2 style="text-align: center; color: #1e293b; margin-bottom: 20px;">Bordereau de Mouvements de Stock</h2>
           <div class="header-info">
             <p>Généré le ${new Date().toLocaleString("fr-FR")}</p>
-            <p>Par ${currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : "N/A"}</p>
+            <p>Bon de mouvement généré par : ${currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : "N/A"}</p>
             <p>Total: ${movements.length} mouvement(s)</p>
           </div>
           <table>
@@ -261,15 +262,46 @@ export default function MovementsManagement() {
                 <th>Vers / Adresse</th>
                 <th>Quantité</th>
                 <th>Motif</th>
-                <th>Utilisateur</th>
+                <th>Bon de mouvement généré par</th>
               </tr>
             </thead>
             <tbody>
               ${movementsHtml}
             </tbody>
           </table>
+          
+          <div style="margin-top: 40px; padding: 20px; border-top: 2px solid #1e293b;">
+            <h3 style="color: #1e293b; margin-bottom: 30px;">Destinataire :</h3>
+            
+            <div style="display: flex; flex-wrap: wrap; gap: 30px; margin-bottom: 20px;">
+              <div style="flex: 1; min-width: 200px;">
+                <p style="font-weight: bold; margin-bottom: 5px; color: #374151;">Nom :</p>
+                <div style="border-bottom: 2px solid #1e293b; height: 30px; margin-bottom: 20px;"></div>
+              </div>
+              <div style="flex: 1; min-width: 200px;">
+                <p style="font-weight: bold; margin-bottom: 5px; color: #374151;">Prénom :</p>
+                <div style="border-bottom: 2px solid #1e293b; height: 30px; margin-bottom: 20px;"></div>
+              </div>
+            </div>
+            
+            <div style="display: flex; flex-wrap: wrap; gap: 30px; margin-bottom: 20px;">
+              <div style="flex: 1; min-width: 200px;">
+                <p style="font-weight: bold; margin-bottom: 5px; color: #374151;">Fonction :</p>
+                <div style="border-bottom: 2px solid #1e293b; height: 30px; margin-bottom: 20px;"></div>
+              </div>
+              <div style="flex: 1; min-width: 200px;">
+                <p style="font-weight: bold; margin-bottom: 5px; color: #374151;">Date :</p>
+                <div style="border-bottom: 2px solid #1e293b; height: 30px; margin-bottom: 20px;"></div>
+              </div>
+            </div>
+            
+            <div style="margin-top: 40px; text-align: right;">
+              <p style="font-weight: bold; margin-bottom: 60px; color: #374151;">Signature :</p>
+            </div>
+          </div>
+          
           <div class="footer">
-            <p>Document généré automatiquement par le système de gestion de stock</p>
+            <p>Adresse : Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</p>
           </div>
           <script>
             window.onload = function() {
@@ -323,7 +355,7 @@ export default function MovementsManagement() {
         <td style="border: 1px solid #ddd; padding: 8px;">${movement.reason}</td>
       </tr>
       <tr>
-        <td style="border: 1px solid #ddd; padding: 8px;"><strong>Utilisateur:</strong></td>
+        <td style="border: 1px solid #ddd; padding: 8px;"><strong>Bon de mouvement généré par :</strong></td>
         <td style="border: 1px solid #ddd; padding: 8px;">${getUserName(movement.userId)}</td>
       </tr>
     `
@@ -378,18 +410,50 @@ export default function MovementsManagement() {
           </style>
         </head>
         <body>
-          <h1>Bordereau de Mouvement de Stock</h1>
+          <h1>Société Monétique Tunisie</h1>
+          <h2 style="text-align: center; color: #1e293b; margin-bottom: 20px;">Bordereau de Mouvement de Stock</h2>
           <div class="header-info">
             <p>Généré le ${new Date().toLocaleString("fr-FR")}</p>
-            <p>Par ${currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : "N/A"}</p>
+            <p>Bon de mouvement généré par : ${currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : "N/A"}</p>
           </div>
           <table>
             <tbody>
               ${movementHtml}
             </tbody>
           </table>
+          
+          <div style="margin-top: 40px; padding: 20px; border-top: 2px solid #1e293b;">
+            <h3 style="color: #1e293b; margin-bottom: 30px;">Destinataire :</h3>
+            
+            <div style="display: flex; flex-wrap: wrap; gap: 30px; margin-bottom: 20px;">
+              <div style="flex: 1; min-width: 200px;">
+                <p style="font-weight: bold; margin-bottom: 5px; color: #374151;">Nom :</p>
+                <div style="border-bottom: 2px solid #1e293b; height: 30px; margin-bottom: 20px;"></div>
+              </div>
+              <div style="flex: 1; min-width: 200px;">
+                <p style="font-weight: bold; margin-bottom: 5px; color: #374151;">Prénom :</p>
+                <div style="border-bottom: 2px solid #1e293b; height: 30px; margin-bottom: 20px;"></div>
+              </div>
+            </div>
+            
+            <div style="display: flex; flex-wrap: wrap; gap: 30px; margin-bottom: 20px;">
+              <div style="flex: 1; min-width: 200px;">
+                <p style="font-weight: bold; margin-bottom: 5px; color: #374151;">Fonction :</p>
+                <div style="border-bottom: 2px solid #1e293b; height: 30px; margin-bottom: 20px;"></div>
+              </div>
+              <div style="flex: 1; min-width: 200px;">
+                <p style="font-weight: bold; margin-bottom: 5px; color: #374151;">Date :</p>
+                <div style="border-bottom: 2px solid #1e293b; height: 30px; margin-bottom: 20px;"></div>
+              </div>
+            </div>
+            
+            <div style="margin-top: 40px; text-align: right;">
+              <p style="font-weight: bold; margin-bottom: 60px; color: #374151;">Signature :</p>
+            </div>
+          </div>
+          
           <div class="footer">
-            <p>Document généré automatiquement par le système de gestion de stock</p>
+            <p>Adresse : Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</p>
           </div>
           <script>
             window.onload = function() {

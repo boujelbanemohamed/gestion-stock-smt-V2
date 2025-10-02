@@ -60,7 +60,7 @@ export default function LogsPanel() {
     if (searchTerm) {
       filtered = filtered.filter(
         (log) =>
-          log.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (log.userName || log.userEmail).toLowerCase().includes(searchTerm.toLowerCase()) ||
           log.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
           log.details.toLowerCase().includes(searchTerm.toLowerCase()) ||
           log.ipAddress?.toLowerCase().includes(searchTerm.toLowerCase()),
@@ -300,7 +300,7 @@ export default function LogsPanel() {
                       <p className="text-sm font-medium text-slate-900 mb-1">{log.details}</p>
                       <div className="flex items-center gap-4 text-xs text-slate-600">
                         <span>
-                          <span className="font-medium">Utilisateur:</span> {log.userName}
+                          <span className="font-medium">Utilisateur:</span> {log.userName || log.userEmail}
                         </span>
                         {log.ipAddress && (
                           <span>

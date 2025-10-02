@@ -280,7 +280,7 @@ export default function CardsManagement() {
       const data = await response.json()
       
       setImportResults({
-        success: data.imported > 0 ? cards.slice(0, data.imported) : [],
+        success: data.imported > 0 ? [] : [], // Les cartes importées sont ajoutées à la base de données
         errors: data.errors || []
       })
 

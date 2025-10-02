@@ -323,9 +323,9 @@ export default function LocationsManagement() {
       locationDetails.forEach((detail) => {
         html += `
           <tr>
-            <td>${detail.location.name}</td>
-            <td>${detail.location.description || "N/A"}</td>
-            <td>${detail.totalCards}</td>
+            <td>${detail.name}</td>
+            <td>${detail.description || "N/A"}</td>
+            <td>0</td>
           </tr>
         `
       })

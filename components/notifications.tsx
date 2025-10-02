@@ -27,7 +27,7 @@ export default function NotificationsDropdown() {
   const loadNotifications = async () => {
     try {
       // Récupérer l'utilisateur actuel depuis le localStorage ou le contexte
-      const currentUser = JSON.parse(localStorage.getItem('user') || 'null')
+      const currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null')
       if (currentUser) {
         // Récupérer toutes les notifications
         const response = await fetch(`/api/notifications?userId=${currentUser.id}`)

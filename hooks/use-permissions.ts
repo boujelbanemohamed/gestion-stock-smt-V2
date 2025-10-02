@@ -39,13 +39,12 @@ export function usePermissions(): UserPermissions {
           const allModules: Module[] = ['dashboard', 'banks', 'cards', 'locations', 'movements', 'users', 'logs', 'config']
           const allActions: Action[] = ['view', 'create', 'update', 'delete', 'import', 'export', 'print']
           const userPermissions = allModules.flatMap(module => 
-            allActions.map(action => ({ module, action }))
+            allActions.map(action => `${module}:${action}` as Permission)
           )
           setPermissions(userPermissions)
           setIsLoading(false)
           return
         }
-
         // Récupérer les permissions depuis la base de données
         try {
           const response = await fetch('/api/roles')
@@ -58,14 +57,12 @@ export function usePermissions(): UserPermissions {
             )
             
             if (userRole) {
-              // Convertir les permissions de format "module:action" vers { module, action }
-              const parsedPermissions = userRole.permissions.map((permission: string) => {
-                const [module, action] = permission.split(':')
+              // Utiliser les permissions directement comme strings
+              const userPermissions = userRole.permissions.map((permission: string) => {
                 // Normaliser les actions : read -> view, create/update/delete restent identiques
-                const normalizedAction = action === 'read' ? 'view' : action
-                return { module: module as Module, action: normalizedAction as Action }
+                return permission.replace(':read', ':view')
               })
-              setPermissions(parsedPermissions)
+              setPermissions(userPermissions)
             } else {
               // Si le rôle n'est pas trouvé, utiliser des permissions par défaut
               setPermissions([])
@@ -78,34 +75,18 @@ export function usePermissions(): UserPermissions {
           // En cas d'erreur API, utiliser des permissions par défaut
           const defaultPermissions: { [key: string]: Permission[] } = {
             admin: [
-              { module: 'dashboard', action: 'view' },
-              { module: 'banks', action: 'view' },
-              { module: 'cards', action: 'view' },
-              { module: 'locations', action: 'view' },
-              { module: 'movements', action: 'view' },
-              { module: 'users', action: 'view' },
-              { module: 'logs', action: 'view' },
-              { module: 'config', action: 'view' }
+              'dashboard:view', 'banks:view', 'cards:view', 'locations:view', 
+              'movements:view', 'users:view', 'logs:view', 'config:view'
             ],
             expedition: [
-              { module: 'dashboard', action: 'view' },
-              { module: 'banks', action: 'view' },
-              { module: 'movements', action: 'view' }
+              'dashboard:view', 'banks:view', 'movements:view'
             ],
             manager: [
-              { module: 'dashboard', action: 'view' },
-              { module: 'banks', action: 'view' },
-              { module: 'cards', action: 'view' },
-              { module: 'locations', action: 'view' },
-              { module: 'movements', action: 'view' },
-              { module: 'users', action: 'view' }
+              'dashboard:view', 'banks:view', 'cards:view', 'locations:view', 
+              'movements:view', 'users:view'
             ],
             user: [
-              { module: 'dashboard', action: 'view' },
-              { module: 'banks', action: 'view' },
-              { module: 'cards', action: 'view' },
-              { module: 'locations', action: 'view' },
-              { module: 'movements', action: 'view' }
+              'dashboard:view', 'banks:view', 'cards:view', 'locations:view', 'movements:view'
             ]
           }
           setPermissions(defaultPermissions[userData.role] || [])
@@ -128,7 +109,7 @@ export function usePermissions(): UserPermissions {
       return false
     }
     
-    return permissions.some(p => p.module === module && p.action === action)
+    return permissions.includes(`${module}:${action}` as Permission)
   }, [user, permissions])
 
   const hasAnyPermission = useCallback((module: Module, actions: Action[]): boolean => {
@@ -140,7 +121,7 @@ export function usePermissions(): UserPermissions {
     if (!user) return false
     if (permissions.length === 0) return false
     // Vérifier si l'utilisateur a au moins une permission pour ce module
-    return permissions.some(p => p.module === module)
+    return permissions.some(p => p.startsWith(`${module}:`))
   }, [user, permissions])
 
   return {

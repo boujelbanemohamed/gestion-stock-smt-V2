@@ -7,6 +7,7 @@ export interface User {
   lastName: string
   role: string
   isActive: boolean
+  lastLogin?: Date | null
   createdAt: Date
   updatedAt: Date
 }
@@ -46,6 +47,7 @@ export interface Location {
   description?: string
   bankId: string
   isActive: boolean
+  totalCards?: number // Nombre total de cartes dans cette location
   createdAt: Date
   updatedAt: Date
 }
@@ -245,7 +247,7 @@ export type Module =
   | "config"
   | "logs"
 
-export type Action = "create" | "read" | "update" | "delete"
+export type Action = "create" | "read" | "update" | "delete" | "view" | "import" | "export" | "print"
 
 export type Permission = `${Module}:${Action}`
 
@@ -272,6 +274,14 @@ export interface AuditLog {
   userAgent?: string
   status: "success" | "failure"
   errorMessage?: string
+  userName?: string // Nom d'utilisateur pour l'affichage
+  user?: {
+    id: string
+    email: string
+    firstName: string
+    lastName: string
+    role: string
+  }
 }
 
 export interface LogFilters {

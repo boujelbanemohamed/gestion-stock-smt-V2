@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
     }
 
     const adjustStockLevel = async (
-      tx: typeof prisma,
+      tx: any,
       cardId: string,
       locationId: string,
       delta: number
@@ -206,7 +206,8 @@ export async function POST(request: NextRequest) {
     })
 
     // Logger la création du mouvement
-    const movementTypeLabel = { entry: "Entrée", exit: "Sortie", transfer: "Transfert" }[body.movementType] || body.movementType
+    const movementTypeLabels: Record<string, string> = { entry: "Entrée", exit: "Sortie", transfer: "Transfert" }
+    const movementTypeLabel = movementTypeLabels[body.movementType] || body.movementType
     await logAudit({
       userId: newMovement.user.id,
       userEmail: newMovement.user.email,

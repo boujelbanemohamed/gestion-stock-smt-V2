@@ -281,7 +281,7 @@ export default function ProfilePage() {
             </div>
             <div className="flex justify-between">
               <span className="font-medium">Dernière connexion:</span>
-              <span>{new Date(currentUser.lastLogin).toLocaleDateString("fr-FR")}</span>
+              <span>{currentUser.lastLogin ? new Date(currentUser.lastLogin).toLocaleDateString("fr-FR") : "Jamais"}</span>
             </div>
           </div>
         </CardContent>

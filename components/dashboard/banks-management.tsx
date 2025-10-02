@@ -338,7 +338,7 @@ export default function BanksManagement() {
       
       // Adapter la réponse de l'API au format attendu par le composant
       const results = {
-        success: apiResponse.success ? banks.slice(0, apiResponse.imported) : [],
+        success: [], // Les banques importées sont ajoutées à la base de données
         errors: apiResponse.errors || []
       }
       

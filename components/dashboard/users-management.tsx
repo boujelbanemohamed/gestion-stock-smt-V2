@@ -294,6 +294,8 @@ export default function UsersManagement() {
       firstName: user.firstName,
       lastName: user.lastName,
       role: user.role,
+      password: "",
+      sendEmail: false,
     })
     setFormErrors({})
     setIsEditDialogOpen(true)
@@ -538,6 +540,7 @@ export default function UsersManagement() {
       reports: "Rapports",
       dashboard: "Tableau de bord",
       config: "Configuration",
+      logs: "Journaux",
     }
     return labels[module]
   }
@@ -548,12 +551,16 @@ export default function UsersManagement() {
       read: "Consulter",
       update: "Modifier",
       delete: "Supprimer",
+      view: "Voir",
+      import: "Importer",
+      export: "Exporter",
+      print: "Imprimer",
     }
     return labels[action]
   }
 
   const organizePermissionsByModule = (permissions: Permission[]) => {
-    const modules: Module[] = ["banks", "cards", "locations", "movements", "users", "reports", "dashboard", "config"]
+    const modules: Module[] = ["banks", "cards", "locations", "movements", "users", "reports", "dashboard", "config", "logs"]
     const organized: Record<Module, Action[]> = {
       banks: [],
       cards: [],
@@ -563,6 +570,7 @@ export default function UsersManagement() {
       reports: [],
       dashboard: [],
       config: [],
+      logs: [],
     }
 
     permissions.forEach((permission) => {
@@ -1009,7 +1017,7 @@ export default function UsersManagement() {
                 value={roleFormData.role}
                 onChange={(e) => setRoleFormData({ ...roleFormData, role: e.target.value })}
                 placeholder="Ex: Gestionnaire de stock"
-                disabled={selectedRole && !selectedRole.isCustom}
+                disabled={selectedRole ? !selectedRole.isCustom : false}
               />
               {selectedRole && !selectedRole.isCustom && (
                 <p className="text-sm text-slate-500 mt-1">

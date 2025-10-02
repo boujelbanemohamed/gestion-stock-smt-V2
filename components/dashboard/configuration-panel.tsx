@@ -712,7 +712,7 @@ export default function ConfigurationPanel() {
                   onValueChange={(value) =>
                     setConfig({
                       ...config,
-                      display: { ...config.display, timeFormat: value },
+                      display: { ...config.display, timeFormat: value as "12h" | "24h" },
                     })
                   }
                 >

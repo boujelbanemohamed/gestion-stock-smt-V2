@@ -74,13 +74,13 @@ export async function GET(request: NextRequest) {
       
       return NextResponse.json<ApiResponse<AppConfig>>({
         success: true,
-        data: defaultConfig.config as AppConfig,
+        data: defaultConfig.config as unknown as AppConfig,
       })
     }
 
     return NextResponse.json<ApiResponse<AppConfig>>({
       success: true,
-      data: config.config as AppConfig,
+      data: config.config as unknown as AppConfig,
     })
   } catch (error) {
     console.error('Error fetching config:', error)
@@ -112,7 +112,7 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json<ApiResponse<AppConfig>>({
       success: true,
-      data: updatedConfig.config as AppConfig,
+      data: updatedConfig.config as unknown as AppConfig,
       message: "Configuration mise à jour avec succès",
     })
   } catch (error) {
