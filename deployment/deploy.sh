@@ -229,7 +229,37 @@ if [ "$ADMIN_ROLE_ID" != "null" ] && [ -n "$ADMIN_ROLE_ID" ]; then
         }' > /dev/null
     echo -e "${GREEN}✓ Permissions du rôle admin configurées${NC}"
 else
-    echo -e "${RED}✗ Impossible de trouver le rôle admin${NC}"
+    echo -e "${YELLOW}✗ Rôle admin non trouvé, création des rôles de base...${NC}"
+    
+    # Créer les rôles de base
+    curl -s -X POST "http://localhost:3000/api/roles" \
+        -H "Content-Type: application/json" \
+        -d '{
+            "role": "admin",
+            "description": "Administrateur avec toutes les permissions",
+            "permissions": [
+                "dashboard:view","banks:view","banks:create","banks:update","banks:delete","banks:import","banks:export","banks:print",
+                "cards:view","cards:create","cards:update","cards:delete","cards:import","cards:export","cards:print",
+                "locations:view","locations:create","locations:update","locations:delete","locations:import","locations:export","locations:print",
+                "movements:view","movements:create","movements:update","movements:delete","movements:import","movements:export","movements:print",
+                "users:view","users:create","users:update","users:delete","users:import","users:export","users:print",
+                "logs:view","logs:create","logs:update","logs:delete","logs:import","logs:export","logs:print",
+                "config:view","config:create","config:update","config:delete","config:import","config:export","config:print"
+            ]
+        }' > /dev/null
+    
+    # Créer le rôle utilisateur
+    curl -s -X POST "http://localhost:3000/api/roles" \
+        -H "Content-Type: application/json" \
+        -d '{
+            "role": "user",
+            "description": "Utilisateur avec droits de lecture",
+            "permissions": [
+                "dashboard:view","banks:view","cards:view","locations:view","movements:view","users:view"
+            ]
+        }' > /dev/null
+    
+    echo -e "${GREEN}✓ Rôles de base créés${NC}"
 fi
 
 # Arrêter l'application temporaire
@@ -256,6 +286,18 @@ PM2_PATH=$(which pm2)
 if [ -z "$PM2_PATH" ]; then
     PM2_PATH="/usr/local/bin/pm2"
 fi
+
+# Si PM2 est dans le répertoire de l'utilisateur, l'installer globalement
+if [[ "$PM2_PATH" == *"/root/.nvm"* ]] || [[ "$PM2_PATH" == *"/home"* ]]; then
+    echo -e "${YELLOW}PM2 trouvé dans un répertoire utilisateur, installation globale...${NC}"
+    npm install -g pm2
+    PM2_PATH=$(which pm2)
+    if [ -z "$PM2_PATH" ]; then
+        PM2_PATH="/usr/local/bin/pm2"
+    fi
+fi
+
+echo -e "${YELLOW}Chemin PM2: ${PM2_PATH}${NC}"
 
 # Arrêter les processus PM2 existants s'ils existent
 sudo -u ${APP_USER} ${PM2_PATH} delete ${APP_NAME} 2>/dev/null || true
