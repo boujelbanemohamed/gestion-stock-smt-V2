@@ -231,9 +231,23 @@ sleep 2
 echo -e "\n${YELLOW}[11/11] Configuration des services...${NC}"
 
 # Configuration PM2
-sudo -u ${APP_USER} pm2 start npm --name "${APP_NAME}" -- start
-sudo -u ${APP_USER} pm2 save
-pm2 startup systemd -u ${APP_USER} --hp ${APP_DIR}
+# Installer PM2 globalement si pas déjà installé
+if ! command -v pm2 &> /dev/null; then
+    echo -e "${YELLOW}Installation de PM2...${NC}"
+    npm install -g pm2
+fi
+
+# Trouver le chemin de PM2
+PM2_PATH=$(which pm2)
+if [ -z "$PM2_PATH" ]; then
+    PM2_PATH="/usr/local/bin/pm2"
+fi
+
+# Démarrer l'application avec PM2
+cd ${APP_DIR}
+sudo -u ${APP_USER} ${PM2_PATH} start npm --name "${APP_NAME}" -- start
+sudo -u ${APP_USER} ${PM2_PATH} save
+sudo -u ${APP_USER} ${PM2_PATH} startup systemd -u ${APP_USER} --hp ${APP_DIR}
 
 # Copier la configuration Nginx
 cp ${APP_DIR}/deployment/nginx.conf /etc/nginx/conf.d/${APP_NAME}.conf
