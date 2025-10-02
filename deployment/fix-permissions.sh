@@ -35,7 +35,16 @@ echo -e "${GREEN}✓ Application accessible${NC}"
 
 # Récupérer l'ID du rôle admin
 echo -e "\n${YELLOW}Récupération du rôle admin...${NC}"
-ADMIN_ROLE_ID=$(curl -s "${BASE_URL}/api/roles" | jq -r '.data[] | select(.role == "admin") | .id')
+API_RESPONSE=$(curl -s "${BASE_URL}/api/roles")
+
+# Vérifier si la réponse contient 'success'
+if echo "$API_RESPONSE" | jq -e '.success' > /dev/null 2>&1; then
+    ADMIN_ROLE_ID=$(echo "$API_RESPONSE" | jq -r '.data[] | select(.role == "admin") | .id')
+else
+    echo -e "${RED}❌ L'API ne répond pas correctement${NC}"
+    echo "Réponse reçue: $API_RESPONSE"
+    exit 1
+fi
 
 if [ "$ADMIN_ROLE_ID" = "null" ] || [ -z "$ADMIN_ROLE_ID" ]; then
     echo -e "${RED}❌ Impossible de trouver le rôle admin${NC}"

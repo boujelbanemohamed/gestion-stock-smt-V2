@@ -185,7 +185,20 @@ if ! command -v jq &> /dev/null; then
     dnf install -y jq
 fi
 
-ADMIN_ROLE_ID=$(curl -s http://localhost:3000/api/roles | jq -r '.data[] | select(.role == "admin") | .id')
+# Vérifier que l'API répond correctement
+echo -e "${YELLOW}Vérification de l'API...${NC}"
+API_RESPONSE=$(curl -s http://localhost:3000/api/roles)
+echo "Réponse API: $API_RESPONSE"
+
+# Vérifier si la réponse contient 'success'
+if echo "$API_RESPONSE" | jq -e '.success' > /dev/null 2>&1; then
+    ADMIN_ROLE_ID=$(echo "$API_RESPONSE" | jq -r '.data[] | select(.role == "admin") | .id')
+    echo "ID du rôle admin trouvé: $ADMIN_ROLE_ID"
+else
+    echo -e "${RED}Erreur: L'API ne répond pas correctement${NC}"
+    echo "Réponse reçue: $API_RESPONSE"
+    ADMIN_ROLE_ID=""
+fi
 
 if [ "$ADMIN_ROLE_ID" != "null" ] && [ -n "$ADMIN_ROLE_ID" ]; then
     curl -s -X PUT "http://localhost:3000/api/roles/${ADMIN_ROLE_ID}" \
