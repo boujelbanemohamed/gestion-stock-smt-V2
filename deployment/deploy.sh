@@ -161,8 +161,16 @@ sudo -u ${APP_USER} npx prisma db push
 sudo -u ${APP_USER} npm run build
 
 echo -e "\n${YELLOW}[10/11] Configuration des permissions des rôles...${NC}"
+
+# Arrêter tous les processus Node.js existants pour éviter les conflits de ports
+echo -e "${YELLOW}Arrêt des processus Node.js existants...${NC}"
+pkill -f "node.*next" 2>/dev/null || true
+pkill -f "npm.*dev" 2>/dev/null || true
+sleep 3
+
 # Démarrer temporairement l'application pour configurer les rôles
-sudo -u ${APP_USER} npm run dev &
+echo -e "${YELLOW}Démarrage temporaire de l'application...${NC}"
+sudo -u ${APP_USER} npm run dev > /dev/null 2>&1 &
 APP_PID=$!
 sleep 10
 
@@ -225,7 +233,13 @@ else
 fi
 
 # Arrêter l'application temporaire
+echo -e "${YELLOW}Arrêt de l'application temporaire...${NC}"
 kill $APP_PID 2>/dev/null || true
+sleep 3
+
+# Arrêter tous les processus Node.js restants
+pkill -f "node.*next" 2>/dev/null || true
+pkill -f "npm.*dev" 2>/dev/null || true
 sleep 2
 
 echo -e "\n${YELLOW}[11/11] Configuration des services...${NC}"
@@ -243,8 +257,12 @@ if [ -z "$PM2_PATH" ]; then
     PM2_PATH="/usr/local/bin/pm2"
 fi
 
+# Arrêter les processus PM2 existants s'ils existent
+sudo -u ${APP_USER} ${PM2_PATH} delete ${APP_NAME} 2>/dev/null || true
+
 # Démarrer l'application avec PM2
 cd ${APP_DIR}
+echo -e "${YELLOW}Démarrage de l'application avec PM2...${NC}"
 sudo -u ${APP_USER} ${PM2_PATH} start npm --name "${APP_NAME}" -- start
 sudo -u ${APP_USER} ${PM2_PATH} save
 sudo -u ${APP_USER} ${PM2_PATH} startup systemd -u ${APP_USER} --hp ${APP_DIR}
