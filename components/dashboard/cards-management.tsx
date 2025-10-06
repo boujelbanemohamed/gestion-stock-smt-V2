@@ -254,18 +254,39 @@ export default function CardsManagement() {
   const processImport = async () => {
     if (!importFile) return
 
-    const text = await importFile.text()
-    const lines = text.split("\n").filter((line) => line.trim())
-    const headers = lines[0].split(";")
+    const raw = await importFile.text()
+    // Normaliser les retours chariot et supprimer un éventuel BOM
+    const normalized = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+    const lines = normalized.split("\n").filter((line) => line.trim().length > 0)
+    let headerLine = (lines[0] || "").replace(/^\uFEFF/, "")
+    const headers = headerLine.split(";").map((h) => h.trim())
+
+    // Valider la présence des en-têtes requis
+    const requiredHeaders = [
+      "BanqueEmettrice",
+      "NomCarte",
+      "Type",
+      "SousType",
+      "SousSousType",
+    ]
+    const missingHeaders = requiredHeaders.filter((h) => !headers.includes(h))
+    if (missingHeaders.length > 0) {
+      setImportResults({ success: [], errors: [
+        `En-têtes manquants: ${missingHeaders.join(", ")}. Attendus: ${requiredHeaders.join(";")}`,
+      ]})
+      return
+    }
 
     const cards: CardImportRow[] = []
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(";")
+      const values = (lines[i] || "").split(";")
       const card: any = {}
 
       headers.forEach((header, index) => {
-        card[header.trim()] = values[index]?.trim() || ""
+        const key = header.trim()
+        const value = (values[index] ?? "").trim()
+        card[key] = value
       })
 
       cards.push(card as CardImportRow)
