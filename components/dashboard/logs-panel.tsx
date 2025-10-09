@@ -12,14 +12,17 @@ export default function LogsPanel() {
   const [logs, setLogs] = useState<AuditLog[]>([])
   const [filteredLogs, setFilteredLogs] = useState<AuditLog[]>([])
   const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [users, setUsers] = useState<User[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [actionFilter, setActionFilter] = useState<string>("all")
   const [moduleFilter, setModuleFilter] = useState<string>("all")
+  const [userFilter, setUserFilter] = useState<string>("all")
   const [startDate, setStartDate] = useState<string>("")
   const [endDate, setEndDate] = useState<string>("")
 
   useEffect(() => {
     loadCurrentUser()
+    loadUsers()
     loadLogs()
   }, [])
 
@@ -37,9 +40,21 @@ export default function LogsPanel() {
     }
   }
 
+  const loadUsers = async () => {
+    try {
+      const response = await fetch('/api/users')
+      const data = await response.json()
+      if (data.success) {
+        setUsers(data.data || [])
+      }
+    } catch (error) {
+      console.error('Error loading users:', error)
+    }
+  }
+
   useEffect(() => {
     filterLogs()
-  }, [logs, searchTerm, actionFilter, moduleFilter, startDate, endDate])
+  }, [logs, searchTerm, actionFilter, moduleFilter, userFilter, startDate, endDate])
 
   const loadLogs = async () => {
     try {
@@ -75,6 +90,11 @@ export default function LogsPanel() {
     // Filtre par module
     if (moduleFilter !== "all") {
       filtered = filtered.filter((log) => log.module === moduleFilter)
+    }
+
+    // Filtre par utilisateur
+    if (userFilter !== "all") {
+      filtered = filtered.filter((log) => log.userId === userFilter)
     }
 
     // Filtre par plage de dates
@@ -170,11 +190,11 @@ export default function LogsPanel() {
       <Card>
         <CardHeader>
           <CardTitle>Filtres</CardTitle>
-          <CardDescription>Filtrez les logs par terme de recherche, action, module ou période</CardDescription>
+          <CardDescription>Filtrez les logs par terme de recherche, action, module, utilisateur ou période</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
                 <label className="text-sm font-medium text-slate-700 mb-2 block">Recherche</label>
                 <Input
@@ -218,6 +238,22 @@ export default function LogsPanel() {
                   </SelectContent>
                 </Select>
               </div>
+              <div>
+                <label className="text-sm font-medium text-slate-700 mb-2 block">Utilisateur</label>
+                <Select value={userFilter} onValueChange={setUserFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Tous les utilisateurs" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tous les utilisateurs</SelectItem>
+                    {users.map((user) => (
+                      <SelectItem key={user.id} value={user.id}>
+                        {user.firstName} {user.lastName} ({user.email})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -253,6 +289,7 @@ export default function LogsPanel() {
                 setSearchTerm("")
                 setActionFilter("all")
                 setModuleFilter("all")
+                setUserFilter("all")
                 setStartDate("")
                 setEndDate("")
               }}
