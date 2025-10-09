@@ -395,7 +395,7 @@ export default function BanksManagement() {
     const printWindow = window.open("", "_blank")
     if (!printWindow) return
 
-    const tableRows = banks
+    const banksContent = banks
       .map((bank) => {
         const bankLocations = locations.filter((l) => l.bankId === bank.id)
         const locationNames = bankLocations.length > 0 
@@ -403,27 +403,80 @@ export default function BanksManagement() {
           : "N/A"
 
         const bankCards = cards.filter((c) => c.bankId === bank.id)
-        const cardsInfo = bankCards.length > 0
-          ? bankCards.map((c) => `${c.name} (${c.quantity})`).join(", ")
-          : "N/A"
+        
+        // Créer le tableau des détails des cartes
+        const cardsDetailsRows = bankCards.length > 0
+          ? bankCards.map((card) => `
+              <tr>
+                <td style="border: 1px solid #ddd; padding: 6px; font-size: 11px;">${card.name}</td>
+                <td style="border: 1px solid #ddd; padding: 6px; font-size: 11px;">${card.type}</td>
+                <td style="border: 1px solid #ddd; padding: 6px; font-size: 11px;">${card.subType || "N/A"}</td>
+                <td style="border: 1px solid #ddd; padding: 6px; font-size: 11px;">${card.subSubType || "N/A"}</td>
+                <td style="border: 1px solid #ddd; padding: 6px; font-size: 11px; text-align: center;">${card.quantity || 0}</td>
+                <td style="border: 1px solid #ddd; padding: 6px; font-size: 11px; text-align: center;">
+                  <span style="padding: 2px 6px; border-radius: 3px; background-color: ${card.isActive ? '#22c55e' : '#ef4444'}; color: white; font-size: 10px;">
+                    ${card.isActive ? "Active" : "Inactive"}
+                  </span>
+                </td>
+              </tr>
+            `).join("")
+          : `<tr><td colspan="6" style="border: 1px solid #ddd; padding: 6px; text-align: center; font-style: italic; color: #64748b;">Aucune carte</td></tr>`
 
         return `
-          <tr>
-            <td style="border: 1px solid #ddd; padding: 8px;">${bank.code}</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">${bank.name}</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">${bank.country}</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">${bank.swiftCode}</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">${bank.address || "N/A"}</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">${bank.phone || "N/A"}</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">${bank.email || "N/A"}</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">${locationNames}</td>
-            <td style="border: 1px solid #ddd; padding: 8px;">${bankCards.length}</td>
-            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">
-              <span style="padding: 4px 8px; border-radius: 4px; background-color: ${bank.isActive ? '#22c55e' : '#ef4444'}; color: white; font-size: 12px;">
-                ${bank.isActive ? "Active" : "Inactive"}
-              </span>
-            </td>
-          </tr>
+          <div class="bank-section" style="page-break-inside: avoid; margin-bottom: 30px;">
+            <h3 style="background-color: #1e293b; color: white; padding: 10px; margin: 0; font-size: 16px;">
+              ${bank.code} - ${bank.name}
+            </h3>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+              <tr>
+                <td style="border: 1px solid #ddd; padding: 8px; background-color: #f1f5f9; font-weight: bold; width: 150px;">Pays</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${bank.country}</td>
+                <td style="border: 1px solid #ddd; padding: 8px; background-color: #f1f5f9; font-weight: bold; width: 150px;">Code SWIFT</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${bank.swiftCode}</td>
+              </tr>
+              <tr>
+                <td style="border: 1px solid #ddd; padding: 8px; background-color: #f1f5f9; font-weight: bold;">Adresse</td>
+                <td style="border: 1px solid #ddd; padding: 8px;" colspan="3">${bank.address || "N/A"}</td>
+              </tr>
+              <tr>
+                <td style="border: 1px solid #ddd; padding: 8px; background-color: #f1f5f9; font-weight: bold;">Téléphone</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${bank.phone || "N/A"}</td>
+                <td style="border: 1px solid #ddd; padding: 8px; background-color: #f1f5f9; font-weight: bold;">Email</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${bank.email || "N/A"}</td>
+              </tr>
+              <tr>
+                <td style="border: 1px solid #ddd; padding: 8px; background-color: #f1f5f9; font-weight: bold;">Emplacements</td>
+                <td style="border: 1px solid #ddd; padding: 8px;" colspan="3">${locationNames}</td>
+              </tr>
+              <tr>
+                <td style="border: 1px solid #ddd; padding: 8px; background-color: #f1f5f9; font-weight: bold;">Statut</td>
+                <td style="border: 1px solid #ddd; padding: 8px;" colspan="3">
+                  <span style="padding: 4px 8px; border-radius: 4px; background-color: ${bank.isActive ? '#22c55e' : '#ef4444'}; color: white; font-size: 12px;">
+                    ${bank.isActive ? "Active" : "Inactive"}
+                  </span>
+                </td>
+              </tr>
+            </table>
+            
+            <h4 style="color: #1e293b; margin: 10px 0; font-size: 14px; border-bottom: 2px solid #1e293b; padding-bottom: 5px;">
+              Détails des Cartes (${bankCards.length})
+            </h4>
+            <table style="width: 100%; border-collapse: collapse;">
+              <thead>
+                <tr style="background-color: #64748b;">
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: left; color: white; font-size: 12px;">Nom</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: left; color: white; font-size: 12px;">Type</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: left; color: white; font-size: 12px;">Sous-type</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: left; color: white; font-size: 12px;">Sous-sous-type</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: center; color: white; font-size: 12px;">Quantité</th>
+                  <th style="border: 1px solid #ddd; padding: 8px; text-align: center; color: white; font-size: 12px;">Statut</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${cardsDetailsRows}
+              </tbody>
+            </table>
+          </div>
         `
       })
       .join("")
@@ -445,69 +498,38 @@ export default function BanksManagement() {
             }
             .header-info {
               text-align: center;
-              margin-bottom: 20px;
+              margin-bottom: 30px;
               color: #64748b;
             }
             table {
               width: 100%;
               border-collapse: collapse;
-              margin-top: 20px;
-            }
-            th {
-              background-color: #1e293b;
-              color: white;
-              padding: 12px;
-              text-align: left;
-              border: 1px solid #ddd;
-              font-size: 14px;
-            }
-            td {
-              padding: 8px;
-              border: 1px solid #ddd;
-              font-size: 12px;
-            }
-            tr:nth-child(even) {
-              background-color: #f8fafc;
             }
             .footer {
               margin-top: 30px;
               text-align: center;
               color: #64748b;
               font-size: 12px;
+              page-break-inside: avoid;
             }
             @media print {
               button {
                 display: none;
+              }
+              .bank-section {
+                page-break-inside: avoid;
               }
             }
           </style>
         </head>
         <body>
           <h1>Société Monétique Tunisie</h1>
-          <h2 style="text-align: center; color: #1e293b; margin-bottom: 20px;">Liste des Banques Partenaires</h2>
+          <h2 style="text-align: center; color: #1e293b; margin-bottom: 20px;">Liste des Banques Partenaires et Détails des Cartes</h2>
           <div class="header-info">
             <p>Généré le ${new Date().toLocaleString("fr-FR")}</p>
             <p>Total: ${banks.length} banque(s)</p>
           </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Nom</th>
-                <th>Pays</th>
-                <th>Code SWIFT</th>
-                <th>Adresse</th>
-                <th>Téléphone</th>
-                <th>Email</th>
-                <th>Emplacements</th>
-                <th>Nb Cartes</th>
-                <th>Statut</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${tableRows}
-            </tbody>
-          </table>
+          ${banksContent}
           <div class="footer">
             <p>Adresse : Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</p>
           </div>
