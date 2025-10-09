@@ -485,8 +485,29 @@ export default function CardsManagement() {
           <head>
             <title>Liste des Cartes</title>
             <style>
-              body { font-family: Arial, sans-serif; padding: 20px; }
-              h1 { color: #1e40af; border-bottom: 3px solid #1e40af; padding-bottom: 10px; margin-bottom: 20px; }
+              body { 
+                font-family: Arial, sans-serif; 
+                padding: 20px;
+                position: relative;
+                min-height: 100vh;
+              }
+              .header {
+                text-align: center;
+                margin-bottom: 30px;
+              }
+              .company-name {
+                font-size: 1.5em;
+                font-weight: bold;
+                color: #1e40af;
+                margin-bottom: 10px;
+              }
+              h1 { 
+                color: #1e40af; 
+                border-bottom: 3px solid #1e40af; 
+                padding-bottom: 10px; 
+                margin-bottom: 20px;
+                text-align: center;
+              }
               h2 { color: #059669; margin-top: 30px; margin-bottom: 15px; font-size: 1.3em; }
               .meta { color: #6b7280; font-size: 0.9em; margin-bottom: 20px; }
               .cards-table { 
@@ -526,16 +547,70 @@ export default function CardsManagement() {
                 font-weight: 600;
                 color: #059669;
               }
+              .recipient-section {
+                margin-top: 50px;
+                margin-bottom: 30px;
+                padding: 20px;
+                border: 2px solid #d1d5db;
+                border-radius: 8px;
+              }
+              .recipient-section h3 {
+                margin-top: 0;
+                color: #1e40af;
+                border-bottom: 2px solid #d1d5db;
+                padding-bottom: 10px;
+              }
+              .recipient-fields {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+                margin-top: 15px;
+              }
+              .field {
+                margin-bottom: 15px;
+              }
+              .field label {
+                font-weight: 600;
+                color: #374151;
+                display: block;
+                margin-bottom: 5px;
+              }
+              .field-line {
+                border-bottom: 1px solid #000;
+                min-height: 25px;
+                width: 100%;
+              }
+              .signature-field {
+                grid-column: 1 / -1;
+                margin-top: 20px;
+              }
+              .footer {
+                position: fixed;
+                bottom: 20px;
+                left: 20px;
+                right: 20px;
+                text-align: center;
+                padding-top: 10px;
+                border-top: 2px solid #1e40af;
+                font-size: 0.9em;
+                color: #6b7280;
+              }
               @media print {
                 body { padding: 10px; }
                 h2 { page-break-after: avoid; }
                 .cards-table { page-break-inside: auto; }
                 .cards-table tr { page-break-inside: avoid; page-break-after: auto; }
                 .cards-table thead { display: table-header-group; }
+                .recipient-section { page-break-inside: avoid; }
+                .footer { position: fixed; bottom: 0; }
               }
             </style>
           </head>
           <body>
+            <div class="header">
+              <div class="company-name">Société Monétique Tunisie</div>
+            </div>
+            
             <h1>Liste des Cartes par Banque</h1>
             <div class="meta">
               <p><strong>Généré le:</strong> ${new Date().toLocaleDateString("fr-FR")} à ${new Date().toLocaleTimeString("fr-FR")}</p>
@@ -544,6 +619,36 @@ export default function CardsManagement() {
             </div>
             <hr>
             ${printContent || '<p><em>Aucune carte à afficher</em></p>'}
+            
+            <div class="recipient-section">
+              <h3>Destinataire</h3>
+              <div class="recipient-fields">
+                <div class="field">
+                  <label>Nom :</label>
+                  <div class="field-line"></div>
+                </div>
+                <div class="field">
+                  <label>Prénom :</label>
+                  <div class="field-line"></div>
+                </div>
+                <div class="field">
+                  <label>Fonction :</label>
+                  <div class="field-line"></div>
+                </div>
+                <div class="field">
+                  <label>Date :</label>
+                  <div class="field-line"></div>
+                </div>
+                <div class="signature-field">
+                  <label>Signature :</label>
+                  <div class="field-line" style="min-height: 60px;"></div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="footer">
+              <strong>Adresse :</strong> Centre urbain Nord, Sana Center, bloc C – 1082, Tunis
+            </div>
           </body>
         </html>
       `)
