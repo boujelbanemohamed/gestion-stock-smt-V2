@@ -392,44 +392,136 @@ export default function BanksManagement() {
   }
 
   const handlePrint = () => {
-    const printContent = banks
-      .map((bank) => {
-        let content = `${bank.name} (${bank.code})\nPays: ${bank.country}\nSwift: ${bank.swiftCode}\nStatut: ${bank.isActive ? "Active" : "Inactive"}\n`
+    const printWindow = window.open("", "_blank")
+    if (!printWindow) return
 
+    const tableRows = banks
+      .map((bank) => {
         const bankLocations = locations.filter((l) => l.bankId === bank.id)
-        if (bankLocations.length > 0) {
-          content += `Emplacements: ${bankLocations.map((l) => l.name).join(", ")}\n`
-        } else {
-          content += `Emplacements: N/A\n`
-        }
+        const locationNames = bankLocations.length > 0 
+          ? bankLocations.map((l) => l.name).join(", ") 
+          : "N/A"
 
         const bankCards = cards.filter((c) => c.bankId === bank.id)
-        if (bankCards.length > 0) {
-          content += `Cartes:\n${bankCards.map((c) => `  • ${c.name} → ${c.quantity} restantes`).join("\n")}\n`
-        } else {
-          content += `Cartes: N/A\n`
-        }
+        const cardsInfo = bankCards.length > 0
+          ? bankCards.map((c) => `${c.name} (${c.quantity})`).join(", ")
+          : "N/A"
 
-        return content
+        return `
+          <tr>
+            <td style="border: 1px solid #ddd; padding: 8px;">${bank.code}</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">${bank.name}</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">${bank.country}</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">${bank.swiftCode}</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">${bank.address || "N/A"}</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">${bank.phone || "N/A"}</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">${bank.email || "N/A"}</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">${locationNames}</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">${bankCards.length}</td>
+            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">
+              <span style="padding: 4px 8px; border-radius: 4px; background-color: ${bank.isActive ? '#22c55e' : '#ef4444'}; color: white; font-size: 12px;">
+                ${bank.isActive ? "Active" : "Inactive"}
+              </span>
+            </td>
+          </tr>
+        `
       })
-      .join("\n---\n")
+      .join("")
 
-    const printWindow = window.open("", "_blank")
-    if (printWindow) {
-      printWindow.document.write(`
-        <html>
-          <head><title>Liste des Banques</title></head>
-          <body style="font-family: Arial, sans-serif; white-space: pre-line;">
-            <h1>Liste des Banques</h1>
-            <p>Généré le ${new Date().toLocaleDateString("fr-FR")}</p>
-            <hr>
-            ${printContent}
-          </body>
-        </html>
-      `)
-      printWindow.document.close()
-      printWindow.print()
-    }
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Liste des Banques</title>
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              padding: 20px;
+            }
+            h1 {
+              text-align: center;
+              color: #1e293b;
+              margin-bottom: 10px;
+            }
+            .header-info {
+              text-align: center;
+              margin-bottom: 20px;
+              color: #64748b;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 20px;
+            }
+            th {
+              background-color: #1e293b;
+              color: white;
+              padding: 12px;
+              text-align: left;
+              border: 1px solid #ddd;
+              font-size: 14px;
+            }
+            td {
+              padding: 8px;
+              border: 1px solid #ddd;
+              font-size: 12px;
+            }
+            tr:nth-child(even) {
+              background-color: #f8fafc;
+            }
+            .footer {
+              margin-top: 30px;
+              text-align: center;
+              color: #64748b;
+              font-size: 12px;
+            }
+            @media print {
+              button {
+                display: none;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Société Monétique Tunisie</h1>
+          <h2 style="text-align: center; color: #1e293b; margin-bottom: 20px;">Liste des Banques Partenaires</h2>
+          <div class="header-info">
+            <p>Généré le ${new Date().toLocaleString("fr-FR")}</p>
+            <p>Total: ${banks.length} banque(s)</p>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Nom</th>
+                <th>Pays</th>
+                <th>Code SWIFT</th>
+                <th>Adresse</th>
+                <th>Téléphone</th>
+                <th>Email</th>
+                <th>Emplacements</th>
+                <th>Nb Cartes</th>
+                <th>Statut</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+          <div class="footer">
+            <p>Adresse : Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</p>
+          </div>
+          <script>
+            window.onload = function() {
+              window.print();
+            }
+          </script>
+        </body>
+      </html>
+    `
+
+    printWindow.document.write(htmlContent)
+    printWindow.document.close()
   }
 
   const displayValue = (value: string | undefined | null): string => {
