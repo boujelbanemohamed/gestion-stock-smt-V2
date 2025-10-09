@@ -22,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 import type { Movement, Card as CardType, Location, Bank } from "@/lib/types"
+import { Filter } from "lucide-react"
 
 export default function MovementsManagement() {
   const [movements, setMovements] = useState<Movement[]>([])
@@ -972,17 +973,7 @@ export default function MovementsManagement() {
         <CardContent>
           {/* Section des filtres */}
           <div className="mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-slate-700">Filtres</h3>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={resetFilters}
-                className="text-slate-600 hover:text-slate-900"
-              >
-                Réinitialiser
-              </Button>
-            </div>
+            <h3 className="text-sm font-semibold text-slate-700 mb-4">Filtres</h3>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {/* Filtre par banque */}
@@ -1079,6 +1070,14 @@ export default function MovementsManagement() {
                   value={filters.searchTerm}
                   onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })}
                 />
+              </div>
+
+              {/* Bouton Réinitialiser */}
+              <div className="flex items-end">
+                <Button variant="outline" onClick={resetFilters}>
+                  <Filter className="h-4 w-4 mr-2" />
+                  Réinitialiser
+                </Button>
               </div>
             </div>
           </div>
