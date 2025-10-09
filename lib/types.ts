@@ -167,6 +167,7 @@ export interface AppConfig {
 }
 
 export interface BankImportRow {
+  ID?: string
   CodeBanque: string
   NomBanque: string
   Pays: string
@@ -194,6 +195,7 @@ export interface BankFilters {
 }
 
 export interface CardImportRow {
+  ID?: string
   BanqueEmettrice: string
   NomCarte: string
   Type: string

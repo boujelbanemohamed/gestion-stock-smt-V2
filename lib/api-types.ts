@@ -25,5 +25,9 @@ export interface PaginatedResponse<T> {
 export interface ImportResponse {
   success: boolean
   imported: number
+  created: number
+  updated: number
+  rejected: number
   errors: string[]
+  message?: string
 }

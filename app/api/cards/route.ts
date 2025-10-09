@@ -14,7 +14,9 @@ export async function GET(request: NextRequest) {
     const lowStock = searchParams.get("lowStock")
     const searchTerm = searchParams.get("search")
 
-    const where: any = {}
+    const where: any = {
+      isActive: true // Par défaut, afficher uniquement les cartes actives
+    }
 
     if (bankId) where.bankId = bankId
     if (type) where.type = type

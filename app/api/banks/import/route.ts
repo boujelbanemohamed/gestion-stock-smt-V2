@@ -33,29 +33,55 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // Vérifier si la banque existe déjà
-        const existing = await prisma.bank.findUnique({
-          where: { code: row.CodeBanque }
-        })
+        // Si un ID est fourni et non vide, mettre à jour la banque existante
+        if (row.ID && row.ID.trim() !== '') {
+          const existing = await prisma.bank.findUnique({
+            where: { id: row.ID }
+          })
 
-        if (existing) {
-          errors.push(`Ligne ${i + 1}: Banque ${row.CodeBanque} existe déjà`)
-          continue
-        }
-
-        // Créer la banque
-        await prisma.bank.create({
-          data: {
-            code: row.CodeBanque,
-            name: row.NomBanque,
-            country: row.Pays,
-            swiftCode: row.SwiftCode,
-            address: row.Adresse || "",
-            phone: row.Telephone || "",
-            email: row.Email || "",
-            isActive: true,
+          if (!existing) {
+            errors.push(`Ligne ${i + 1}: Banque avec ID ${row.ID} non trouvée`)
+            continue
           }
-        })
+
+          // Mettre à jour la banque existante
+          await prisma.bank.update({
+            where: { id: row.ID },
+            data: {
+              code: row.CodeBanque,
+              name: row.NomBanque,
+              country: row.Pays,
+              swiftCode: row.SwiftCode,
+              address: row.Adresse || "",
+              phone: row.Telephone || "",
+              email: row.Email || "",
+            }
+          })
+        } else {
+          // Vérifier si la banque existe déjà par code
+          const existing = await prisma.bank.findUnique({
+            where: { code: row.CodeBanque }
+          })
+
+          if (existing) {
+            errors.push(`Ligne ${i + 1}: Banque ${row.CodeBanque} existe déjà`)
+            continue
+          }
+
+          // Créer une nouvelle banque
+          await prisma.bank.create({
+            data: {
+              code: row.CodeBanque,
+              name: row.NomBanque,
+              country: row.Pays,
+              swiftCode: row.SwiftCode,
+              address: row.Adresse || "",
+              phone: row.Telephone || "",
+              email: row.Email || "",
+              isActive: true,
+            }
+          })
+        }
 
         imported++
       } catch (error) {

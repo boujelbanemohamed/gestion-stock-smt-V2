@@ -79,6 +79,39 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 // DELETE /api/cards/[id] - Supprimer (désactiver) une carte
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    // Vérifier si la carte existe
+    const card = await prisma.card.findUnique({
+      where: { id: params.id }
+    })
+
+    if (!card) {
+      return NextResponse.json<ApiResponse>(
+        {
+          success: false,
+          error: "Carte non trouvée",
+        },
+        { status: 404 },
+      )
+    }
+
+    // Vérifier si la carte a du stock dans les emplacements
+    const stockLevels = await prisma.stockLevel.findMany({
+      where: { cardId: params.id }
+    })
+
+    const totalStock = stockLevels.reduce((sum, level) => sum + level.quantity, 0)
+
+    if (totalStock > 0) {
+      return NextResponse.json<ApiResponse>(
+        {
+          success: false,
+          error: `Impossible de supprimer cette carte. Elle contient encore ${totalStock} unité(s) en stock dans les emplacements. Veuillez d'abord transférer ou sortir ce stock.`,
+        },
+        { status: 400 },
+      )
+    }
+
+    // Si pas de stock, désactiver la carte
     await prisma.card.update({
       where: { id: params.id },
       data: { isActive: false }

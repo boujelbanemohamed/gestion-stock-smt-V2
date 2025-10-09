@@ -289,13 +289,36 @@ export default function BanksManagement() {
 
   const downloadTemplate = () => {
     const csvContent =
-      "CodeBanque;NomBanque;Pays;SwiftCode;Adresse;Telephone;Email\nB001;Banque Centrale;Tunisie;BCTNTNTT;123 Avenue Habib Bourguiba;+216 71 123 456;contact@bc.tn\nB002;Banque Internationale;France;BIFRFRPP;45 Rue de la Paix;+33 1 42 86 87 88;info@bi.fr"
+      "ID;CodeBanque;NomBanque;Pays;SwiftCode;Adresse;Telephone;Email\n;B001;Banque Centrale;Tunisie;BCTNTNTT;123 Avenue Habib Bourguiba;+216 71 123 456;contact@bc.tn\n;B002;Banque Internationale;France;BIFRFRPP;45 Rue de la Paix;+33 1 42 86 87 88;info@bi.fr"
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
     const link = document.createElement("a")
     const url = URL.createObjectURL(blob)
     link.setAttribute("href", url)
     link.setAttribute("download", "template_import_banques.csv")
+    link.style.visibility = "hidden"
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  const handleExport = () => {
+    // Créer le header
+    const headers = "ID;CodeBanque;NomBanque;Pays;SwiftCode;Adresse;Telephone;Email"
+    
+    // Créer les lignes de données
+    const rows = banks.map(bank => 
+      `${bank.id};${bank.code};${bank.name};${bank.country};${bank.swiftCode};${bank.address || ''};${bank.phone || ''};${bank.email || ''}`
+    )
+    
+    // Combiner header et rows
+    const csvContent = [headers, ...rows].join('\n')
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+    const link = document.createElement("a")
+    const url = URL.createObjectURL(blob)
+    link.setAttribute("href", url)
+    link.setAttribute("download", `export_banques_${new Date().toISOString().split('T')[0]}.csv`)
     link.style.visibility = "hidden"
     document.body.appendChild(link)
     link.click()
@@ -423,6 +446,10 @@ export default function BanksManagement() {
           <Button variant="outline" onClick={downloadTemplate}>
             <Download className="h-4 w-4 mr-2" />
             Template CSV
+          </Button>
+          <Button variant="outline" onClick={handleExport}>
+            <Download className="h-4 w-4 mr-2" />
+            Exporter
           </Button>
           <Button variant="outline" onClick={() => setIsImportDialogOpen(true)}>
             <Upload className="h-4 w-4 mr-2" />
@@ -714,7 +741,7 @@ export default function BanksManagement() {
                             <div className="text-left">
                               <CardTitle className="text-lg">{bank.name}</CardTitle>
                               <CardDescription>
-                                {bank.code} • {displayValue(bank.country)} • {displayValue(bank.swiftCode)}
+                                ID: {bank.id} • {bank.code} • {displayValue(bank.country)} • {displayValue(bank.swiftCode)}
                               </CardDescription>
                             </div>
                           </div>

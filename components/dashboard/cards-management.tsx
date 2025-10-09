@@ -37,7 +37,7 @@ export default function CardsManagement() {
   const [cardSubTypes, setCardSubTypes] = useState<string[]>([])
   const [cardSubSubTypes, setCardSubSubTypes] = useState<string[]>([])
   const [importFile, setImportFile] = useState<File | null>(null)
-  const [importResults, setImportResults] = useState<{ success: CardData[]; errors: string[] } | null>(null)
+  const [importResults, setImportResults] = useState<{ success: CardData[]; errors: string[]; created?: number; updated?: number; rejected?: number; imported?: number; message?: string } | null>(null)
   const [groupedCards, setGroupedCards] = useState<{ [bankName: string]: CardDetails[] }>({})
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -45,7 +45,20 @@ export default function CardsManagement() {
   const loadData = async () => {
     setIsLoading(true)
     try {
-      // Charger les cartes
+      // Charger TOUTES les cartes pour extraire les types/sous-types (sans filtres)
+      const allCardsResponse = await fetch('/api/cards')
+      const allCardsData = await allCardsResponse.json()
+      if (allCardsData.success) {
+        // Extraire les types uniques de TOUTES les cartes
+        const types = Array.from(new Set(allCardsData.data.map((c: any) => c.type)))
+        const subTypes = Array.from(new Set(allCardsData.data.map((c: any) => c.subType)))
+        const subSubTypes = Array.from(new Set(allCardsData.data.map((c: any) => c.subSubType)))
+        setCardTypes(types as string[])
+        setCardSubTypes(subTypes as string[])
+        setCardSubSubTypes(subSubTypes as string[])
+      }
+
+      // Charger les cartes filtrées
       const params = new URLSearchParams()
       if (filters.bankId) params.append('bankId', filters.bankId)
       if (filters.type) params.append('type', filters.type)
@@ -58,13 +71,6 @@ export default function CardsManagement() {
       const cardsData = await cardsResponse.json()
       if (cardsData.success) {
         setCards(cardsData.data || [])
-        // Extraire les types uniques
-        const types = Array.from(new Set(cardsData.data.map((c: any) => c.type)))
-        const subTypes = Array.from(new Set(cardsData.data.map((c: any) => c.subType)))
-        const subSubTypes = Array.from(new Set(cardsData.data.map((c: any) => c.subSubType)))
-        setCardTypes(types as string[])
-        setCardSubTypes(subTypes as string[])
-        setCardSubSubTypes(subSubTypes as string[])
       }
 
       // Charger les banques actives
@@ -77,20 +83,27 @@ export default function CardsManagement() {
       // Grouper les cartes par banque avec la structure CardDetails
       if (cardsData.success && banksData.success) {
         const grouped: any = {}
-        banksData.data.forEach((bank: any) => {
-          const bankCards = cardsData.data
-            .filter((c: any) => c.bankId === bank.id)
-            .map((c: any) => ({
-              card: c,
-              remainingQuantity: c.quantity,
-              perLocation: (c.stockLevels || []).map((sl: any) => ({
+        
+        // Grouper uniquement les cartes filtrées par leur banque
+        cardsData.data.forEach((card: any) => {
+          const bank = banksData.data.find((b: any) => b.id === card.bankId)
+          if (bank) {
+            const bankName = bank.name
+            if (!grouped[bankName]) {
+              grouped[bankName] = []
+            }
+            grouped[bankName].push({
+              card: card,
+              remainingQuantity: card.quantity,
+              perLocation: (card.stockLevels || []).map((sl: any) => ({
                 locationId: sl.location?.id,
                 locationName: sl.location?.name,
                 quantity: sl.quantity
               }))
-            }))
-          grouped[bank.name] = bankCards
+            })
+          }
         })
+        
         setGroupedCards(grouped)
       }
     } catch (error) {
@@ -211,6 +224,18 @@ export default function CardsManagement() {
   }
 
   const handleDelete = async (id: string) => {
+    // Vérifier d'abord si la carte a du stock
+    const card = cards.find(c => c.id === id)
+    if (!card) return
+
+    const stockLevels = card.stockLevels || []
+    const totalStock = stockLevels.reduce((sum: number, level: any) => sum + level.quantity, 0)
+
+    if (totalStock > 0) {
+      alert(`⚠️ Impossible de supprimer cette carte.\n\nElle contient encore ${totalStock} unité(s) en stock dans les emplacements.\n\nVeuillez d'abord transférer ou sortir ce stock avant de supprimer la carte.`)
+      return
+    }
+
     if (confirm("Êtes-vous sûr de vouloir supprimer cette carte ?")) {
       try {
         const response = await fetch(`/api/cards/${id}`, {
@@ -218,26 +243,51 @@ export default function CardsManagement() {
         })
         const data = await response.json()
         if (data.success) {
+          alert('✅ Carte supprimée avec succès')
           await loadData()
         } else {
-          alert(data.error || 'Erreur lors de la suppression')
+          alert(`❌ ${data.error || 'Erreur lors de la suppression'}`)
         }
       } catch (error) {
         console.error('Error deleting card:', error)
-        alert('Erreur lors de la suppression')
+        alert('❌ Erreur lors de la suppression')
       }
     }
   }
 
   const downloadTemplate = () => {
     const csvContent =
-      "BanqueEmettrice;NomCarte;Type;SousType;SousSousType\nBanque Internationale;Carte Débit Jeune;Carte débit;Mastercard;National\nBanque Internationale;Carte Débit Gold;Carte débit;Mastercard;International\nBanque Centrale;Carte Débit Standard;Carte débit;Visa;National"
+      "ID;BanqueEmettrice;NomCarte;Type;SousType;SousSousType\n;Banque Internationale;Carte Débit Jeune;Carte débit;Mastercard;National\n;Banque Internationale;Carte Débit Gold;Carte débit;Mastercard;International\n;Banque Centrale;Carte Débit Standard;Carte débit;Visa;National"
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
     const link = document.createElement("a")
     const url = URL.createObjectURL(blob)
     link.setAttribute("href", url)
     link.setAttribute("download", "template_import_cartes.csv")
+    link.style.visibility = "hidden"
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  const handleExport = () => {
+    // Créer le header
+    const headers = "ID;BanqueEmettrice;NomCarte;Type;SousType;SousSousType"
+    
+    // Créer les lignes de données
+    const rows = cards.map(card => {
+      const bankName = card.bank?.name || banks.find(b => b.id === card.bankId)?.name || ''
+      return `${card.id};${bankName};${card.name};${card.type};${card.subType};${card.subSubType}`
+    })
+    
+    // Combiner header et rows
+    const csvContent = [headers, ...rows].join('\n')
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+    const link = document.createElement("a")
+    const url = URL.createObjectURL(blob)
+    link.setAttribute("href", url)
+    link.setAttribute("download", `export_cartes_${new Date().toISOString().split('T')[0]}.csv`)
     link.style.visibility = "hidden"
     document.body.appendChild(link)
     link.click()
@@ -258,10 +308,22 @@ export default function CardsManagement() {
     // Normaliser les retours chariot et supprimer un éventuel BOM
     const normalized = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
     const lines = normalized.split("\n").filter((line) => line.trim().length > 0)
-    let headerLine = (lines[0] || "").replace(/^\uFEFF/, "")
-    const headers = headerLine.split(";").map((h) => h.trim())
+    let headerLine = (lines[0] || "").replace(/^\uFEFF/, "").trim()
 
-    // Valider la présence des en-têtes requis
+    // Détecter automatiquement le séparateur: priorité ; puis , puis tabulation
+    const detectDelimiter = (sample: string): string => {
+      if (sample.includes(";")) return ";"
+      if (sample.includes(",")) return ","
+      return "\t"
+    }
+    const delimiter = detectDelimiter(headerLine)
+
+    // Nettoyer les guillemets éventuels
+    const sanitizeCell = (value: string) => value.replace(/^\s*\"|\"\s*$/g, "").trim()
+
+    const headers = headerLine.split(delimiter).map((h) => sanitizeCell(h))
+
+    // Valider la présence des en-têtes requis (ID est optionnel)
     const requiredHeaders = [
       "BanqueEmettrice",
       "NomCarte",
@@ -269,10 +331,18 @@ export default function CardsManagement() {
       "SousType",
       "SousSousType",
     ]
+    
+    // Vérifier si la colonne ID est présente (optionnelle)
+    const hasIdColumn = headers.includes("ID")
+    
+    // Valider uniquement les en-têtes obligatoires
     const missingHeaders = requiredHeaders.filter((h) => !headers.includes(h))
     if (missingHeaders.length > 0) {
+      const expectedFormat = hasIdColumn 
+        ? `ID;${requiredHeaders.join(";")}`
+        : requiredHeaders.join(";")
       setImportResults({ success: [], errors: [
-        `En-têtes manquants: ${missingHeaders.join(", ")}. Attendus: ${requiredHeaders.join(";")}`,
+        `En-têtes manquants: ${missingHeaders.join(", ")}. Format attendu: ${expectedFormat}`,
       ]})
       return
     }
@@ -280,12 +350,14 @@ export default function CardsManagement() {
     const cards: CardImportRow[] = []
 
     for (let i = 1; i < lines.length; i++) {
-      const values = (lines[i] || "").split(";")
+      const line = (lines[i] || "").trim()
+      if (!line) continue
+      const values = line.split(delimiter)
       const card: any = {}
 
       headers.forEach((header, index) => {
         const key = header.trim()
-        const value = (values[index] ?? "").trim()
+        const value = sanitizeCell((values[index] ?? "").trim())
         card[key] = value
       })
 
@@ -301,8 +373,13 @@ export default function CardsManagement() {
       const data = await response.json()
       
       setImportResults({
-        success: data.imported > 0 ? [] : [], // Les cartes importées sont ajoutées à la base de données
-        errors: data.errors || []
+        success: data.imported > 0 ? new Array(data.created || 0).fill({}) as any : [],
+        errors: data.errors || [],
+        created: data.created,
+        updated: data.updated,
+        rejected: data.rejected,
+        imported: data.imported,
+        message: data.message,
       })
 
       if (data.imported > 0) {
@@ -320,33 +397,153 @@ export default function CardsManagement() {
   const resetFilters = () => {
     setFilters({
       searchTerm: "",
+      bankId: undefined,
+      type: undefined,
+      subType: undefined,
+      subSubType: undefined,
+      lowStock: false,
     })
   }
 
   const handlePrint = () => {
+    // Afficher les filtres actifs
+    const activeFilters: string[] = []
+    if (filters.bankId) {
+      const bankName = banks.find(b => b.id === filters.bankId)?.name
+      if (bankName) activeFilters.push(`Banque: ${bankName}`)
+    }
+    if (filters.type) activeFilters.push(`Type: ${filters.type}`)
+    if (filters.subType) activeFilters.push(`Sous-type: ${filters.subType}`)
+    if (filters.subSubType) activeFilters.push(`Sous-sous-type: ${filters.subSubType}`)
+    if (filters.lowStock) activeFilters.push(`Seuil bas uniquement`)
+    if (filters.searchTerm) activeFilters.push(`Recherche: "${filters.searchTerm}"`)
+
+    const filtersText = activeFilters.length > 0 
+      ? `<p><strong>Filtres appliqués:</strong> ${activeFilters.join(' | ')}</p>`
+      : '<p><em>Aucun filtre appliqué</em></p>'
+
     const printContent = Object.entries(groupedCards)
       .map(([bankName, bankCards]) => {
-        let content = `${bankName}\n`
-        content += bankCards
-          .map((cardDetail) => {
-            const card = cardDetail.card
-            return `  - ${card.name} (${card.type} – ${card.subType} – ${card.subSubType}) → ${card.quantity} restantes`
-          })
-          .join("\n")
+        if (bankCards.length === 0) return '' // Ne pas afficher les banques sans cartes
+        
+        // Trier les cartes par type, puis sous-type, puis sous-sous-type, puis nom
+        const sortedCards = [...bankCards].sort((a, b) => {
+          const cardA = a.card
+          const cardB = b.card
+          
+          if (cardA.type !== cardB.type) return cardA.type.localeCompare(cardB.type)
+          if (cardA.subType !== cardB.subType) return cardA.subType.localeCompare(cardB.subType)
+          if (cardA.subSubType !== cardB.subSubType) return cardA.subSubType.localeCompare(cardB.subSubType)
+          return cardA.name.localeCompare(cardB.name)
+        })
+
+        // Grouper par type pour calculer les rowspan
+        const typeGroups: { [type: string]: number } = {}
+        sortedCards.forEach((cardDetail) => {
+          const type = cardDetail.card.type
+          typeGroups[type] = (typeGroups[type] || 0) + 1
+        })
+
+        let content = `<h2>${bankName}</h2>`
+        content += `<table class="cards-table">`
+        content += `<thead><tr><th>Type</th><th>Sous-type</th><th>Sous-sous-type</th><th>Nom de la carte</th><th>Quantité</th></tr></thead>`
+        content += `<tbody>`
+        
+        let currentType = ''
+        let typeRowCount = 0
+        
+        sortedCards.forEach((cardDetail) => {
+          const card = cardDetail.card
+          content += `<tr>`
+          
+          // Afficher la cellule Type uniquement pour la première carte de ce type
+          if (card.type !== currentType) {
+            currentType = card.type
+            typeRowCount = typeGroups[card.type]
+            content += `<td rowspan="${typeRowCount}" class="type-cell">${card.type}</td>`
+          }
+          
+          content += `<td>${card.subType}</td>`
+          content += `<td>${card.subSubType}</td>`
+          content += `<td>${card.name}</td>`
+          content += `<td class="quantity-cell">${card.quantity}</td>`
+          content += `</tr>`
+        })
+        
+        content += `</tbody></table>`
         return content
       })
-      .join("\n\n")
+      .filter(c => c !== '')
+      .join("")
+
+    const totalCards = Object.values(groupedCards).reduce((sum, cards) => sum + cards.length, 0)
 
     const printWindow = window.open("", "_blank")
     if (printWindow) {
       printWindow.document.write(`
         <html>
-          <head><title>Liste des Cartes</title></head>
-          <body style="font-family: Arial, sans-serif; white-space: pre-line;">
+          <head>
+            <title>Liste des Cartes</title>
+            <style>
+              body { font-family: Arial, sans-serif; padding: 20px; }
+              h1 { color: #1e40af; border-bottom: 3px solid #1e40af; padding-bottom: 10px; margin-bottom: 20px; }
+              h2 { color: #059669; margin-top: 30px; margin-bottom: 15px; font-size: 1.3em; }
+              .meta { color: #6b7280; font-size: 0.9em; margin-bottom: 20px; }
+              .cards-table { 
+                width: 100%; 
+                border-collapse: collapse; 
+                margin-top: 10px; 
+                margin-bottom: 30px;
+              }
+              .cards-table th { 
+                background-color: #1e40af; 
+                color: white; 
+                padding: 12px 8px; 
+                text-align: left; 
+                font-weight: 600;
+                border: 1px solid #1e40af;
+              }
+              .cards-table td { 
+                padding: 10px 8px; 
+                border: 1px solid #d1d5db; 
+              }
+              .cards-table tbody tr:nth-child(even) { 
+                background-color: #f9fafb; 
+              }
+              .cards-table tbody tr:hover { 
+                background-color: #f3f4f6; 
+              }
+              .type-cell {
+                background-color: #eff6ff;
+                font-weight: 600;
+                color: #1e40af;
+                vertical-align: middle;
+                text-align: center;
+                font-size: 1.05em;
+              }
+              .quantity-cell {
+                text-align: center;
+                font-weight: 600;
+                color: #059669;
+              }
+              @media print {
+                body { padding: 10px; }
+                h2 { page-break-after: avoid; }
+                .cards-table { page-break-inside: auto; }
+                .cards-table tr { page-break-inside: avoid; page-break-after: auto; }
+                .cards-table thead { display: table-header-group; }
+              }
+            </style>
+          </head>
+          <body>
             <h1>Liste des Cartes par Banque</h1>
-            <p>Généré le ${new Date().toLocaleDateString("fr-FR")}</p>
+            <div class="meta">
+              <p><strong>Généré le:</strong> ${new Date().toLocaleDateString("fr-FR")} à ${new Date().toLocaleTimeString("fr-FR")}</p>
+              ${filtersText}
+              <p><strong>Total:</strong> ${totalCards} carte(s)</p>
+            </div>
             <hr>
-            ${printContent}
+            ${printContent || '<p><em>Aucune carte à afficher</em></p>'}
           </body>
         </html>
       `)
@@ -394,6 +591,10 @@ export default function CardsManagement() {
           <Button variant="outline" onClick={downloadTemplate}>
             <Download className="h-4 w-4 mr-2" />
             Template CSV
+          </Button>
+          <Button variant="outline" onClick={handleExport}>
+            <Download className="h-4 w-4 mr-2" />
+            Exporter
           </Button>
           <Button variant="outline" onClick={() => setIsImportDialogOpen(true)}>
             <Upload className="h-4 w-4 mr-2" />
@@ -459,14 +660,24 @@ export default function CardsManagement() {
                     <Label htmlFor="type" className="text-right">
                       Type
                     </Label>
-                    <Input
-                      id="type"
+                    <Select
                       value={formData.type}
-                      onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                      className="col-span-3"
-                      placeholder="ex. Carte débit"
+                      onValueChange={(value) => setFormData({ ...formData, type: value })}
                       required
-                    />
+                    >
+                      <SelectTrigger className="col-span-3">
+                        <SelectValue placeholder="Sélectionner un type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Visa">Visa</SelectItem>
+                        <SelectItem value="Mastercard">Mastercard</SelectItem>
+                        <SelectItem value="UPI">UPI</SelectItem>
+                        <SelectItem value="JCB">JCB</SelectItem>
+                        <SelectItem value="White Label">White Label</SelectItem>
+                        <SelectItem value="Amex">Amex</SelectItem>
+                        <SelectItem value="Autre">Autre</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="subType" className="text-right">
@@ -714,7 +925,7 @@ export default function CardsManagement() {
                                 <div className="flex-1">
                                   <div className="font-medium">{card.name}</div>
                               <div className="text-sm text-slate-600">
-                                {card.type} – {card.subType} – {card.subSubType}
+                                ID: {card.id} • {card.type} – {card.subType} – {card.subSubType}
                               </div>
                               {Array.isArray((cardDetail as any).perLocation) && (cardDetail as any).perLocation.length > 0 && (
                                 <div className="mt-1 text-xs text-slate-600">
@@ -781,13 +992,16 @@ export default function CardsManagement() {
             )}
             {importResults && (
               <div className="space-y-2">
-                {importResults.success.length > 0 && (
+                {(importResults.created || importResults.updated) ? (
                   <div className="p-3 bg-green-50 rounded">
                     <p className="text-sm font-medium text-green-800">
-                      ✅ {importResults.success.length} carte(s) importée(s) avec succès
+                      ✅ Import terminé: {importResults.created || 0} créée(s), {importResults.updated || 0} mise(s) à jour, {importResults.rejected || 0} rejetée(s)
                     </p>
+                    {importResults.message && (
+                      <p className="text-xs text-green-700 mt-1">{importResults.message}</p>
+                    )}
                   </div>
-                )}
+                ) : null}
                 {importResults.errors.length > 0 && (
                   <div className="p-3 bg-red-50 rounded">
                     <p className="text-sm font-medium text-red-800 mb-2">❌ Erreurs détectées:</p>

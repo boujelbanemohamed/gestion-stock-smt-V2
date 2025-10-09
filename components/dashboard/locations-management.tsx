@@ -34,8 +34,14 @@ export default function LocationsManagement() {
   const [isSearchDialogOpen, setIsSearchDialogOpen] = useState(false)
   const [editingLocation, setEditingLocation] = useState<Location | null>(null)
   const [cardsByLocation, setCardsByLocation] = useState<Map<string, { card: any; quantity: number }[]>>(new Map())
-  const [importErrors, setImportErrors] = useState<string[]>([])
-  const [importSuccess, setImportSuccess] = useState<number>(0)
+  const [importResults, setImportResults] = useState<{
+    imported: number
+    created: number
+    updated: number
+    rejected: number
+    errors: string[]
+    message?: string
+  } | null>(null)
   const [viewMode, setViewMode] = useState<"list" | "grouped">("grouped")
   const [isLoading, setIsLoading] = useState(true)
 
@@ -240,15 +246,28 @@ export default function LocationsManagement() {
         })
         const data = await response.json()
         
-        setImportErrors(data.errors || [])
-        setImportSuccess(data.imported || 0)
+        setImportResults({
+          imported: data.imported || 0,
+          created: data.created || 0,
+          updated: data.updated || 0,
+          rejected: data.rejected || 0,
+          errors: data.errors || [],
+          message: data.message
+        })
         
         if (data.imported > 0) {
           await loadData()
         }
       } catch (error) {
         console.error('Error importing locations:', error)
-        setImportErrors(['Erreur lors de l\'import'])
+        setImportResults({
+          imported: 0,
+          created: 0,
+          updated: 0,
+          rejected: 0,
+          errors: ['Erreur lors de l\'import'],
+          message: undefined
+        })
       }
     }
 
@@ -583,20 +602,28 @@ export default function LocationsManagement() {
           </DialogHeader>
           <div className="space-y-4">
             <Input type="file" accept=".csv" onChange={handleImportCSV} />
-            {importSuccess > 0 && (
-              <div className="p-3 bg-green-50 text-green-700 rounded-lg">
-                {importSuccess} emplacement{importSuccess !== 1 ? "s" : ""} importé{importSuccess !== 1 ? "s" : ""} avec
-                succès
-              </div>
-            )}
-            {importErrors.length > 0 && (
-              <div className="p-3 bg-red-50 text-red-700 rounded-lg space-y-1">
-                <p className="font-semibold">Erreurs d'importation:</p>
-                {importErrors.map((error, index) => (
-                  <p key={index} className="text-sm">
-                    • {error}
-                  </p>
-                ))}
+            {importResults && (
+              <div className="space-y-2">
+                {(importResults.created > 0 || importResults.updated > 0) && (
+                  <div className="p-3 bg-green-50 rounded">
+                    <p className="text-sm font-medium text-green-800">
+                      ✅ Import terminé: {importResults.created} créé(s), {importResults.updated} mis à jour, {importResults.rejected} rejeté(s)
+                    </p>
+                    {importResults.message && (
+                      <p className="text-xs text-green-700 mt-1">{importResults.message}</p>
+                    )}
+                  </div>
+                )}
+                {importResults.errors.length > 0 && (
+                  <div className="p-3 bg-red-50 rounded">
+                    <p className="text-sm font-medium text-red-800 mb-2">❌ Erreurs détectées:</p>
+                    <ul className="text-sm text-red-700 space-y-1">
+                      {importResults.errors.map((error, index) => (
+                        <li key={index}>• {error}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
           </div>
