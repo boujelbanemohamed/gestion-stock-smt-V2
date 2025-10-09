@@ -48,9 +48,9 @@ export default function MovementsManagement() {
 
   // États pour les filtres
   const [filters, setFilters] = useState({
-    bankId: "",
-    cardId: "",
-    movementType: "",
+    bankId: "all",
+    cardId: "all",
+    movementType: "all",
     dateFrom: "",
     dateTo: "",
     searchTerm: ""
@@ -638,16 +638,16 @@ export default function MovementsManagement() {
   const getFilteredMovements = () => {
     return movements.filter((movement) => {
       // Filtre par banque
-      if (filters.bankId) {
+      if (filters.bankId && filters.bankId !== "all") {
         const card = cards.find(c => c.id === movement.cardId)
         if (!card || card.bankId !== filters.bankId) return false
       }
 
       // Filtre par carte
-      if (filters.cardId && movement.cardId !== filters.cardId) return false
+      if (filters.cardId && filters.cardId !== "all" && movement.cardId !== filters.cardId) return false
 
       // Filtre par type de mouvement
-      if (filters.movementType && movement.movementType !== filters.movementType) return false
+      if (filters.movementType && filters.movementType !== "all" && movement.movementType !== filters.movementType) return false
 
       // Filtre par date de début
       if (filters.dateFrom) {
@@ -685,9 +685,9 @@ export default function MovementsManagement() {
   // Réinitialiser les filtres
   const resetFilters = () => {
     setFilters({
-      bankId: "",
-      cardId: "",
-      movementType: "",
+      bankId: "all",
+      cardId: "all",
+      movementType: "all",
       dateFrom: "",
       dateTo: "",
       searchTerm: ""
@@ -696,7 +696,7 @@ export default function MovementsManagement() {
 
   // Obtenir les cartes filtrées par banque pour le filtre
   const getCardsForFilter = () => {
-    if (!filters.bankId) return cards
+    if (!filters.bankId || filters.bankId === "all") return cards
     return cards.filter(card => card.bankId === filters.bankId)
   }
 
@@ -990,13 +990,13 @@ export default function MovementsManagement() {
                 <Label htmlFor="filter-bank" className="text-sm">Banque</Label>
                 <Select
                   value={filters.bankId}
-                  onValueChange={(value) => setFilters({ ...filters, bankId: value, cardId: "" })}
+                  onValueChange={(value) => setFilters({ ...filters, bankId: value, cardId: "all" })}
                 >
                   <SelectTrigger id="filter-bank">
                     <SelectValue placeholder="Toutes les banques" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Toutes les banques</SelectItem>
+                    <SelectItem value="all">Toutes les banques</SelectItem>
                     {banks.map((bank) => (
                       <SelectItem key={bank.id} value={bank.id}>
                         {bank.name}
@@ -1012,13 +1012,13 @@ export default function MovementsManagement() {
                 <Select
                   value={filters.cardId}
                   onValueChange={(value) => setFilters({ ...filters, cardId: value })}
-                  disabled={!filters.bankId && cards.length > 20}
+                  disabled={filters.bankId === "all" && cards.length > 20}
                 >
                   <SelectTrigger id="filter-card">
-                    <SelectValue placeholder={filters.bankId ? "Toutes les cartes" : "Sélectionnez une banque d'abord"} />
+                    <SelectValue placeholder={filters.bankId !== "all" ? "Toutes les cartes" : "Sélectionnez une banque d'abord"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Toutes les cartes</SelectItem>
+                    <SelectItem value="all">Toutes les cartes</SelectItem>
                     {getCardsForFilter().map((card) => (
                       <SelectItem key={card.id} value={card.id}>
                         {card.name}
@@ -1039,7 +1039,7 @@ export default function MovementsManagement() {
                     <SelectValue placeholder="Tous les types" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Tous les types</SelectItem>
+                    <SelectItem value="all">Tous les types</SelectItem>
                     <SelectItem value="entry">Entrée</SelectItem>
                     <SelectItem value="exit">Sortie</SelectItem>
                     <SelectItem value="transfer">Transfert</SelectItem>
