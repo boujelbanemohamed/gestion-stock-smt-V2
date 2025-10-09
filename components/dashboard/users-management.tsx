@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 import { usePermissions } from "@/hooks/use-permissions"
 import type { User, RolePermissions, UserFilters, Permission, Module, Action } from "@/lib/types"
+import { getAuthHeaders } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -149,7 +150,7 @@ export default function UsersManagement() {
     try {
       const response = await fetch('/api/users', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           email: formData.email,
           firstName: formData.firstName,
@@ -221,7 +222,7 @@ export default function UsersManagement() {
     try {
       const response = await fetch(`/api/users/${selectedUser.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           email: formData.email,
           firstName: formData.firstName,
@@ -253,7 +254,7 @@ export default function UsersManagement() {
 
       const response = await fetch(`/api/users/${userId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           isActive: !user.isActive
         })
@@ -332,7 +333,7 @@ export default function UsersManagement() {
     try {
       const response = await fetch('/api/roles', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           role: roleFormData.role,
           description: roleFormData.description,
@@ -384,7 +385,7 @@ export default function UsersManagement() {
 
       const response = await fetch(`/api/roles/${selectedRole.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(updateData)
       })
 

@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import type { AppConfig } from "@/lib/types"
+import { getAuthHeaders } from "@/lib/api-client"
 import { Mail, Bell, Eye, Shield, Save, Building2 } from "lucide-react"
 
 export default function ConfigurationPanel() {
@@ -88,7 +89,7 @@ export default function ConfigurationPanel() {
       // Sauvegarder la config par défaut
       await fetch('/api/config', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(defaultConfig)
       })
     }
@@ -104,7 +105,7 @@ export default function ConfigurationPanel() {
     try {
       const response = await fetch('/api/config', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(config)
       })
       const data = await response.json()
@@ -133,7 +134,7 @@ export default function ConfigurationPanel() {
     try {
       const response = await fetch('/api/config/test-smtp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           smtp: config.smtp,
           testEmail: config.smtp.fromEmail || 'test@example.com'

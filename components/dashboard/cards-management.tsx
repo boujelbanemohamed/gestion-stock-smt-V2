@@ -21,6 +21,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 import type { Card as CardData, Bank, CardFilters, CardImportRow, CardDetails } from "@/lib/types"
 import { ChevronDown, ChevronRight, Download, Upload, Search, Filter, Printer } from "lucide-react"
+import { getAuthHeaders } from "@/lib/api-client"
 import { ListSkeleton } from "@/components/ui/loading-skeleton"
 
 export default function CardsManagement() {
@@ -157,7 +158,7 @@ export default function CardsManagement() {
       if (editingCard) {
         const response = await fetch(`/api/cards/${editingCard.id}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({
             ...formData,
             quantity: editingCard.quantity,
@@ -172,7 +173,7 @@ export default function CardsManagement() {
       } else {
         const response = await fetch('/api/cards', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({
             ...formData,
             quantity: 0,
@@ -367,7 +368,7 @@ export default function CardsManagement() {
     try {
       const response = await fetch('/api/cards/import', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ data: cards })
       })
       const data = await response.json()

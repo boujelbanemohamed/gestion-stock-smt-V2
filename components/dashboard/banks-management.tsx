@@ -23,6 +23,7 @@ import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 import { ListSkeleton } from "@/components/ui/loading-skeleton"
 import type { Bank, BankFilters, BankImportRow } from "@/lib/types"
 import { ChevronDown, ChevronRight, Download, Upload, Search, Filter, Printer } from "lucide-react"
+import { getAuthHeaders } from "@/lib/api-client"
 
 export default function BanksManagement() {
   const [banks, setBanks] = useState<Bank[]>([])
@@ -177,7 +178,7 @@ export default function BanksManagement() {
       if (editingBank) {
         const response = await fetch(`/api/banks/${editingBank.id}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ ...formData, isActive: true })
         })
         const data = await response.json()
@@ -188,7 +189,7 @@ export default function BanksManagement() {
       } else {
         const response = await fetch('/api/banks', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ ...formData, isActive: true })
         })
         const data = await response.json()
@@ -239,7 +240,8 @@ export default function BanksManagement() {
     if (confirm("Êtes-vous sûr de vouloir supprimer cette banque ?")) {
       try {
         const response = await fetch(`/api/banks/${id}`, {
-          method: 'DELETE'
+          method: 'DELETE',
+          headers: getAuthHeaders()
         })
         const data = await response.json()
         if (data.success) {
@@ -264,7 +266,7 @@ export default function BanksManagement() {
       try {
         const response = await fetch(`/api/banks/${bank.id}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ isActive: !bank.isActive })
         })
         const data = await response.json()
@@ -356,7 +358,7 @@ export default function BanksManagement() {
       // Appeler l'API d'import
       const response = await fetch('/api/banks/import', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ data: banks })
       })
 

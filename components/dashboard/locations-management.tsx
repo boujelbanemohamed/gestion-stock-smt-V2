@@ -24,6 +24,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 import type { Location, Bank, LocationImportRow, LocationFilters } from "@/lib/types"
 import { ListSkeleton } from "@/components/ui/loading-skeleton"
+import { getAuthHeaders } from "@/lib/api-client"
 
 export default function LocationsManagement() {
   const [locations, setLocations] = useState<Location[]>([])
@@ -114,7 +115,7 @@ export default function LocationsManagement() {
       if (editingLocation) {
         const response = await fetch(`/api/locations/${editingLocation.id}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ ...formData, isActive: true })
         })
         const data = await response.json()
@@ -125,7 +126,7 @@ export default function LocationsManagement() {
       } else {
         const response = await fetch('/api/locations', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ ...formData, isActive: true })
         })
         const data = await response.json()
@@ -191,7 +192,7 @@ export default function LocationsManagement() {
       try {
         const response = await fetch(`/api/locations/${id}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ isActive: !location.isActive })
         })
         const data = await response.json()
@@ -241,7 +242,7 @@ export default function LocationsManagement() {
       try {
         const response = await fetch('/api/locations/import', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ data: rows })
         })
         const data = await response.json()

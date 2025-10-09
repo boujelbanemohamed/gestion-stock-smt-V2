@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge"
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 import type { Movement, Card as CardType, Location, Bank } from "@/lib/types"
 import { Filter } from "lucide-react"
+import { getAuthHeaders } from "@/lib/api-client"
 
 export default function MovementsManagement() {
   const [movements, setMovements] = useState<Movement[]>([])
@@ -579,7 +580,7 @@ export default function MovementsManagement() {
     try {
       const response = await fetch('/api/movements', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(movementData)
       })
 
