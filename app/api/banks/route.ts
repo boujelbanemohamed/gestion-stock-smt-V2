@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { Bank } from "@/lib/types"
+import { logAudit } from "@/lib/audit-logger"
 
 // GET /api/banks - Récupérer toutes les banques avec filtres optionnels
 export async function GET(request: NextRequest) {
@@ -59,6 +60,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body: CreateBankRequest = await request.json()
+
+    // Récupérer l'utilisateur depuis le header
+    const userHeader = request.headers.get("x-user-data")
+    const userData = userHeader ? JSON.parse(userHeader) : null
 
     // Validation des champs requis
     if (!body.name || !body.code || !body.country || !body.swiftCode) {
@@ -118,6 +123,21 @@ export async function POST(request: NextRequest) {
         isActive: body.isActive !== undefined ? body.isActive : true,
       }
     })
+
+    // Logger l'action
+    if (userData) {
+      await logAudit({
+        userId: userData.id,
+        userEmail: userData.email,
+        action: "create",
+        module: "banks",
+        entityType: "bank",
+        entityId: newBank.id,
+        entityName: newBank.name,
+        details: `Création de la banque ${newBank.name} (${newBank.code})`,
+        status: "success"
+      }, request)
+    }
 
     return NextResponse.json<ApiResponse<Bank>>(
       {

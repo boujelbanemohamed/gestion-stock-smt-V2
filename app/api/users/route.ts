@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
 import * as bcrypt from "bcryptjs"
 import type { ApiResponse } from "@/lib/api-types"
 import type { User } from "@/lib/types"
+import { logAudit } from "@/lib/audit-logger"
 
 // GET /api/users - Récupérer tous les utilisateurs avec filtres optionnels
 export async function GET(request: NextRequest) {
@@ -93,6 +94,10 @@ export async function POST(request: NextRequest) {
     // Hash du mot de passe
     const hashedPassword = await bcrypt.hash(plainPassword, 10)
 
+    // Récupérer l'utilisateur depuis le header
+    const userHeader = request.headers.get("x-user-data")
+    const userData = userHeader ? JSON.parse(userHeader) : null
+
     const newUser = await prisma.user.create({
       data: {
         email: body.email,
@@ -103,6 +108,21 @@ export async function POST(request: NextRequest) {
         isActive: body.isActive !== undefined ? body.isActive : true,
       }
     })
+
+    // Logger l'action
+    if (userData) {
+      await logAudit({
+        userId: userData.id,
+        userEmail: userData.email,
+        action: "create",
+        module: "users",
+        entityType: "user",
+        entityId: newUser.id,
+        entityName: `${newUser.firstName} ${newUser.lastName}`,
+        details: `Création de l'utilisateur ${newUser.firstName} ${newUser.lastName} (${newUser.email}) avec le rôle ${newUser.role}`,
+        status: "success"
+      }, request)
+    }
 
     // Envoyer l'email si demandé
     if (body.sendEmail) {

@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { Card } from "@/lib/types"
+import { logAudit } from "@/lib/audit-logger"
 
 // GET /api/cards/[id] - Récupérer une carte par ID
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
@@ -44,6 +45,10 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
   try {
     const body = await request.json()
 
+    // Récupérer l'utilisateur depuis le header
+    const userHeader = request.headers.get("x-user-data")
+    const userData = userHeader ? JSON.parse(userHeader) : null
+
     const updatedCard = await prisma.card.update({
       where: { id: params.id },
       data: {
@@ -58,6 +63,21 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
         ...(body.isActive !== undefined && { isActive: body.isActive }),
       }
     })
+
+    // Logger l'action
+    if (userData) {
+      await logAudit({
+        userId: userData.id,
+        userEmail: userData.email,
+        action: "update",
+        module: "cards",
+        entityType: "card",
+        entityId: updatedCard.id,
+        entityName: updatedCard.name,
+        details: `Modification de la carte ${updatedCard.name} (${updatedCard.type})`,
+        status: "success"
+      }, request)
+    }
 
     return NextResponse.json<ApiResponse<Card>>({
       success: true,
@@ -79,6 +99,10 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 // DELETE /api/cards/[id] - Supprimer (désactiver) une carte
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    // Récupérer l'utilisateur depuis le header
+    const userHeader = request.headers.get("x-user-data")
+    const userData = userHeader ? JSON.parse(userHeader) : null
+
     // Vérifier si la carte existe
     const card = await prisma.card.findUnique({
       where: { id: params.id }
@@ -116,6 +140,21 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       where: { id: params.id },
       data: { isActive: false }
     })
+
+    // Logger l'action
+    if (userData) {
+      await logAudit({
+        userId: userData.id,
+        userEmail: userData.email,
+        action: "delete",
+        module: "cards",
+        entityType: "card",
+        entityId: card.id,
+        entityName: card.name,
+        details: `Suppression de la carte ${card.name} (${card.type})`,
+        status: "success"
+      }, request)
+    }
 
     return NextResponse.json<ApiResponse>({
       success: true,

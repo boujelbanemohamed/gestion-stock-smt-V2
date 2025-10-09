@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { AppConfig } from "@/lib/types"
+import { logAudit } from "@/lib/audit-logger"
 
 // GET /api/config - Récupérer la configuration de l'application
 export async function GET(request: NextRequest) {
@@ -99,6 +100,10 @@ export async function PUT(request: NextRequest) {
   try {
     const body = await request.json()
 
+    // Récupérer l'utilisateur depuis le header
+    const userHeader = request.headers.get("x-user-data")
+    const userData = userHeader ? JSON.parse(userHeader) : null
+
     const updatedConfig = await prisma.appConfig.upsert({
       where: { id: 'singleton' },
       update: {
@@ -109,6 +114,21 @@ export async function PUT(request: NextRequest) {
         config: body
       }
     })
+
+    // Logger l'action
+    if (userData) {
+      await logAudit({
+        userId: userData.id,
+        userEmail: userData.email,
+        action: "update",
+        module: "config",
+        entityType: "config",
+        entityId: 'singleton',
+        entityName: "Configuration de l'application",
+        details: `Modification de la configuration de l'application`,
+        status: "success"
+      }, request)
+    }
 
     return NextResponse.json<ApiResponse<AppConfig>>({
       success: true,

@@ -2,11 +2,16 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import type { ImportResponse } from "@/lib/api-types"
 import type { BankImportRow } from "@/lib/types"
+import { logAudit } from "@/lib/audit-logger"
 
 // POST /api/banks/import - Importer des banques depuis CSV
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
+
+    // Récupérer l'utilisateur depuis le header
+    const userHeader = request.headers.get("x-user-data")
+    const userData = userHeader ? JSON.parse(userHeader) : null
 
     if (!body.data || !Array.isArray(body.data)) {
       return NextResponse.json<ImportResponse>(
@@ -87,6 +92,20 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         errors.push(`Ligne ${i + 1}: ${error instanceof Error ? error.message : 'Erreur inconnue'}`)
       }
+    }
+
+    // Logger l'action d'import
+    if (userData && imported > 0) {
+      await logAudit({
+        userId: userData.id,
+        userEmail: userData.email,
+        action: "create",
+        module: "banks",
+        entityType: "bank",
+        entityName: "Import CSV",
+        details: `Import CSV de ${imported} banque(s)${errors.length > 0 ? ` avec ${errors.length} erreur(s)` : ''}`,
+        status: errors.length === 0 ? "success" : "success"
+      }, request)
     }
 
     return NextResponse.json<ImportResponse>({

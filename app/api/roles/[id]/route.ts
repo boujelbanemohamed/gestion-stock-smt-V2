@@ -3,11 +3,16 @@ import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { RolePermissions } from "@/lib/types"
 import { eventBus } from "@/lib/event-bus"
+import { logAudit } from "@/lib/audit-logger"
 
 // PUT /api/roles/[id] - Mettre à jour un rôle
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const body = await request.json()
+
+    // Récupérer l'utilisateur depuis le header
+    const userHeader = request.headers.get("x-user-data")
+    const userData = userHeader ? JSON.parse(userHeader) : null
 
     const role = await prisma.rolePermission.findUnique({
       where: { id: params.id }
@@ -44,6 +49,21 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       }
     })
 
+    // Logger l'action
+    if (userData) {
+      await logAudit({
+        userId: userData.id,
+        userEmail: userData.email,
+        action: "update",
+        module: "roles",
+        entityType: "role",
+        entityId: updatedRole.id,
+        entityName: updatedRole.role,
+        details: `Modification du rôle ${updatedRole.role}`,
+        status: "success"
+      }, request)
+    }
+
     // Émettre l'événement de synchronisation
     eventBus.emit("role:updated", { roleId: params.id, role: updatedRole.role })
 
@@ -67,6 +87,10 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 // DELETE /api/roles/[id] - Supprimer un rôle
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    // Récupérer l'utilisateur depuis le header
+    const userHeader = request.headers.get("x-user-data")
+    const userData = userHeader ? JSON.parse(userHeader) : null
+
     const role = await prisma.rolePermission.findUnique({
       where: { id: params.id }
     })
@@ -95,6 +119,21 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     await prisma.rolePermission.delete({
       where: { id: params.id }
     })
+
+    // Logger l'action
+    if (userData) {
+      await logAudit({
+        userId: userData.id,
+        userEmail: userData.email,
+        action: "delete",
+        module: "roles",
+        entityType: "role",
+        entityId: role.id,
+        entityName: role.role,
+        details: `Suppression du rôle ${role.role}`,
+        status: "success"
+      }, request)
+    }
 
     // Émettre l'événement de synchronisation
     eventBus.emit("role:deleted", { roleId: params.id, role: role.role })
