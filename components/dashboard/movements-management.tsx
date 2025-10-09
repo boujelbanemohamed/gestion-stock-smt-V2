@@ -46,6 +46,16 @@ export default function MovementsManagement() {
     toLocationId?: string
   }>({})
 
+  // États pour les filtres
+  const [filters, setFilters] = useState({
+    bankId: "",
+    cardId: "",
+    movementType: "",
+    dateFrom: "",
+    dateTo: "",
+    searchTerm: ""
+  })
+
   useEffect(() => {
     loadData()
     loadCurrentUser()
@@ -624,6 +634,72 @@ export default function MovementsManagement() {
     return bank ? bank.name : "N/A"
   }
 
+  // Fonction de filtrage des mouvements
+  const getFilteredMovements = () => {
+    return movements.filter((movement) => {
+      // Filtre par banque
+      if (filters.bankId) {
+        const card = cards.find(c => c.id === movement.cardId)
+        if (!card || card.bankId !== filters.bankId) return false
+      }
+
+      // Filtre par carte
+      if (filters.cardId && movement.cardId !== filters.cardId) return false
+
+      // Filtre par type de mouvement
+      if (filters.movementType && movement.movementType !== filters.movementType) return false
+
+      // Filtre par date de début
+      if (filters.dateFrom) {
+        const movementDate = new Date(movement.createdAt)
+        const fromDate = new Date(filters.dateFrom)
+        if (movementDate < fromDate) return false
+      }
+
+      // Filtre par date de fin
+      if (filters.dateTo) {
+        const movementDate = new Date(movement.createdAt)
+        const toDate = new Date(filters.dateTo)
+        toDate.setHours(23, 59, 59, 999) // Inclure toute la journée
+        if (movementDate > toDate) return false
+      }
+
+      // Filtre par terme de recherche (motif)
+      if (filters.searchTerm) {
+        const searchLower = filters.searchTerm.toLowerCase()
+        const cardName = getCardName(movement.cardId).toLowerCase()
+        const reason = movement.reason.toLowerCase()
+        const userName = getUserName(movement.userId).toLowerCase()
+        
+        if (!cardName.includes(searchLower) && 
+            !reason.includes(searchLower) && 
+            !userName.includes(searchLower)) {
+          return false
+        }
+      }
+
+      return true
+    })
+  }
+
+  // Réinitialiser les filtres
+  const resetFilters = () => {
+    setFilters({
+      bankId: "",
+      cardId: "",
+      movementType: "",
+      dateFrom: "",
+      dateTo: "",
+      searchTerm: ""
+    })
+  }
+
+  // Obtenir les cartes filtrées par banque pour le filtre
+  const getCardsForFilter = () => {
+    if (!filters.bankId) return cards
+    return cards.filter(card => card.bankId === filters.bankId)
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -890,11 +966,123 @@ export default function MovementsManagement() {
           
           <CardTitle>Historique des Mouvements</CardTitle>
           <CardDescription>
-            {movements.length} mouvement{movements.length !== 1 ? "s" : ""} enregistré
-            {movements.length !== 1 ? "s" : ""}
+            {getFilteredMovements().length} mouvement{getFilteredMovements().length !== 1 ? "s" : ""} affiché{getFilteredMovements().length !== 1 ? "s" : ""} sur {movements.length} total
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {/* Section des filtres */}
+          <div className="mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-slate-700">Filtres</h3>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={resetFilters}
+                className="text-slate-600 hover:text-slate-900"
+              >
+                Réinitialiser
+              </Button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Filtre par banque */}
+              <div className="space-y-2">
+                <Label htmlFor="filter-bank" className="text-sm">Banque</Label>
+                <Select
+                  value={filters.bankId}
+                  onValueChange={(value) => setFilters({ ...filters, bankId: value, cardId: "" })}
+                >
+                  <SelectTrigger id="filter-bank">
+                    <SelectValue placeholder="Toutes les banques" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Toutes les banques</SelectItem>
+                    {banks.map((bank) => (
+                      <SelectItem key={bank.id} value={bank.id}>
+                        {bank.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Filtre par carte */}
+              <div className="space-y-2">
+                <Label htmlFor="filter-card" className="text-sm">Carte</Label>
+                <Select
+                  value={filters.cardId}
+                  onValueChange={(value) => setFilters({ ...filters, cardId: value })}
+                  disabled={!filters.bankId && cards.length > 20}
+                >
+                  <SelectTrigger id="filter-card">
+                    <SelectValue placeholder={filters.bankId ? "Toutes les cartes" : "Sélectionnez une banque d'abord"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Toutes les cartes</SelectItem>
+                    {getCardsForFilter().map((card) => (
+                      <SelectItem key={card.id} value={card.id}>
+                        {card.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Filtre par type de mouvement */}
+              <div className="space-y-2">
+                <Label htmlFor="filter-type" className="text-sm">Type de mouvement</Label>
+                <Select
+                  value={filters.movementType}
+                  onValueChange={(value) => setFilters({ ...filters, movementType: value })}
+                >
+                  <SelectTrigger id="filter-type">
+                    <SelectValue placeholder="Tous les types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Tous les types</SelectItem>
+                    <SelectItem value="entry">Entrée</SelectItem>
+                    <SelectItem value="exit">Sortie</SelectItem>
+                    <SelectItem value="transfer">Transfert</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Filtre par date de début */}
+              <div className="space-y-2">
+                <Label htmlFor="filter-date-from" className="text-sm">Date de début</Label>
+                <Input
+                  id="filter-date-from"
+                  type="date"
+                  value={filters.dateFrom}
+                  onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
+                />
+              </div>
+
+              {/* Filtre par date de fin */}
+              <div className="space-y-2">
+                <Label htmlFor="filter-date-to" className="text-sm">Date de fin</Label>
+                <Input
+                  id="filter-date-to"
+                  type="date"
+                  value={filters.dateTo}
+                  onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
+                />
+              </div>
+
+              {/* Recherche par mot-clé */}
+              <div className="space-y-2">
+                <Label htmlFor="filter-search" className="text-sm">Recherche</Label>
+                <Input
+                  id="filter-search"
+                  type="text"
+                  placeholder="Carte, motif, utilisateur..."
+                  value={filters.searchTerm}
+                  onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+
           {movements.length === 0 ? (
             <div className="text-center py-8">
               <svg className="mx-auto h-12 w-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -907,6 +1095,22 @@ export default function MovementsManagement() {
               </svg>
               <h3 className="mt-2 text-sm font-medium text-slate-900">Aucun mouvement</h3>
               <p className="mt-1 text-sm text-slate-500">Commencez par enregistrer votre premier mouvement de stock.</p>
+            </div>
+          ) : getFilteredMovements().length === 0 ? (
+            <div className="text-center py-8">
+              <svg className="mx-auto h-12 w-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+              <h3 className="mt-2 text-sm font-medium text-slate-900">Aucun résultat</h3>
+              <p className="mt-1 text-sm text-slate-500">Aucun mouvement ne correspond aux filtres sélectionnés.</p>
+              <Button variant="outline" size="sm" onClick={resetFilters} className="mt-4">
+                Réinitialiser les filtres
+              </Button>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -926,7 +1130,7 @@ export default function MovementsManagement() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {movements
+                  {getFilteredMovements()
                     .slice()
                     .reverse()
                     .map((movement) => (
