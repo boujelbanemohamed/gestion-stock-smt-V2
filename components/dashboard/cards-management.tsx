@@ -406,22 +406,6 @@ export default function CardsManagement() {
   }
 
   const handlePrint = () => {
-    // Afficher les filtres actifs
-    const activeFilters: string[] = []
-    if (filters.bankId) {
-      const bankName = banks.find(b => b.id === filters.bankId)?.name
-      if (bankName) activeFilters.push(`Banque: ${bankName}`)
-    }
-    if (filters.type) activeFilters.push(`Type: ${filters.type}`)
-    if (filters.subType) activeFilters.push(`Sous-type: ${filters.subType}`)
-    if (filters.subSubType) activeFilters.push(`Sous-sous-type: ${filters.subSubType}`)
-    if (filters.lowStock) activeFilters.push(`Seuil bas uniquement`)
-    if (filters.searchTerm) activeFilters.push(`Recherche: "${filters.searchTerm}"`)
-
-    const filtersText = activeFilters.length > 0 
-      ? `<p><strong>Filtres appliqués:</strong> ${activeFilters.join(' | ')}</p>`
-      : '<p><em>Aucun filtre appliqué</em></p>'
-
     const printContent = Object.entries(groupedCards)
       .map(([bankName, bankCards]) => {
         if (bankCards.length === 0) return '' // Ne pas afficher les banques sans cartes
@@ -470,6 +454,15 @@ export default function CardsManagement() {
           content += `</tr>`
         })
         
+        // Calculer le total pour cette banque
+        const bankTotal = sortedCards.reduce((sum, cardDetail) => sum + (cardDetail.card.quantity || 0), 0)
+        
+        // Ajouter la ligne de total
+        content += `<tr class="total-row">`
+        content += `<td colspan="4" style="text-align: right; padding-right: 20px;">TOTAL ${bankName.toUpperCase()}</td>`
+        content += `<td style="text-align: center;">${bankTotal}</td>`
+        content += `</tr>`
+        
         content += `</tbody></table>`
         return content
       })
@@ -477,6 +470,9 @@ export default function CardsManagement() {
       .join("")
 
     const totalCards = Object.values(groupedCards).reduce((sum, cards) => sum + cards.length, 0)
+    const totalQuantity = Object.values(groupedCards).reduce((sum, cards) => 
+      sum + cards.reduce((cardSum, card) => cardSum + (card.card.quantity || 0), 0), 0
+    )
 
     const printWindow = window.open("", "_blank")
     if (printWindow) {
@@ -485,31 +481,46 @@ export default function CardsManagement() {
           <head>
             <title>Liste des Cartes</title>
             <style>
+              @page {
+                margin: 2cm 1.5cm;
+              }
               body { 
                 font-family: Arial, sans-serif; 
-                padding: 20px;
+                padding: 0;
+                margin: 0;
                 position: relative;
                 min-height: 100vh;
               }
               .header {
                 text-align: center;
-                margin-bottom: 30px;
+                margin-bottom: 20px;
+                padding-bottom: 10px;
+                border-bottom: 3px solid #1e40af;
               }
               .company-name {
-                font-size: 1.5em;
-                font-weight: bold;
                 color: #1e40af;
-                margin-bottom: 10px;
+                font-size: 1.8em;
+                font-weight: bold;
+                margin: 0;
               }
               h1 { 
                 color: #1e40af; 
-                border-bottom: 3px solid #1e40af; 
+                border-bottom: 2px solid #d1d5db; 
                 padding-bottom: 10px; 
                 margin-bottom: 20px;
-                text-align: center;
+                font-size: 1.5em;
               }
-              h2 { color: #059669; margin-top: 30px; margin-bottom: 15px; font-size: 1.3em; }
-              .meta { color: #6b7280; font-size: 0.9em; margin-bottom: 20px; }
+              h2 { 
+                color: #059669; 
+                margin-top: 30px; 
+                margin-bottom: 15px; 
+                font-size: 1.3em; 
+              }
+              .meta { 
+                color: #6b7280; 
+                font-size: 0.9em; 
+                margin-bottom: 20px; 
+              }
               .cards-table { 
                 width: 100%; 
                 border-collapse: collapse; 
@@ -531,9 +542,6 @@ export default function CardsManagement() {
               .cards-table tbody tr:nth-child(even) { 
                 background-color: #f9fafb; 
               }
-              .cards-table tbody tr:hover { 
-                background-color: #f3f4f6; 
-              }
               .type-cell {
                 background-color: #eff6ff;
                 font-weight: 600;
@@ -547,107 +555,120 @@ export default function CardsManagement() {
                 font-weight: 600;
                 color: #059669;
               }
+              .total-row {
+                background-color: #1e40af !important;
+                color: white;
+                font-weight: bold;
+                font-size: 1.1em;
+              }
+              .total-row td {
+                padding: 15px 8px;
+                border: 1px solid #1e40af;
+              }
               .recipient-section {
-                margin-top: 50px;
+                margin-top: 40px;
                 margin-bottom: 30px;
                 padding: 20px;
                 border: 2px solid #d1d5db;
                 border-radius: 8px;
+                background-color: #f9fafb;
               }
               .recipient-section h3 {
                 margin-top: 0;
                 color: #1e40af;
-                border-bottom: 2px solid #d1d5db;
-                padding-bottom: 10px;
+                font-size: 1.1em;
+                margin-bottom: 15px;
               }
               .recipient-fields {
                 display: grid;
                 grid-template-columns: 1fr 1fr;
-                gap: 20px;
-                margin-top: 15px;
+                gap: 15px;
               }
-              .field {
-                margin-bottom: 15px;
+              .recipient-field {
+                display: flex;
+                align-items: center;
               }
-              .field label {
+              .recipient-field label {
                 font-weight: 600;
-                color: #374151;
-                display: block;
-                margin-bottom: 5px;
+                margin-right: 10px;
+                min-width: 80px;
               }
-              .field-line {
-                border-bottom: 1px solid #000;
-                min-height: 25px;
-                width: 100%;
+              .recipient-field-line {
+                flex: 1;
+                border-bottom: 1px solid #6b7280;
+                height: 20px;
               }
               .signature-field {
                 grid-column: 1 / -1;
-                margin-top: 20px;
+                margin-top: 10px;
               }
               .footer {
-                position: fixed;
-                bottom: 20px;
-                left: 20px;
-                right: 20px;
+                margin-top: 40px;
+                padding-top: 20px;
+                border-top: 2px solid #d1d5db;
                 text-align: center;
-                padding-top: 10px;
-                border-top: 2px solid #1e40af;
-                font-size: 0.9em;
                 color: #6b7280;
+                font-size: 0.9em;
               }
               @media print {
-                body { padding: 10px; }
+                body { padding: 0; }
                 h2 { page-break-after: avoid; }
                 .cards-table { page-break-inside: auto; }
                 .cards-table tr { page-break-inside: avoid; page-break-after: auto; }
                 .cards-table thead { display: table-header-group; }
                 .recipient-section { page-break-inside: avoid; }
-                .footer { position: fixed; bottom: 0; }
+                .footer { 
+                  position: fixed;
+                  bottom: 0;
+                  left: 0;
+                  right: 0;
+                  background: white;
+                }
               }
             </style>
           </head>
           <body>
             <div class="header">
-              <div class="company-name">Société Monétique Tunisie</div>
+              <h1 class="company-name">Société Monétique Tunisie</h1>
             </div>
             
-            <h1>Liste des Cartes par Banque</h1>
+            <h1>Inventaire Stock par Type de Cartes</h1>
             <div class="meta">
               <p><strong>Généré le:</strong> ${new Date().toLocaleDateString("fr-FR")} à ${new Date().toLocaleTimeString("fr-FR")}</p>
-              ${filtersText}
-              <p><strong>Total:</strong> ${totalCards} carte(s)</p>
+              <p><strong>Total:</strong> ${totalCards} type(s) de carte(s) • <strong>${totalQuantity}</strong> cartes au total</p>
             </div>
             <hr>
+            
             ${printContent || '<p><em>Aucune carte à afficher</em></p>'}
             
             <div class="recipient-section">
-              <h3>Destinataire</h3>
+              <h3>Destinataire :</h3>
               <div class="recipient-fields">
-                <div class="field">
+                <div class="recipient-field">
                   <label>Nom :</label>
-                  <div class="field-line"></div>
+                  <div class="recipient-field-line"></div>
                 </div>
-                <div class="field">
+                <div class="recipient-field">
                   <label>Prénom :</label>
-                  <div class="field-line"></div>
+                  <div class="recipient-field-line"></div>
                 </div>
-                <div class="field">
+                <div class="recipient-field">
                   <label>Fonction :</label>
-                  <div class="field-line"></div>
+                  <div class="recipient-field-line"></div>
                 </div>
-                <div class="field">
+                <div class="recipient-field">
                   <label>Date :</label>
-                  <div class="field-line"></div>
+                  <div class="recipient-field-line"></div>
                 </div>
-                <div class="signature-field">
+                <div class="recipient-field signature-field">
                   <label>Signature :</label>
-                  <div class="field-line" style="min-height: 60px;"></div>
+                  <div class="recipient-field-line"></div>
                 </div>
               </div>
             </div>
             
             <div class="footer">
-              <strong>Adresse :</strong> Centre urbain Nord, Sana Center, bloc C – 1082, Tunis
+              <p><strong>Adresse :</strong> Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</p>
             </div>
           </body>
         </html>
