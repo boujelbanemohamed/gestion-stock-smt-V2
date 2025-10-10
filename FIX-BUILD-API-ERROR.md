@@ -16,7 +16,10 @@ Cette erreur se produit quand Next.js essaie de pré-rendre des routes API comme
 
 ## ✅ Solution (Déjà Appliquée)
 
-Le fichier `next.config.mjs` a été mis à jour pour résoudre ce problème.
+Deux corrections ont été appliquées :
+
+1. **Fichier `next.config.mjs`** mis à jour
+2. **Toutes les routes API** marquées comme `force-dynamic`
 
 **Sur votre serveur Red Hat, faites simplement:**
 
@@ -29,11 +32,15 @@ pm2 restart stock-management
 
 **Le build devrait maintenant fonctionner sans erreur !** ✅
 
+**Commit de la solution :** `5a85286`
+
 ---
 
 ## 🔍 Vérification de la Configuration
 
-Le fichier `next.config.mjs` contient maintenant:
+### 1. Fichier `next.config.mjs`
+
+Le fichier contient maintenant:
 
 ```javascript
 /** @type {import('next').NextConfig} */
@@ -68,6 +75,22 @@ const nextConfig = {
 
 export default nextConfig
 ```
+
+### 2. Toutes les Routes API
+
+Chaque fichier `route.ts` dans `/app/api` contient maintenant au début :
+
+```typescript
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
+export async function GET(request: NextRequest) {
+  // ...
+}
+```
+
+Ceci force Next.js à traiter ces routes comme **dynamiques** et non statiques.
 
 ---
 
