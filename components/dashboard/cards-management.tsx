@@ -679,6 +679,258 @@ export default function CardsManagement() {
     }
   }
 
+  const handlePrintInventory = () => {
+    // Calculer les totaux pour chaque banque
+    const inventoryData = Object.entries(groupedCards).map(([bankName, bankCards]) => {
+      const totalQuantity = bankCards.reduce((sum, cd) => sum + cd.card.quantity, 0)
+      const lowStockCount = bankCards.filter(cd => cd.card.quantity <= cd.card.minThreshold).length
+      const typeBreakdown: { [type: string]: number } = {}
+      
+      bankCards.forEach(cd => {
+        const type = cd.card.type
+        typeBreakdown[type] = (typeBreakdown[type] || 0) + cd.card.quantity
+      })
+      
+      return {
+        bankName,
+        nbTypes: bankCards.length,
+        totalQuantity,
+        lowStockCount,
+        typeBreakdown
+      }
+    })
+
+    // Calculer les totaux généraux
+    const grandTotal = {
+      nbTypes: Object.values(groupedCards).reduce((sum, cards) => sum + cards.length, 0),
+      totalQuantity: Object.values(groupedCards).reduce((sum, cards) => 
+        sum + cards.reduce((cardSum, cd) => cardSum + cd.card.quantity, 0), 0
+      ),
+      lowStockCount: Object.values(groupedCards).reduce((sum, cards) => 
+        sum + cards.filter(cd => cd.card.quantity <= cd.card.minThreshold).length, 0
+      )
+    }
+
+    // Générer le contenu HTML
+    const tableRows = inventoryData.map(inv => `
+      <tr>
+        <td style="padding: 12px; border: 1px solid #ddd; font-weight: 600;">${inv.bankName}</td>
+        <td style="padding: 12px; border: 1px solid #ddd; text-align: center;">${inv.nbTypes}</td>
+        <td style="padding: 12px; border: 1px solid #ddd; text-align: center; font-weight: 600; color: #059669;">${inv.totalQuantity}</td>
+        <td style="padding: 12px; border: 1px solid #ddd; text-align: center;">${
+          inv.lowStockCount > 0 
+            ? `<span style="color: #dc2626; font-weight: 600;">${inv.lowStockCount} alerte(s)</span>` 
+            : `<span style="color: #059669;">OK</span>`
+        }</td>
+        <td style="padding: 12px; border: 1px solid #ddd;">
+          ${Object.entries(inv.typeBreakdown).map(([type, qty]) => 
+            `<div style="margin-bottom: 4px;"><strong>${type}:</strong> ${qty}</div>`
+          ).join('')}
+        </td>
+      </tr>
+    `).join('')
+
+    const printWindow = window.open("", "_blank")
+    if (printWindow) {
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Rapport Inventaire par Banque</title>
+            <style>
+              @page {
+                margin: 2cm 1.5cm;
+              }
+              body { 
+                font-family: Arial, sans-serif; 
+                padding: 20px;
+                margin: 0;
+              }
+              .header {
+                text-align: center;
+                margin-bottom: 30px;
+                padding-bottom: 15px;
+                border-bottom: 3px solid #1e40af;
+              }
+              .company-name {
+                color: #1e40af;
+                font-size: 2em;
+                font-weight: bold;
+                margin: 0 0 10px 0;
+              }
+              h1 {
+                color: #1e40af;
+                font-size: 1.6em;
+                margin: 0;
+              }
+              .meta {
+                color: #6b7280;
+                font-size: 0.95em;
+                margin: 20px 0;
+                text-align: center;
+              }
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 20px 0;
+              }
+              th {
+                background-color: #1e40af;
+                color: white;
+                padding: 14px 12px;
+                text-align: left;
+                font-weight: 600;
+                border: 1px solid #1e40af;
+                font-size: 0.95em;
+              }
+              td {
+                padding: 12px;
+                border: 1px solid #ddd;
+                font-size: 0.9em;
+              }
+              tbody tr:nth-child(even) {
+                background-color: #f9fafb;
+              }
+              tbody tr:hover {
+                background-color: #f1f5f9;
+              }
+              tfoot tr {
+                background-color: #1e40af;
+                color: white;
+                font-weight: bold;
+                font-size: 1.1em;
+              }
+              tfoot td {
+                padding: 15px 12px;
+                border: 1px solid #1e40af;
+              }
+              .recipient-section {
+                margin-top: 50px;
+                padding: 20px;
+                border: 2px solid #d1d5db;
+                border-radius: 8px;
+                background-color: #f9fafb;
+                page-break-inside: avoid;
+              }
+              .recipient-section h3 {
+                margin-top: 0;
+                color: #1e40af;
+                font-size: 1.2em;
+                margin-bottom: 20px;
+              }
+              .recipient-fields {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+              }
+              .recipient-field {
+                display: flex;
+                align-items: center;
+              }
+              .recipient-field label {
+                font-weight: 600;
+                margin-right: 10px;
+                min-width: 100px;
+              }
+              .recipient-field-line {
+                flex: 1;
+                border-bottom: 1px solid #6b7280;
+                height: 25px;
+              }
+              .signature-field {
+                grid-column: 1 / -1;
+                margin-top: 10px;
+              }
+              .footer {
+                margin-top: 40px;
+                padding-top: 20px;
+                border-top: 2px solid #d1d5db;
+                text-align: center;
+                color: #6b7280;
+                font-size: 0.9em;
+              }
+              @media print {
+                body { padding: 0; }
+                .recipient-section { page-break-inside: avoid; }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1 class="company-name">Société Monétique Tunisie</h1>
+              <h1>Rapport d'Inventaire par Banque</h1>
+            </div>
+            
+            <div class="meta">
+              <p><strong>Date de génération:</strong> ${new Date().toLocaleDateString("fr-FR")} à ${new Date().toLocaleTimeString("fr-FR")}</p>
+              <p><strong>Nombre de banques:</strong> ${inventoryData.length} • <strong>Total types de cartes:</strong> ${grandTotal.nbTypes} • <strong>Quantité totale:</strong> ${grandTotal.totalQuantity}</p>
+            </div>
+            
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 25%;">Banque</th>
+                  <th style="width: 15%; text-align: center;">Nb Types</th>
+                  <th style="width: 15%; text-align: center;">Quantité Totale</th>
+                  <th style="width: 15%; text-align: center;">Stock Faible</th>
+                  <th style="width: 30%;">Répartition par Type</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRows}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td style="text-align: right; padding-right: 20px;">TOTAL GÉNÉRAL</td>
+                  <td style="text-align: center;">${grandTotal.nbTypes}</td>
+                  <td style="text-align: center;">${grandTotal.totalQuantity}</td>
+                  <td style="text-align: center;">${grandTotal.lowStockCount}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+            
+            <div class="recipient-section">
+              <h3>Informations du Destinataire :</h3>
+              <div class="recipient-fields">
+                <div class="recipient-field">
+                  <label>Nom :</label>
+                  <div class="recipient-field-line"></div>
+                </div>
+                <div class="recipient-field">
+                  <label>Prénom :</label>
+                  <div class="recipient-field-line"></div>
+                </div>
+                <div class="recipient-field">
+                  <label>Fonction :</label>
+                  <div class="recipient-field-line"></div>
+                </div>
+                <div class="recipient-field">
+                  <label>Date :</label>
+                  <div class="recipient-field-line"></div>
+                </div>
+                <div class="recipient-field signature-field">
+                  <label>Signature :</label>
+                  <div class="recipient-field-line"></div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="footer">
+              <p><strong>Adresse :</strong> Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</p>
+            </div>
+            
+            <script>
+              window.onload = function() {
+                window.print();
+              }
+            </script>
+          </body>
+        </html>
+      `)
+      printWindow.document.close()
+    }
+  }
+
   const toggleBankExpansion = (bankName: string) => {
     const newExpanded = new Set(expandedBanks)
     if (newExpanded.has(bankName)) {
@@ -729,7 +981,11 @@ export default function CardsManagement() {
           </Button>
           <Button variant="outline" onClick={handlePrint}>
             <Printer className="h-4 w-4 mr-2" />
-            Imprimer
+            Imprimer Détails
+          </Button>
+          <Button variant="outline" onClick={handlePrintInventory}>
+            <Printer className="h-4 w-4 mr-2" />
+            Rapport Inventaire
           </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
@@ -991,10 +1247,81 @@ export default function CardsManagement() {
         </CardContent>
       </Card>
 
+      {/* Tableau Récapitulatif Inventaire par Banque */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Inventaire Récapitulatif par Banque</CardTitle>
+          <CardDescription>
+            Vue d'ensemble des stocks par banque partenaire
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b-2 border-slate-300 bg-slate-100">
+                  <th className="text-left p-3 font-semibold text-slate-700">Banque</th>
+                  <th className="text-center p-3 font-semibold text-slate-700">Nb Types de Cartes</th>
+                  <th className="text-center p-3 font-semibold text-slate-700">Quantité Totale</th>
+                  <th className="text-center p-3 font-semibold text-slate-700">Stock Faible</th>
+                  <th className="text-center p-3 font-semibold text-slate-700">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(groupedCards).map(([bankName, bankCards]) => {
+                  const totalQuantity = bankCards.reduce((sum, cd) => sum + cd.card.quantity, 0)
+                  const lowStockCount = bankCards.filter(cd => cd.card.quantity <= cd.card.minThreshold).length
+                  return (
+                    <tr key={bankName} className="border-b border-slate-200 hover:bg-slate-50">
+                      <td className="p-3 font-medium text-slate-900">{bankName}</td>
+                      <td className="p-3 text-center">
+                        <Badge variant="outline">{bankCards.length}</Badge>
+                      </td>
+                      <td className="p-3 text-center">
+                        <Badge variant="default" className="font-mono">{totalQuantity}</Badge>
+                      </td>
+                      <td className="p-3 text-center">
+                        {lowStockCount > 0 ? (
+                          <Badge variant="destructive">{lowStockCount} alerte(s)</Badge>
+                        ) : (
+                          <Badge variant="secondary">OK</Badge>
+                        )}
+                      </td>
+                      <td className="p-3 text-center">
+                        <Badge variant="default" className="bg-green-600">Active</Badge>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-slate-300 bg-slate-100 font-bold">
+                  <td className="p-3 text-slate-900">TOTAL GÉNÉRAL</td>
+                  <td className="p-3 text-center text-slate-900">
+                    {Object.values(groupedCards).reduce((total, cards) => total + cards.length, 0)}
+                  </td>
+                  <td className="p-3 text-center text-slate-900">
+                    {Object.values(groupedCards).reduce((total, cards) => 
+                      total + cards.reduce((sum, cd) => sum + cd.card.quantity, 0), 0
+                    )}
+                  </td>
+                  <td className="p-3 text-center text-slate-900">
+                    {Object.values(groupedCards).reduce((total, cards) => 
+                      total + cards.filter(cd => cd.card.quantity <= cd.card.minThreshold).length, 0
+                    )}
+                  </td>
+                  <td className="p-3 text-center"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Cards List - Grouped by Bank */}
       <Card>
         <CardHeader>
-          <CardTitle>Cartes par Banque</CardTitle>
+          <CardTitle>Détail des Cartes par Banque</CardTitle>
           <CardDescription>
             {Object.values(groupedCards).reduce((total, cards) => total + cards.length, 0)} carte(s) au total
           </CardDescription>
