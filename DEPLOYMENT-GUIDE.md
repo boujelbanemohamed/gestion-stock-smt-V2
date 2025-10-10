@@ -89,12 +89,17 @@ npm install
 # Générer le client Prisma
 npx prisma generate
 
-# Appliquer les migrations de base de données
-npx prisma migrate deploy
+# Pour une MISE À JOUR (base de données existante):
+npx prisma db push --skip-generate
+
+# Pour une NOUVELLE INSTALLATION (base de données vide):
+# npx prisma migrate deploy
 
 # Optionnel: Vérifier l'état de la base de données
 npx prisma db pull
 ```
+
+**Note:** Si vous obtenez l'erreur "database schema is not empty", c'est normal pour une mise à jour. Le script `deploy.sh` gère automatiquement ce cas.
 
 ### 7️⃣ Variables d'Environnement
 
@@ -300,18 +305,22 @@ npm install
 npm run build
 ```
 
-### Problème: Migrations Prisma échouées
+### Problème: Migrations Prisma échouées ou "Database schema is not empty"
 
 ```bash
-# Réinitialiser les migrations (ATTENTION: perte de données possible)
-npx prisma migrate reset
+# Pour une MISE À JOUR (base existante):
+# Utiliser db push au lieu de migrate deploy
+npx prisma generate
+npx prisma db push --skip-generate
 
-# Ou appliquer manuellement les migrations
-npx prisma migrate deploy
-
-# Vérifier l'état des migrations
+# Pour vérifier l'état
 npx prisma migrate status
+
+# Si vous voulez vraiment réinitialiser (ATTENTION: perte de données):
+# npx prisma migrate reset
 ```
+
+📖 **Guide complet:** Voir `FIX-DATABASE-SCHEMA.md`
 
 ---
 

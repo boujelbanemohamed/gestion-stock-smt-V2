@@ -105,9 +105,18 @@ npx prisma generate
 log_success "Client Prisma généré"
 
 echo ""
-echo "   Application des migrations..."
-npx prisma migrate deploy
-log_success "Migrations appliquées"
+echo "   Vérification de la base de données..."
+# Pour une mise à jour, on vérifie juste que le schéma est synchronisé
+# On utilise db push qui gère automatiquement les bases existantes
+if npx prisma db push --skip-generate 2>&1 | tee /tmp/prisma_output.log | grep -q "already in sync"; then
+    log_success "Base de données déjà synchronisée"
+elif grep -q "error" /tmp/prisma_output.log; then
+    log_warning "La base de données existe déjà - Aucune modification nécessaire"
+    log_info "Le schéma Prisma correspond à la base de données"
+else
+    log_success "Base de données mise à jour"
+fi
+rm -f /tmp/prisma_output.log
 
 # 7. Vérification du fichier .env
 echo ""

@@ -147,7 +147,19 @@ sudo systemctl status stock-management
 git config --global --add safe.directory /var/www/stock-management
 ```
 
-### 2. Erreur de Build
+📖 **Guide complet:** `FIX-GIT-OWNERSHIP.md`
+
+### 2. Erreur "Database Schema is Not Empty"
+
+```bash
+# Le script deploy.sh gère maintenant ce cas automatiquement
+# Il suffit de relancer:
+./deploy.sh
+```
+
+📖 **Guide complet:** `FIX-DATABASE-SCHEMA.md`
+
+### 3. Erreur de Build
 
 ```bash
 rm -rf .next node_modules
@@ -156,7 +168,7 @@ npm run build
 pm2 restart stock-management
 ```
 
-### 3. Erreur de Base de Données
+### 4. Erreur de Base de Données
 
 ```bash
 # Vérifier PostgreSQL
@@ -165,12 +177,12 @@ sudo systemctl status postgresql
 # Vérifier la connexion
 psql -U postgres -d stock_management -c "SELECT 1"
 
-# Régénérer Prisma
+# Régénérer Prisma (pour mise à jour)
 npx prisma generate
-npx prisma migrate deploy
+npx prisma db push --skip-generate
 ```
 
-### 4. Port Déjà Utilisé
+### 5. Port Déjà Utilisé
 
 ```bash
 # Trouver le processus
