@@ -32,12 +32,12 @@ ssh admin@192.168.1.100
 
 ```bash
 # Aller dans le répertoire du projet
-cd /var/www/gestion-stock-smt-V2
+cd /var/www/stock-management
 
 # Ou selon votre configuration:
-cd /opt/gestion-stock-smt-V2
+cd /opt/stock-management
 # ou
-cd /home/votre-utilisateur/gestion-stock-smt-V2
+cd /home/votre-utilisateur/stock-management
 ```
 
 ### 3️⃣ Sauvegarde de la Base de Données (IMPORTANT)
@@ -141,13 +141,13 @@ echo $?
 
 ```bash
 # Redémarrer l'application avec PM2
-pm2 restart gestion-stock-smt
+pm2 restart stock-management
 
 # Vérifier le statut
 pm2 status
 
 # Voir les logs en temps réel
-pm2 logs gestion-stock-smt --lines 50
+pm2 logs stock-management --lines 50
 
 # Sauvegarder la configuration PM2
 pm2 save
@@ -157,13 +157,13 @@ pm2 save
 
 ```bash
 # Redémarrer le service systemd
-sudo systemctl restart gestion-stock-smt
+sudo systemctl restart stock-management
 
 # Vérifier le statut
-sudo systemctl status gestion-stock-smt
+sudo systemctl status stock-management
 
 # Voir les logs
-sudo journalctl -u gestion-stock-smt -f --lines 50
+sudo journalctl -u stock-management -f --lines 50
 ```
 
 ### 🔟 Vérification du Déploiement
@@ -176,9 +176,9 @@ curl -I http://localhost:3000
 curl -I https://votre-domaine.com
 
 # Vérifier les logs pour détecter d'éventuelles erreurs
-pm2 logs gestion-stock-smt --lines 100
+pm2 logs stock-management --lines 100
 # ou
-sudo journalctl -u gestion-stock-smt -n 100
+sudo journalctl -u stock-management -n 100
 ```
 
 ---
@@ -282,7 +282,7 @@ sudo lsof -i :3000
 sudo kill -9 <PID>
 
 # Redémarrer l'application
-pm2 restart gestion-stock-smt
+pm2 restart stock-management
 ```
 
 ### Problème: Erreurs de build
@@ -336,7 +336,7 @@ npx prisma generate
 npm run build
 
 # Redémarrer
-pm2 restart gestion-stock-smt
+pm2 restart stock-management
 ```
 
 ---
@@ -366,7 +366,7 @@ pm2 restart gestion-stock-smt
 
 En cas de problème lors du déploiement:
 
-1. Vérifier les logs: `pm2 logs gestion-stock-smt` ou `journalctl -u gestion-stock-smt`
+1. Vérifier les logs: `pm2 logs stock-management` ou `journalctl -u stock-management`
 2. Vérifier la base de données: `psql -U postgres -d stock_management`
 3. Vérifier les variables d'environnement: `cat .env`
 4. Consulter la documentation: `CHANGELOG-RECENT.md` et `verification-database.md`

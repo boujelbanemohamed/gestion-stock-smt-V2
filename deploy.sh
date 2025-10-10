@@ -3,12 +3,12 @@
 # Script de déploiement automatisé pour Red Hat
 # Repository: https://github.com/boujelbanemohamed/gestion-stock-smt-V2
 # Branche: main
-# Commit: 779a575
+# Application: stock-management
 
 set -e  # Arrêter en cas d'erreur
 
 echo "=========================================="
-echo "🚀 Déploiement Gestion Stock SMT V2"
+echo "🚀 Déploiement Stock Management SMT V2"
 echo "=========================================="
 echo ""
 
@@ -35,7 +35,19 @@ log_info() {
     echo -e "ℹ $1"
 }
 
+# 0. Vérifier et ajouter le répertoire comme sûr si nécessaire
+echo "0️⃣ Vérification de la sécurité Git..."
+REPO_DIR=$(pwd)
+if ! git config --global --get-all safe.directory 2>/dev/null | grep -q "^${REPO_DIR}$"; then
+    log_info "Ajout du répertoire comme safe.directory..."
+    git config --global --add safe.directory "$REPO_DIR"
+    log_success "Répertoire ajouté aux répertoires sûrs"
+else
+    log_success "Répertoire déjà configuré comme sûr"
+fi
+
 # 1. Vérifier la branche actuelle
+echo ""
 echo "1️⃣ Vérification de la branche..."
 CURRENT_BRANCH=$(git branch --show-current)
 if [ "$CURRENT_BRANCH" != "main" ]; then
@@ -126,17 +138,17 @@ echo "9️⃣ Redémarrage du service..."
 # Détecter PM2 ou systemd
 if command -v pm2 &> /dev/null; then
     log_info "Utilisation de PM2..."
-    pm2 restart gestion-stock-smt || pm2 start npm --name "gestion-stock-smt" -- start
+    pm2 restart stock-management || pm2 start npm --name "stock-management" -- start
     pm2 save
     log_success "Application redémarrée avec PM2"
     echo ""
     pm2 status
-elif systemctl list-units --type=service | grep -q "gestion-stock-smt"; then
+elif systemctl list-units --type=service | grep -q "stock-management"; then
     log_info "Utilisation de systemd..."
-    sudo systemctl restart gestion-stock-smt
+    sudo systemctl restart stock-management
     log_success "Service redémarré avec systemd"
     echo ""
-    sudo systemctl status gestion-stock-smt --no-pager
+    sudo systemctl status stock-management --no-pager
 else
     log_warning "Aucun gestionnaire de processus détecté (PM2 ou systemd)"
     log_info "Veuillez redémarrer l'application manuellement"
@@ -172,12 +184,12 @@ echo "  - Commit: $CURRENT_COMMIT"
 echo "  - Backup: $BACKUP_FILE"
 echo ""
 echo "📝 Prochaines étapes:"
-echo "  1. Vérifier les logs: pm2 logs gestion-stock-smt"
+echo "  1. Vérifier les logs: pm2 logs stock-management"
 echo "  2. Tester l'application dans le navigateur"
 echo "  3. Vérifier les logs d'audit dans la base de données"
 echo ""
 echo "🔗 Liens utiles:"
 echo "  - Application: http://localhost:3000"
-echo "  - Logs: pm2 logs gestion-stock-smt (ou journalctl -u gestion-stock-smt)"
+echo "  - Logs: pm2 logs stock-management (ou journalctl -u stock-management)"
 echo "  - Documentation: DEPLOYMENT-GUIDE.md"
 echo ""

@@ -21,7 +21,7 @@
 
 ```bash
 # Sur le serveur Red Hat
-cd /var/www/gestion-stock-smt-V2
+cd /var/www/stock-management
 git pull origin main
 ./deploy.sh
 ```
@@ -30,7 +30,7 @@ git pull origin main
 
 ```bash
 # Sur le serveur Red Hat
-cd /var/www/gestion-stock-smt-V2
+cd /var/www/stock-management
 
 # 1. Backup
 pg_dump -U postgres stock_management > backup_$(date +%Y%m%d_%H%M%S).sql
@@ -49,9 +49,9 @@ npx prisma migrate deploy
 npm run build
 
 # 6. Redémarrage
-pm2 restart gestion-stock-smt
+pm2 restart stock-management
 # ou
-sudo systemctl restart gestion-stock-smt
+sudo systemctl restart stock-management
 ```
 
 ---
@@ -59,9 +59,9 @@ sudo systemctl restart gestion-stock-smt
 ## 📋 Checklist Rapide
 
 - [ ] Connexion SSH au serveur Red Hat
-- [ ] `cd /var/www/gestion-stock-smt-V2` (ou votre chemin)
+- [ ] `cd /var/www/stock-management` (ou votre chemin)
 - [ ] `git pull origin main`
-- [ ] Vérifier commit: `8d49025`
+- [ ] Vérifier commit: `2aa27fe`
 - [ ] `./deploy.sh` (ou commandes manuelles)
 - [ ] Tester l'application
 
@@ -93,12 +93,12 @@ sudo systemctl restart gestion-stock-smt
 # Vérifier le statut
 pm2 status
 # ou
-sudo systemctl status gestion-stock-smt
+sudo systemctl status stock-management
 
 # Voir les logs
-pm2 logs gestion-stock-smt --lines 50
+pm2 logs stock-management --lines 50
 # ou
-sudo journalctl -u gestion-stock-smt -n 50
+sudo journalctl -u stock-management -n 50
 
 # Tester l'API
 curl http://localhost:3000/api/banks | jq '.success'
@@ -111,9 +111,9 @@ psql -U postgres -d stock_management -c "\dt"
 
 ## ⚠️ En Cas de Problème
 
-1. **Vérifier les logs:** `pm2 logs gestion-stock-smt`
+1. **Vérifier les logs:** `pm2 logs stock-management`
 2. **Consulter le guide:** `cat DEPLOYMENT-GUIDE.md`
-3. **Rollback si nécessaire:** `git checkout 779a575` (commit précédent)
+3. **Rollback si nécessaire:** `git checkout 7dfd383` (commit précédent)
 
 ---
 
@@ -130,7 +130,7 @@ psql -U postgres -d stock_management -c "SELECT COUNT(*) FROM \"Bank\""
 psql -U postgres -d stock_management -c "SELECT COUNT(*) FROM \"AuditLog\""
 
 # 4. Pas d'erreurs dans les logs
-pm2 logs gestion-stock-smt --lines 20 --err
+pm2 logs stock-management --lines 20 --err
 ```
 
 ---
