@@ -5,6 +5,11 @@ import type { Bank } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
 
 // PUT /api/banks/[id] - Mettre à jour une banque
+
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }

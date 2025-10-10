@@ -6,6 +6,11 @@ import { eventBus } from "@/lib/event-bus"
 import { logAudit } from "@/lib/audit-logger"
 
 // PUT /api/roles/[id] - Mettre à jour un rôle
+
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const body = await request.json()

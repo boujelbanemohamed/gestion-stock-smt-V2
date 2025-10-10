@@ -5,6 +5,10 @@ import type { ApiResponse } from "@/lib/api-types"
 import type { User } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
 
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()

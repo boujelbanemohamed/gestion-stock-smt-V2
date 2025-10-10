@@ -6,6 +6,11 @@ import type { User } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
 
 // GET /api/users/[id] - Récupérer un utilisateur par ID
+
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await prisma.user.findUnique({

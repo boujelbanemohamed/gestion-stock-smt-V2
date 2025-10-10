@@ -3,6 +3,11 @@ import type { ApiResponse } from "@/lib/api-types"
 import * as nodemailer from "nodemailer"
 
 // POST /api/config/test-smtp - Tester la configuration SMTP
+
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()

@@ -6,6 +6,11 @@ import { eventBus } from "@/lib/event-bus"
 import { logAudit } from "@/lib/audit-logger"
 
 // GET /api/roles - Récupérer tous les rôles
+
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function GET(request: NextRequest) {
   try {
     const roles = await prisma.rolePermission.findMany({

@@ -5,6 +5,11 @@ import type { AppConfig } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
 
 // GET /api/config - Récupérer la configuration de l'application
+
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function GET(request: NextRequest) {
   try {
     const config = await prisma.appConfig.findUnique({

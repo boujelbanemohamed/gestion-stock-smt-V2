@@ -5,6 +5,11 @@ import type { Card } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
 
 // GET /api/cards - Récupérer toutes les cartes avec filtres optionnels
+
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams

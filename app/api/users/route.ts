@@ -6,6 +6,11 @@ import type { User } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
 
 // GET /api/users - Récupérer tous les utilisateurs avec filtres optionnels
+
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams

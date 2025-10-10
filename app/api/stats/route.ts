@@ -3,6 +3,11 @@ import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 
 // GET /api/stats - Récupérer les statistiques
+
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams

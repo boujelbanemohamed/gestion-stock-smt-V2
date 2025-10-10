@@ -5,6 +5,11 @@ import type { LocationImportRow } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
 
 // POST /api/locations/import - Importer des emplacements depuis CSV
+
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()

@@ -4,6 +4,11 @@ import type { ApiResponse } from "@/lib/api-types"
 import type { User } from "@/lib/types"
 
 // GET /api/auth/me - Récupérer l'utilisateur connecté
+
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function GET(request: NextRequest) {
   try {
     // Dans une vraie app, on récupérerait l'ID depuis le token/session

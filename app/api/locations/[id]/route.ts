@@ -5,6 +5,11 @@ import type { Location } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
 
 // GET /api/locations/[id] - Récupérer un emplacement par ID
+
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const location = await prisma.location.findUnique({

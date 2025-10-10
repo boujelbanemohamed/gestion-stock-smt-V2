@@ -4,6 +4,11 @@ import type { ApiResponse } from "@/lib/api-types"
 import type { Movement } from "@/lib/types"
 
 // GET /api/movements/[id] - Récupérer un mouvement par ID
+
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const movement = await prisma.movement.findUnique({

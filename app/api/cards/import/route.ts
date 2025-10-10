@@ -5,6 +5,11 @@ import type { CardImportRow } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
 
 // POST /api/cards/import - Importer des cartes depuis CSV
+
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()

@@ -3,6 +3,11 @@ import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 
 // PUT /api/notifications/[id] - Marquer comme lue
+
+// Forcer la route à être dynamique (ne pas pré-rendre)
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const body = await request.json()
