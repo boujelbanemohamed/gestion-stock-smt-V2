@@ -38,12 +38,14 @@ cd /chemin/vers/stock-management-V2
 
 **C'est tout !** Le script fait tout automatiquement :
 - ✅ Backup base de données
+- ✅ Sauvegarde commit actuel (rollback)
 - ✅ Git pull (récupère commit 123f560)
 - ✅ Installation dépendances
 - ✅ Configuration NODE_ENV=production
 - ✅ Build production
 - ✅ Redémarrage PM2
 - ✅ Vérifications complètes
+- 🛡️ **Rollback automatique si erreur**
 
 ---
 
@@ -104,6 +106,47 @@ pm2 status
 
 ---
 
+## 🛡️ Système de Rollback
+
+Le script `deploy.sh` intègre un **rollback automatique** :
+
+### Fonctionnement
+
+Si une erreur survient pendant le déploiement :
+1. ❌ L'erreur est détectée automatiquement
+2. 🔄 Le rollback se déclenche immédiatement
+3. ✅ L'application est restaurée à l'état précédent
+
+### Ce qui est Restauré
+
+- ✅ Code source (commit précédent)
+- ✅ Dépendances npm
+- ✅ Build Next.js
+- ✅ Configuration Prisma
+- ✅ Application PM2
+
+### Rollback Manuel
+
+Si besoin de revenir en arrière manuellement :
+
+```bash
+# Voir l'historique
+git log --oneline -5
+
+# Restaurer un commit
+git reset --hard <commit-hash>
+
+# Redéployer
+npm install
+npx prisma generate
+NODE_ENV=production npm run build
+pm2 restart stock-management
+```
+
+**Documentation complète :** `ROLLBACK-GUIDE.md`
+
+---
+
 ## 🆘 En Cas de Problème
 
 ### Application ne démarre pas
@@ -119,13 +162,10 @@ pm2 restart stock-management
 ./test-logs-production.sh
 ```
 
-### Erreur "audit_logs not found"
+### Déploiement Échoué
 
-C'est corrigé dans le commit 123f560. Faites :
-```bash
-git pull origin main
-./deploy.sh
-```
+Le rollback automatique restaure l'ancienne version.  
+Consultez `ROLLBACK-GUIDE.md` pour plus de détails.
 
 ---
 
@@ -133,6 +173,7 @@ git pull origin main
 
 Consultez ces fichiers pour plus de détails :
 
+- **`ROLLBACK-GUIDE.md`** 🆕 - Guide système de rollback
 - **`UPDATE-REDHAT-README.md`** - Guide complet de mise à jour
 - **`LOGS-PRODUCTION-GUIDE.md`** - Guide système de logs
 - **`FIX-LOGS-HISTORIQUE.md`** - Fix logs disparus

@@ -5,8 +5,6 @@
 # Branche: main
 # Application: stock-management
 
-set -e  # Arrêter en cas d'erreur
-
 echo "=========================================="
 echo "🚀 Déploiement Stock Management SMT V2"
 echo "=========================================="
@@ -17,6 +15,11 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
+
+# Variables globales pour le rollback
+PREVIOUS_COMMIT=""
+BACKUP_FILE=""
+ROLLBACK_TRIGGERED=false
 
 # Fonction pour afficher les messages
 log_success() {
@@ -35,6 +38,73 @@ log_info() {
     echo -e "ℹ $1"
 }
 
+# Fonction de rollback en cas d'erreur
+rollback() {
+    if [ "$ROLLBACK_TRIGGERED" = true ]; then
+        return  # Éviter les boucles infinies
+    fi
+    
+    ROLLBACK_TRIGGERED=true
+    
+    echo ""
+    echo "=========================================="
+    log_error "ERREUR DÉTECTÉE - ROLLBACK EN COURS"
+    echo "=========================================="
+    echo ""
+    
+    # 1. Restaurer le commit Git précédent
+    if [ ! -z "$PREVIOUS_COMMIT" ]; then
+        echo "1️⃣ Restauration du commit précédent..."
+        git reset --hard "$PREVIOUS_COMMIT" 2>/dev/null || log_warning "Impossible de restaurer le commit"
+        log_success "Code restauré au commit: $PREVIOUS_COMMIT"
+    fi
+    
+    # 2. Réinstaller les dépendances de l'ancienne version
+    echo ""
+    echo "2️⃣ Réinstallation des dépendances..."
+    npm install --silent 2>/dev/null || log_warning "Erreur lors de npm install"
+    
+    # 3. Regénérer Prisma
+    echo ""
+    echo "3️⃣ Regénération Prisma..."
+    npx prisma generate --silent 2>/dev/null || log_warning "Erreur Prisma"
+    
+    # 4. Rebuild avec l'ancienne version
+    echo ""
+    echo "4️⃣ Rebuild de l'ancienne version..."
+    NODE_ENV=production npm run build --silent 2>/dev/null || log_warning "Erreur de build"
+    
+    # 5. Redémarrer l'application
+    echo ""
+    echo "5️⃣ Redémarrage de l'application..."
+    if command -v pm2 &> /dev/null; then
+        pm2 delete stock-management 2>/dev/null || true
+        NODE_ENV=production pm2 start npm --name "stock-management" -- start
+        pm2 save
+        log_success "Application redémarrée avec l'ancienne version"
+    fi
+    
+    echo ""
+    echo "=========================================="
+    log_warning "ROLLBACK TERMINÉ"
+    echo "=========================================="
+    echo ""
+    log_info "L'application a été restaurée à la version précédente"
+    log_info "Commit restauré: $PREVIOUS_COMMIT"
+    
+    if [ ! -z "$BACKUP_FILE" ] && [ -f "$BACKUP_FILE" ]; then
+        log_info "Backup DB disponible: $BACKUP_FILE"
+        log_info "Pour restaurer: psql -U postgres stock_management < $BACKUP_FILE"
+    fi
+    
+    echo ""
+    log_error "Le déploiement a échoué et a été annulé"
+    exit 1
+}
+
+# Capturer les erreurs et déclencher le rollback
+trap 'rollback' ERR
+
 # 0. Vérifier et ajouter le répertoire comme sûr si nécessaire
 echo "0️⃣ Vérification de la sécurité Git..."
 REPO_DIR=$(pwd)
@@ -46,7 +116,7 @@ else
     log_success "Répertoire déjà configuré comme sûr"
 fi
 
-# 1. Vérifier la branche actuelle
+# 1. Vérifier la branche actuelle et sauvegarder le commit
 echo ""
 echo "1️⃣ Vérification de la branche..."
 CURRENT_BRANCH=$(git branch --show-current)
@@ -60,6 +130,10 @@ if [ "$CURRENT_BRANCH" != "main" ]; then
     fi
 fi
 log_success "Branche: $CURRENT_BRANCH"
+
+# Sauvegarder le commit actuel pour le rollback
+PREVIOUS_COMMIT=$(git rev-parse HEAD)
+log_info "Commit actuel sauvegardé pour rollback: $(git log --oneline -1 $PREVIOUS_COMMIT)"
 
 # 2. Backup de la base de données
 echo ""
@@ -254,6 +328,9 @@ if command -v psql &> /dev/null; then
     fi
 fi
 
+# Désactiver le rollback automatique car le déploiement a réussi
+trap - ERR
+
 # Résumé
 echo ""
 echo "=========================================="
@@ -263,8 +340,14 @@ echo ""
 echo "📊 Résumé:"
 echo "  - Repository: https://github.com/boujelbanemohamed/gestion-stock-smt-V2"
 echo "  - Branche: main"
-echo "  - Commit: $CURRENT_COMMIT"
-echo "  - Backup: $BACKUP_FILE"
+echo "  - Commit précédent: $(git log --oneline -1 $PREVIOUS_COMMIT)"
+echo "  - Nouveau commit: $CURRENT_COMMIT"
+echo "  - Backup DB: $BACKUP_FILE"
+echo ""
+echo "🔄 Rollback:"
+echo "  - Système de rollback disponible"
+echo "  - En cas d'erreur, restaurer avec: git reset --hard $PREVIOUS_COMMIT"
+echo "  - Restaurer DB avec: psql -U postgres stock_management < $BACKUP_FILE"
 echo ""
 echo "📝 Prochaines étapes:"
 echo "  1. Vérifier les logs PM2: pm2 logs stock-management"
