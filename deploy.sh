@@ -118,21 +118,44 @@ else
 fi
 rm -f /tmp/prisma_output.log
 
-# 7. Vérification du fichier .env
+# 7. Vérification et configuration du fichier .env
 echo ""
-echo "7️⃣ Vérification du fichier .env..."
-if [ -f ".env" ]; then
+echo "7️⃣ Vérification et configuration du fichier .env..."
+
+# Vérifier si .env existe, sinon utiliser .env.production
+if [ -f ".env.production" ]; then
+    log_info "Utilisation du fichier .env.production"
+    cp .env.production .env
+    log_success "Fichier .env.production copié vers .env"
+elif [ -f ".env" ]; then
     log_success "Fichier .env trouvé"
-    if grep -q "DATABASE_URL" .env; then
-        log_success "DATABASE_URL configuré"
-    else
-        log_error "DATABASE_URL manquant dans .env"
-        exit 1
-    fi
 else
-    log_error "Fichier .env non trouvé"
+    log_error "Aucun fichier .env ou .env.production trouvé"
     exit 1
 fi
+
+# Vérifier DATABASE_URL
+if grep -q "DATABASE_URL" .env; then
+    log_success "DATABASE_URL configuré"
+else
+    log_error "DATABASE_URL manquant dans .env"
+    exit 1
+fi
+
+# S'assurer que NODE_ENV=production est défini
+if grep -q "^NODE_ENV=" .env; then
+    # Remplacer la valeur existante
+    sed -i.bak 's/^NODE_ENV=.*/NODE_ENV=production/' .env
+    log_success "NODE_ENV=production configuré dans .env"
+else
+    # Ajouter NODE_ENV si absent
+    echo "NODE_ENV=production" >> .env
+    log_success "NODE_ENV=production ajouté à .env"
+fi
+
+# Afficher la configuration (sans les secrets)
+log_info "Configuration active:"
+grep -E "^(NODE_ENV|DATABASE_URL)" .env | sed 's/\(DATABASE_URL=.*:\/\/.*:\).*\(@.*\)/\1****\2/' || true
 
 # 8. Nettoyage du cache Next.js
 echo ""
@@ -178,7 +201,8 @@ echo ""
 echo "1️⃣1️⃣ Vérifications post-déploiement..."
 
 # Attendre que l'application démarre
-sleep 5
+log_info "Attente du démarrage de l'application (10 secondes)..."
+sleep 10
 
 # Test de l'API
 if command -v curl &> /dev/null; then
@@ -187,6 +211,38 @@ if command -v curl &> /dev/null; then
     else
         log_warning "Application non accessible sur http://localhost:3000"
         log_info "Vérifiez les logs pour plus d'informations"
+    fi
+    
+    # Test de l'API logs
+    log_info "Test de l'API des logs d'audit..."
+    LOGS_RESPONSE=$(curl -s http://localhost:3000/api/logs?limit=1 2>/dev/null || echo "")
+    if echo "$LOGS_RESPONSE" | grep -q '"success":true'; then
+        log_success "API des logs d'audit fonctionnelle"
+    else
+        log_warning "API des logs d'audit non accessible ou erreur"
+        log_info "Vérifiez la connexion à la base de données"
+    fi
+fi
+
+# Vérification de la base de données et des logs
+echo ""
+log_info "Vérification de la base de données..."
+if command -v psql &> /dev/null; then
+    # Extraire les infos de connexion de DATABASE_URL
+    DB_URL=$(grep "^DATABASE_URL=" .env | cut -d'=' -f2- | tr -d '"')
+    
+    # Vérifier la table audit_logs
+    if echo "$DB_URL" | grep -q "postgresql://"; then
+        DB_NAME=$(echo "$DB_URL" | sed -n 's|.*\/\([^?]*\).*|\1|p')
+        DB_USER=$(echo "$DB_URL" | sed -n 's|.*://\([^:]*\):.*|\1|p')
+        
+        AUDIT_COUNT=$(PGPASSWORD="" psql -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT COUNT(*) FROM audit_logs;" 2>/dev/null | xargs || echo "0")
+        
+        if [ "$AUDIT_COUNT" != "0" ] 2>/dev/null; then
+            log_success "Table audit_logs contient $AUDIT_COUNT entrées"
+        else
+            log_warning "Table audit_logs vide ou non accessible"
+        fi
     fi
 fi
 
@@ -203,12 +259,21 @@ echo "  - Commit: $CURRENT_COMMIT"
 echo "  - Backup: $BACKUP_FILE"
 echo ""
 echo "📝 Prochaines étapes:"
-echo "  1. Vérifier les logs: pm2 logs stock-management"
+echo "  1. Vérifier les logs PM2: pm2 logs stock-management"
 echo "  2. Tester l'application dans le navigateur"
-echo "  3. Vérifier les logs d'audit dans la base de données"
+echo "  3. Vérifier les logs d'audit: Connexion → Menu Logs"
+echo "  4. Créer une action pour générer un log de test"
 echo ""
 echo "🔗 Liens utiles:"
 echo "  - Application: http://localhost:3000"
-echo "  - Logs: pm2 logs stock-management (ou journalctl -u stock-management)"
+echo "  - Logs PM2: pm2 logs stock-management"
+echo "  - Logs système: journalctl -u stock-management"
 echo "  - Documentation: DEPLOYMENT-GUIDE.md"
+echo ""
+echo "🐛 Debug des logs d'audit (si problème):"
+echo "  1. Vérifier NODE_ENV: cat .env | grep NODE_ENV"
+echo "  2. Vérifier Prisma: npx prisma db pull"
+echo "  3. Tester connexion DB: psql \$DATABASE_URL -c 'SELECT COUNT(*) FROM audit_logs;'"
+echo "  4. Vérifier logs PM2: pm2 logs stock-management --lines 50"
+echo "  5. Test API logs: curl http://localhost:3000/api/logs?limit=1"
 echo ""
