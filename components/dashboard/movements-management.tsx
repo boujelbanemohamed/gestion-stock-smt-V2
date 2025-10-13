@@ -63,15 +63,13 @@ export default function MovementsManagement() {
     loadCurrentUser()
   }, [])
 
-  const loadCurrentUser = async () => {
+  const loadCurrentUser = () => {
     try {
-      // Simuler un utilisateur courant (à remplacer par une vraie session)
-      const usersResponse = await fetch('/api/users')
-      const usersData = await usersResponse.json()
-      if (usersData.success && usersData.data.length > 0) {
-        // Prendre le premier admin
-        const admin = usersData.data.find((u: any) => u.role === 'admin')
-        setCurrentUser(admin || usersData.data[0])
+      // Récupérer l'utilisateur connecté depuis localStorage
+      const userStr = localStorage.getItem('currentUser')
+      if (userStr) {
+        const user = JSON.parse(userStr)
+        setCurrentUser(user)
       }
     } catch (error) {
       console.error('Error loading current user:', error)
@@ -181,11 +179,13 @@ export default function MovementsManagement() {
       .reverse()
       .map(
         (movement) => {
-          // Pour les sorties, afficher l'adresse de la banque au lieu de l'emplacement destination
+          // Pour les sorties, afficher le nom et l'adresse de la banque au lieu de l'emplacement destination
           const card = cards.find(c => c.id === movement.cardId)
-          const bankAddress = card ? (banks.find(b => b.id === card.bankId)?.address || "Adresse non renseignée") : "N/A"
+          const bank = card ? banks.find(b => b.id === card.bankId) : null
+          const bankName = bank?.name || "Banque non trouvée"
+          const bankAddress = bank?.address || "Adresse non renseignée"
           const destination = movement.movementType === 'exit' 
-            ? bankAddress 
+            ? `${bankName}<br/>${bankAddress}` 
             : (movement.toLocationId ? getLocationName(movement.toLocationId) : "-")
           
           return `
@@ -333,9 +333,14 @@ export default function MovementsManagement() {
     const printWindow = window.open("", "_blank")
     if (!printWindow) return
 
-    // Récupérer l'adresse de la banque pour les sorties
+    // Récupérer le nom et l'adresse de la banque pour les sorties
     const card = cards.find(c => c.id === movement.cardId)
-    const bankAddress = card ? (banks.find(b => b.id === card.bankId)?.address || "Adresse non renseignée") : "N/A"
+    const bank = card ? banks.find(b => b.id === card.bankId) : null
+    const bankName = bank?.name || "Banque non trouvée"
+    const bankAddress = bank?.address || "Adresse non renseignée"
+    const destinationInfo = movement.movementType === 'exit' 
+      ? `${bankName}<br/>${bankAddress}` 
+      : (movement.toLocationId ? getLocationName(movement.toLocationId) : "-")
 
     const movementHtml = `
       <tr>
@@ -355,8 +360,8 @@ export default function MovementsManagement() {
         <td style="border: 1px solid #ddd; padding: 8px;">${movement.fromLocationId ? getLocationName(movement.fromLocationId) : "-"}</td>
       </tr>
       <tr>
-        <td style="border: 1px solid #ddd; padding: 8px;"><strong>${movement.movementType === 'exit' ? 'Adresse de destination' : 'Emplacement destination'}:</strong></td>
-        <td style="border: 1px solid #ddd; padding: 8px;">${movement.movementType === 'exit' ? bankAddress : (movement.toLocationId ? getLocationName(movement.toLocationId) : "-")}</td>
+        <td style="border: 1px solid #ddd; padding: 8px;"><strong>${movement.movementType === 'exit' ? 'Banque de destination' : 'Emplacement destination'}:</strong></td>
+        <td style="border: 1px solid #ddd; padding: 8px;">${destinationInfo}</td>
       </tr>
       <tr>
         <td style="border: 1px solid #ddd; padding: 8px;"><strong>Quantité:</strong></td>

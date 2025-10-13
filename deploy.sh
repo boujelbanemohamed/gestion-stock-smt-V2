@@ -134,22 +134,32 @@ else
     exit 1
 fi
 
-# 8. Build de l'application
+# 8. Nettoyage du cache Next.js
 echo ""
-echo "8️⃣ Build de l'application..."
-npm run build
+echo "8️⃣ Nettoyage du cache Next.js..."
+rm -rf .next
+rm -rf node_modules/.cache
+log_success "Cache nettoyé"
+
+# 9. Build de l'application en mode PRODUCTION
+echo ""
+echo "9️⃣ Build de l'application en mode PRODUCTION..."
+NODE_ENV=production npm run build
 log_success "Build terminé avec succès"
 
-# 9. Redémarrage du service
+# 10. Redémarrage du service
 echo ""
-echo "9️⃣ Redémarrage du service..."
+echo "🔟 Redémarrage du service..."
 
 # Détecter PM2 ou systemd
 if command -v pm2 &> /dev/null; then
     log_info "Utilisation de PM2..."
-    pm2 restart stock-management || pm2 start npm --name "stock-management" -- start
+    # Arrêter complètement l'ancienne instance
+    pm2 delete stock-management 2>/dev/null || true
+    # Démarrer en mode PRODUCTION
+    NODE_ENV=production pm2 start npm --name "stock-management" -- start
     pm2 save
-    log_success "Application redémarrée avec PM2"
+    log_success "Application redémarrée avec PM2 en mode PRODUCTION"
     echo ""
     pm2 status
 elif systemctl list-units --type=service | grep -q "stock-management"; then
@@ -163,9 +173,9 @@ else
     log_info "Veuillez redémarrer l'application manuellement"
 fi
 
-# 10. Vérifications post-déploiement
+# 11. Vérifications post-déploiement
 echo ""
-echo "🔟 Vérifications post-déploiement..."
+echo "1️⃣1️⃣ Vérifications post-déploiement..."
 
 # Attendre que l'application démarre
 sleep 5
