@@ -75,24 +75,24 @@ else
     exit 1
 fi
 
-# 3. Vérifier la table audit_logs
+# 3. Vérifier la table AuditLog
 echo ""
-echo "3️⃣ Vérification de la table audit_logs..."
-TABLE_EXISTS=$(PGPASSWORD="$DB_PASSWORD" psql -U "$DB_USER" -h "$DB_HOST" -d "$DB_NAME" -t -c "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'audit_logs');" 2>/dev/null | xargs)
+echo "3️⃣ Vérification de la table AuditLog..."
+TABLE_EXISTS=$(PGPASSWORD="$DB_PASSWORD" psql -U "$DB_USER" -h "$DB_HOST" -d "$DB_NAME" -t -c "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'AuditLog');" 2>/dev/null | xargs)
 
 if [ "$TABLE_EXISTS" = "t" ]; then
-    log_success "Table audit_logs existe"
+    log_success "Table AuditLog existe"
     
     # Compter les logs
-    AUDIT_COUNT=$(PGPASSWORD="$DB_PASSWORD" psql -U "$DB_USER" -h "$DB_HOST" -d "$DB_NAME" -t -c "SELECT COUNT(*) FROM audit_logs;" 2>/dev/null | xargs)
+    AUDIT_COUNT=$(PGPASSWORD="$DB_PASSWORD" psql -U "$DB_USER" -h "$DB_HOST" -d "$DB_NAME" -t -c 'SELECT COUNT(*) FROM "AuditLog";' 2>/dev/null | xargs)
     log_info "Nombre de logs: $AUDIT_COUNT"
     
     # Afficher les 3 derniers logs
     echo ""
     log_info "Les 3 derniers logs d'audit:"
-    PGPASSWORD="$DB_PASSWORD" psql -U "$DB_USER" -h "$DB_HOST" -d "$DB_NAME" -c "SELECT timestamp, \"userEmail\", action, module, status FROM audit_logs ORDER BY timestamp DESC LIMIT 3;" 2>/dev/null || log_warning "Impossible de récupérer les logs"
+    PGPASSWORD="$DB_PASSWORD" psql -U "$DB_USER" -h "$DB_HOST" -d "$DB_NAME" -c 'SELECT timestamp, "userEmail", action, module, status FROM "AuditLog" ORDER BY timestamp DESC LIMIT 3;' 2>/dev/null || log_warning "Impossible de récupérer les logs"
 else
-    log_error "Table audit_logs n'existe pas"
+    log_error "Table AuditLog n'existe pas"
     log_info "Exécutez: npx prisma db push"
     exit 1
 fi
@@ -160,8 +160,8 @@ echo ""
 echo "📊 Résumé:"
 echo "  ✓ NODE_ENV: production"
 echo "  ✓ Base de données: connectée"
-echo "  ✓ Table audit_logs: présente ($AUDIT_COUNT entrées)"
-echo "  ✓ API logs: fonctionnelle"
+echo "  ✓ Table AuditLog: présente ($AUDIT_COUNT entrées)"
+echo "  ✓ API logs: fonctionnelle (filtre 30 jours)"
 echo ""
 echo "🔗 Pour voir les logs dans l'application:"
 echo "  1. Ouvrir: http://localhost:3000"

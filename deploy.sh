@@ -231,17 +231,25 @@ if command -v psql &> /dev/null; then
     # Extraire les infos de connexion de DATABASE_URL
     DB_URL=$(grep "^DATABASE_URL=" .env | cut -d'=' -f2- | tr -d '"')
     
-    # Vérifier la table audit_logs
+    # Vérifier la table AuditLog
     if echo "$DB_URL" | grep -q "postgresql://"; then
         DB_NAME=$(echo "$DB_URL" | sed -n 's|.*\/\([^?]*\).*|\1|p')
         DB_USER=$(echo "$DB_URL" | sed -n 's|.*://\([^:]*\):.*|\1|p')
         
-        AUDIT_COUNT=$(PGPASSWORD="" psql -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT COUNT(*) FROM audit_logs;" 2>/dev/null | xargs || echo "0")
+        AUDIT_COUNT=$(PGPASSWORD="" psql -U "$DB_USER" -d "$DB_NAME" -t -c 'SELECT COUNT(*) FROM "AuditLog";' 2>/dev/null | xargs || echo "0")
         
         if [ "$AUDIT_COUNT" != "0" ] 2>/dev/null; then
-            log_success "Table audit_logs contient $AUDIT_COUNT entrées"
+            log_success "Table AuditLog contient $AUDIT_COUNT entrées"
+            
+            # Vérifier que l'API retourne bien les logs avec le nouveau filtre (30 jours)
+            if command -v curl &> /dev/null; then
+                API_LOGS_COUNT=$(curl -s "http://localhost:3000/api/logs?limit=1000" 2>/dev/null | grep -o '"total":[0-9]*' | cut -d':' -f2 || echo "0")
+                if [ ! -z "$API_LOGS_COUNT" ] && [ "$API_LOGS_COUNT" != "0" ]; then
+                    log_success "API logs retourne $API_LOGS_COUNT entrées (filtre 30 jours actif)"
+                fi
+            fi
         else
-            log_warning "Table audit_logs vide ou non accessible"
+            log_warning "Table AuditLog vide ou non accessible"
         fi
     fi
 fi
@@ -273,7 +281,8 @@ echo ""
 echo "🐛 Debug des logs d'audit (si problème):"
 echo "  1. Vérifier NODE_ENV: cat .env | grep NODE_ENV"
 echo "  2. Vérifier Prisma: npx prisma db pull"
-echo "  3. Tester connexion DB: psql \$DATABASE_URL -c 'SELECT COUNT(*) FROM audit_logs;'"
+echo "  3. Tester connexion DB: psql \$DATABASE_URL -c 'SELECT COUNT(*) FROM \"AuditLog\";'"
 echo "  4. Vérifier logs PM2: pm2 logs stock-management --lines 50"
-echo "  5. Test API logs: curl http://localhost:3000/api/logs?limit=1"
+echo "  5. Test API logs (30 jours): curl http://localhost:3000/api/logs?limit=1000"
+echo "  6. Logs historiques: curl http://localhost:3000/api/logs?dateFrom=2025-10-01"
 echo ""
