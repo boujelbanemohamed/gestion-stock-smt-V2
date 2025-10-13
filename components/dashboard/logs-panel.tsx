@@ -26,6 +26,11 @@ export default function LogsPanel() {
     loadLogs()
   }, [])
 
+  // Recharger les logs quand les dates changent
+  useEffect(() => {
+    loadLogs()
+  }, [startDate, endDate])
+
   const loadCurrentUser = async () => {
     try {
       // Pour l'instant, simuler un utilisateur admin
@@ -54,11 +59,22 @@ export default function LogsPanel() {
 
   useEffect(() => {
     filterLogs()
-  }, [logs, searchTerm, actionFilter, moduleFilter, userFilter, startDate, endDate])
+  }, [logs, searchTerm, actionFilter, moduleFilter, userFilter])
 
   const loadLogs = async () => {
     try {
-      const response = await fetch('/api/logs')
+      // Construire l'URL avec les paramètres de date si définis
+      let url = '/api/logs?limit=1000' // Augmenter la limite pour charger plus de logs
+      
+      // Si des dates sont définies, les utiliser, sinon laisser l'API utiliser son défaut (30 jours)
+      if (startDate) {
+        url += `&dateFrom=${startDate}`
+      }
+      if (endDate) {
+        url += `&dateTo=${endDate}`
+      }
+      
+      const response = await fetch(url)
       const data = await response.json()
       if (data.success) {
         setLogs(data.data || [])
@@ -97,18 +113,8 @@ export default function LogsPanel() {
       filtered = filtered.filter((log) => log.userId === userFilter)
     }
 
-    // Filtre par plage de dates
-    if (startDate) {
-      const start = new Date(startDate)
-      start.setHours(0, 0, 0, 0)
-      filtered = filtered.filter((log) => new Date(log.timestamp) >= start)
-    }
-
-    if (endDate) {
-      const end = new Date(endDate)
-      end.setHours(23, 59, 59, 999)
-      filtered = filtered.filter((log) => new Date(log.timestamp) <= end)
-    }
+    // Note: Le filtre par plage de dates est géré au niveau de l'API
+    // lors du chargement des logs pour de meilleures performances
 
     setFilteredLogs(filtered)
   }
