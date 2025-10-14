@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
     }
 
     const minThreshold = body.minThreshold || 50
-    const maxThreshold = body.maxThreshold || 1000
+    const maxThreshold = body.maxThreshold || 100000
 
     if (minThreshold >= maxThreshold) {
       return NextResponse.json<ApiResponse>(

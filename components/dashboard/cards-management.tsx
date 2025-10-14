@@ -1064,7 +1064,7 @@ export default function CardsManagement() {
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="subType" className="text-right">
-                      Nationale
+                      Sous-type
                     </Label>
                     <Input
                       id="subType"
@@ -1077,14 +1077,14 @@ export default function CardsManagement() {
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="subSubType" className="text-right">
-                      Nom de la carte
+                      Sous-sous-type
                     </Label>
                     <Input
                       id="subSubType"
                       value={formData.subSubType}
                       onChange={(e) => setFormData({ ...formData, subSubType: e.target.value })}
                       className="col-span-3"
-                      placeholder="ex. Visa Gold"
+                      placeholder="ex. Nom de la carte"
                       required
                     />
                   </div>

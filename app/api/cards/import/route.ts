@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
                 bankId: bankIdToUse!,
                 quantity: 0,
                 minThreshold: 50,
-                maxThreshold: 1000,
+                maxThreshold: 100000,
                 isActive: true,
               }
             })
@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
                 bankId: bankIdToUse!,
                 quantity: 0,
                 minThreshold: 50,
-                maxThreshold: 1000,
+                maxThreshold: 100000,
                 isActive: true,
               }
             })
