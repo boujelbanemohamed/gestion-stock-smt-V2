@@ -204,7 +204,7 @@ export default function CardsManagement() {
       subSubType: "",
       bankId: "",
       minThreshold: 50,
-      maxThreshold: 1000,
+      maxThreshold: 100000,
     })
     setEditingCard(null)
     setFormErrors({})
@@ -948,7 +948,7 @@ export default function CardsManagement() {
     subSubType: "",
     bankId: "",
     minThreshold: 50,
-    maxThreshold: 1000,
+    maxThreshold: 100000,
   })
 
   const [formErrors, setFormErrors] = useState<{
@@ -1064,27 +1064,27 @@ export default function CardsManagement() {
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="subType" className="text-right">
-                      Sous-type
+                      Nationale
                     </Label>
                     <Input
                       id="subType"
                       value={formData.subType}
                       onChange={(e) => setFormData({ ...formData, subType: e.target.value })}
                       className="col-span-3"
-                      placeholder="ex. Mastercard"
+                      placeholder="ex. Nationale"
                       required
                     />
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="subSubType" className="text-right">
-                      Sous-sous-type
+                      Nom de la carte
                     </Label>
                     <Input
                       id="subSubType"
                       value={formData.subSubType}
                       onChange={(e) => setFormData({ ...formData, subSubType: e.target.value })}
                       className="col-span-3"
-                      placeholder="ex. National"
+                      placeholder="ex. Visa Gold"
                       required
                     />
                   </div>
