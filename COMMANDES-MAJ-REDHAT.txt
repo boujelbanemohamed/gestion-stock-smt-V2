@@ -1,0 +1,185 @@
+================================================================================
+MISE À JOUR REDHAT : 418ac4c → 4fcaa25 (19 COMMITS)
+================================================================================
+
+⚠️ IMPORTANT : Vous passez de 418ac4c à 4fcaa25 (19 nouveaux commits)
+   Incluant : rollback auto, logs 30j, notifications, schéma adapté RedHat
+
+================================================================================
+
+COMMANDES À EXÉCUTER - COPIER-COLLER UNE PAR UNE
+================================================================================
+
+# 1. Connexion au serveur
+ssh root@votre-serveur-redhat
+
+
+# 2. Navigation vers le projet
+cd /var/www/stock-management
+
+
+# 3. Vérifier version actuelle
+git log --oneline -1
+# Doit afficher : 418ac4c
+
+
+# 4. Sauvegarder .env
+cp .env .env.backup.20251020
+
+
+# 5. Backup base de données
+sudo -u postgres pg_dump stock_management > backup_avant_maj_$(date +%Y%m%d).sql
+
+
+# 6. Vérifier taille backup
+ls -lh backup_avant_maj_*.sql
+# Doit afficher plusieurs Mo
+
+
+# 7. Compter données AVANT (notez les chiffres)
+sudo -u postgres psql stock_management -c 'SELECT COUNT(*) FROM "Users";'
+sudo -u postgres psql stock_management -c 'SELECT COUNT(*) FROM "Banks";'
+sudo -u postgres psql stock_management -c 'SELECT COUNT(*) FROM "Cards";'
+
+
+# 8. Voir les modifications locales
+git status
+
+
+# 9. Sauvegarder modifications locales
+git stash push -m "Avant maj 418ac4c vers 4fcaa25"
+
+
+# 10. Vérifier que c'est propre
+git status
+# Doit afficher : working tree clean
+
+
+# 11. Récupérer les 19 commits depuis GitHub
+git pull origin main
+
+
+# 12. Vérifier nouvelle version
+git log --oneline -1
+# Doit afficher : 4fcaa25
+
+
+# 13. Restaurer votre .env
+cp .env.backup.20251020 .env
+
+
+# 14. IMPORTANT : Corriger DATABASE_URL dans .env
+nano .env
+
+# Trouvez la ligne DATABASE_URL et modifiez-la :
+# DATABASE_URL="postgresql://postgres@localhost:5432/stock_management"
+# (Remplacer stockapp par postgres, enlever le mot de passe)
+# 
+# Vérifiez aussi :
+# NODE_ENV="production"
+#
+# Sauvegarder : Ctrl+O, Entrée, Ctrl+X
+
+
+# 15. Tester connexion DB
+sudo -u postgres psql stock_management -c "SELECT COUNT(*) FROM \"Users\";"
+# Doit afficher un nombre SANS demander de mot de passe
+
+
+# 16. LANCER LE DÉPLOIEMENT
+chmod +x deploy.sh
+./deploy.sh
+
+# ⏱️ Attendre 3-5 minutes
+# Ne pas interrompre !
+
+
+# 17. Après "✅ Déploiement terminé avec succès", vérifier commit
+git log --oneline -1
+# Doit afficher : 4fcaa25
+
+
+# 18. Vérifier PM2
+pm2 status
+# Status doit être : online
+
+
+# 19. Recompter données APRÈS (doivent être identiques)
+sudo -u postgres psql stock_management -c 'SELECT COUNT(*) FROM "Users";'
+sudo -u postgres psql stock_management -c 'SELECT COUNT(*) FROM "Banks";'
+sudo -u postgres psql stock_management -c 'SELECT COUNT(*) FROM "Cards";'
+
+
+# 20. Tester les APIs
+curl http://localhost:3000/api/users | head -c 100
+# Doit retourner : {"success":true,...
+
+
+# 21. Voir les logs PM2 (vérifier pas d'erreurs)
+pm2 logs stock-management --lines 30
+# Appuyez sur Ctrl+C pour arrêter
+
+
+# 22. Tester dans le navigateur
+# http://votre-domaine.com
+# - Se connecter
+# - Vérifier banques, cartes, mouvements
+# - Menu Logs → Logs visibles
+# - Icône 🔔 → Notifications
+# - Ajouter carte → Seuil max = 100000
+
+
+================================================================================
+✅ MISE À JOUR TERMINÉE !
+================================================================================
+
+Version AVANT : 418ac4c
+Version APRÈS : 4fcaa25
+Commits appliqués : 19
+
+Nouvelles fonctionnalités :
+  ✅ Rollback automatique
+  ✅ Logs 30 jours
+  ✅ Notifications complètes
+  ✅ Modal carte amélioré
+  ✅ Bordereaux nom + adresse
+  ✅ Schéma adapté RedHat
+  ✅ Scripts sans mot de passe
+
+
+================================================================================
+🆘 EN CAS DE PROBLÈME
+================================================================================
+
+Si le déploiement échoue :
+-------------------------
+Le rollback automatique restaure tout
+→ Application revenue à 418ac4c
+→ Données intactes
+
+Restauration manuelle si nécessaire :
+--------------------------------------
+git reset --hard 418ac4c
+npm install
+npx prisma generate
+NODE_ENV=production npm run build
+pm2 restart stock-management
+
+Restaurer la base de données (seulement si vraiment nécessaire) :
+------------------------------------------------------------------
+pm2 stop stock-management
+sudo -u postgres psql stock_management < backup_avant_maj_XXXXXXXX.sql
+pm2 start stock-management
+
+
+================================================================================
+📞 SUPPORT
+================================================================================
+
+cat MISE-A-JOUR-418ac4c-VERS-4fcaa25.md  # Guide détaillé
+cat FIX-DATABASE-CONNECTION.md           # Fix connexion DB
+cat COMMANDES-DEPLOY.txt                 # Commandes générales
+
+
+================================================================================
+
