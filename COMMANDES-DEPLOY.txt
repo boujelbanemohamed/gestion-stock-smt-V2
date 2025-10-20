@@ -1,0 +1,175 @@
+================================================================================
+DÉPLOIEMENT REDHAT - COMMANDES À COPIER-COLLER
+================================================================================
+
+⚠️ IMPORTANT: Votre base de données contient déjà des données réelles.
+   Le script préserve TOUTES vos données existantes.
+
+================================================================================
+
+ÉTAPE 1 : CONNEXION AU SERVEUR
+-------------------------------
+ssh utilisateur@adresse-serveur-redhat
+
+# Remplacez "utilisateur" et "adresse-serveur-redhat" par vos valeurs
+
+
+================================================================================
+
+ÉTAPE 2 : ALLER DANS LE RÉPERTOIRE
+-----------------------------------
+cd /chemin/vers/stock-management-V2
+
+# Remplacez par le vrai chemin, exemple :
+# cd /var/www/stock-management-V2
+
+
+================================================================================
+
+ÉTAPE 3 : BACKUP DE SÉCURITÉ (RECOMMANDÉ)
+------------------------------------------
+pg_dump -U postgres stock_management > backup_securite_$(date +%Y%m%d_%H%M%S).sql
+ls -lh backup_securite_*.sql
+
+# Vérifiez que le backup est créé (taille en Mo)
+
+
+================================================================================
+
+ÉTAPE 4 : COMPTER VOS DONNÉES ACTUELLES (RECOMMANDÉ)
+-----------------------------------------------------
+psql -U postgres stock_management -c "
+SELECT 'Users' as type, COUNT(*) FROM \"User\"
+UNION ALL SELECT 'Banks', COUNT(*) FROM \"Bank\"
+UNION ALL SELECT 'Cards', COUNT(*) FROM \"Card\"
+UNION ALL SELECT 'Movements', COUNT(*) FROM \"Movement\"
+UNION ALL SELECT 'AuditLogs', COUNT(*) FROM \"AuditLog\";
+"
+
+# NOTEZ CES CHIFFRES pour comparaison après déploiement
+
+
+================================================================================
+
+ÉTAPE 5 : LANCER LE DÉPLOIEMENT
+--------------------------------
+chmod +x deploy.sh
+./deploy.sh
+
+# Attendez 2-3 minutes
+# Le script crée un backup automatique et déploie
+
+
+================================================================================
+
+ÉTAPE 6 : VÉRIFIER LE COMMIT
+-----------------------------
+git log --oneline -1
+
+# Doit afficher : 144684e docs: Guides déploiement...
+
+
+================================================================================
+
+ÉTAPE 7 : VÉRIFIER PM2
+----------------------
+pm2 status
+
+# Doit afficher "online"
+
+pm2 logs stock-management --lines 20
+
+# Pas d'erreurs en rouge
+
+
+================================================================================
+
+ÉTAPE 8 : RECOMPTER LES DONNÉES
+--------------------------------
+psql -U postgres stock_management -c "
+SELECT 'Users' as type, COUNT(*) FROM \"User\"
+UNION ALL SELECT 'Banks', COUNT(*) FROM \"Bank\"
+UNION ALL SELECT 'Cards', COUNT(*) FROM \"Card\"
+UNION ALL SELECT 'Movements', COUNT(*) FROM \"Movement\"
+UNION ALL SELECT 'AuditLogs', COUNT(*) FROM \"AuditLog\";
+"
+
+# COMPAREZ avec ÉTAPE 4 : les chiffres doivent être identiques !
+
+
+================================================================================
+
+ÉTAPE 9 : TEST API
+------------------
+curl http://localhost:3000/api/users | jq '.data | length'
+curl http://localhost:3000/api/cards | jq '.data | length'
+curl http://localhost:3000/api/logs?limit=5 | jq '.total'
+
+# Les nombres doivent correspondre à vos données
+
+
+================================================================================
+
+ÉTAPE 10 : TEST NAVIGATEUR
+---------------------------
+Ouvrir : http://votre-domaine.com
+
+1. Se connecter
+2. Menu Banques → Vérifier que toutes vos banques sont là
+3. Menu Cartes → Vérifier toutes vos cartes
+4. Cliquer "Ajouter une carte" :
+   ✓ Seuil max = 100000 ?
+   ✓ Placeholder Sous-type = "ex. Nationale" ?
+   ✓ Placeholder Sous-sous-type = "ex. Nom de la carte" ?
+5. Menu Mouvements → Vérifier l'historique
+6. Menu Logs → Vérifier les logs (30 jours)
+7. Icône 🔔 → Vérifier les notifications
+
+
+================================================================================
+
+✅ DÉPLOIEMENT TERMINÉ AVEC SUCCÈS !
+================================================================================
+
+Vos données sont préservées et les nouvelles fonctionnalités sont actives :
+  ✓ Logs d'audit : Filtre 30 jours
+  ✓ Notifications : Système complet
+  ✓ Modal carte : Seuils 50/100000
+  ✓ Bordereaux : Nom + adresse banque
+
+
+================================================================================
+
+🆘 EN CAS DE PROBLÈME
+================================================================================
+
+Rollback automatique (déjà fait si erreur pendant deploy.sh)
+
+Rollback manuel :
+-----------------
+git reset --hard <commit-precedent>
+npm install
+npx prisma generate
+NODE_ENV=production npm run build
+pm2 restart stock-management
+
+Restaurer les données (si vraiment nécessaire) :
+-------------------------------------------------
+pm2 stop stock-management
+psql -U postgres stock_management < backup_securite_20251020_xxx.sql
+pm2 start stock-management
+
+
+================================================================================
+
+📚 DOCUMENTATION COMPLÈTE
+================================================================================
+
+cat ETAPES-DEPLOY-REDHAT.md          # Guide étape par étape détaillé
+cat DEPLOY-WITH-EXISTING-DATA.md     # Protection données existantes
+cat DEPLOY-NOW.md                    # Guide rapide
+cat ROLLBACK-GUIDE.md                # Guide rollback
+
+
+================================================================================
+
