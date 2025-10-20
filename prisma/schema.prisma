@@ -27,7 +27,7 @@ model User {
   movements Movement[]
   auditLogs AuditLog[]
 
-  @@map("Users")
+  @@map("users")
 }
 
 // Modèle banque
@@ -48,7 +48,7 @@ model Bank {
   cards     Card[]
   locations Location[]
 
-  @@map("Banks")
+  @@map("banks")
 }
 
 // Modèle carte
@@ -71,7 +71,7 @@ model Card {
   movements   Movement[]
   stockLevels StockLevel[]
 
-  @@map("Cards")
+  @@map("cards")
 }
 
 // Modèle emplacement
@@ -90,7 +90,7 @@ model Location {
   movementsTo       Movement[]   @relation("MovementTo")
   stockLevels       StockLevel[]
 
-  @@map("Locations")
+  @@map("locations")
 }
 
 // Modèle mouvement
@@ -111,7 +111,7 @@ model Movement {
   toLocation   Location? @relation("MovementTo", fields: [toLocationId], references: [id])
   user         User      @relation(fields: [userId], references: [id])
 
-  @@map("Movements")
+  @@map("movements")
 }
 
 // Modèle niveau de stock
@@ -127,7 +127,7 @@ model StockLevel {
   location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
   @@unique([cardId, locationId])
-  @@map("StockLevels")
+  @@map("stock_levels")
 }
 
 // Modèle permissions de rôle
@@ -140,7 +140,7 @@ model RolePermission {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@map("RolePermissions")
+  @@map("role_permissions")
 }
 
 // Modèle notification
@@ -153,7 +153,7 @@ model Notification {
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  @@map("Notifications")
+  @@map("notifications")
 }
 
 // Modèle journal d'audit
@@ -176,7 +176,7 @@ model AuditLog {
   // Relations
   user User @relation(fields: [userId], references: [id])
 
-  @@map("Audit_logs")
+  @@map("audit_logs")
 }
 
 // Modèle configuration de l'application
@@ -186,5 +186,5 @@ model AppConfig {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map("AppConfig")
+  @@map("app_config")
 }

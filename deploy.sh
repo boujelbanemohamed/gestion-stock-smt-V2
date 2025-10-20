@@ -339,12 +339,12 @@ if command -v psql &> /dev/null; then
     # Utiliser sudo -u postgres pour éviter les problèmes de mot de passe
     log_info "Utilisation de sudo -u postgres pour les vérifications..."
     
-    # Vérifier la table Audit_logs
-    log_info "Vérification table Audit_logs..."
-    AUDIT_COUNT=$(sudo -u postgres psql stock_management -t -c 'SELECT COUNT(*) FROM "Audit_logs";' 2>/dev/null | xargs || echo "0")
+        # Vérifier la table audit_logs
+        log_info "Vérification table audit_logs..."
+        AUDIT_COUNT=$(sudo -u postgres psql stock_management -t -c 'SELECT COUNT(*) FROM "audit_logs";' 2>/dev/null | xargs || echo "0")
     
     if [ "$AUDIT_COUNT" != "0" ] 2>/dev/null; then
-        log_success "Table Audit_logs: $AUDIT_COUNT entrées"
+            log_success "Table audit_logs: $AUDIT_COUNT entrées"
         
         # Vérifier que l'API retourne bien les logs avec le nouveau filtre (30 jours)
         if command -v curl &> /dev/null; then
@@ -354,28 +354,28 @@ if command -v psql &> /dev/null; then
             fi
         fi
     else
-        log_warning "Table Audit_logs vide ou non accessible"
+            log_warning "Table audit_logs vide ou non accessible"
     fi
     
-    # Vérifier la table Notifications (nouvelle implémentation)
-    log_info "Vérification table Notifications..."
-    NOTIF_COUNT=$(sudo -u postgres psql stock_management -t -c 'SELECT COUNT(*) FROM "Notifications";' 2>/dev/null | xargs || echo "0")
+        # Vérifier la table notifications (nouvelle implémentation)
+        log_info "Vérification table notifications..."
+        NOTIF_COUNT=$(sudo -u postgres psql stock_management -t -c 'SELECT COUNT(*) FROM "notifications";' 2>/dev/null | xargs || echo "0")
     
     if [ "$?" -eq 0 ]; then
-        log_success "Table Notifications: $NOTIF_COUNT entrées"
-    else
-        log_warning "Table Notifications non accessible"
+            log_success "Table notifications: $NOTIF_COUNT entrées"
+        else
+            log_warning "Table notifications non accessible"
     fi
     
     # Vérifier les tables principales du système
     log_info "Vérification tables principales..."
-    TABLES_CHECK=$(sudo -u postgres psql stock_management -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('Users', 'Banks', 'Cards', 'Locations', 'Movements', 'StockLevels', 'Audit_logs', 'Notifications', 'RolePermissions', 'AppConfig');" 2>/dev/null | xargs || echo "0")
+        TABLES_CHECK=$(sudo -u postgres psql stock_management -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('users', 'banks', 'cards', 'locations', 'movements', 'stock_levels', 'audit_logs', 'notifications', 'role_permissions', 'app_config');" 2>/dev/null | xargs || echo "0")
     
     if [ "$TABLES_CHECK" = "10" ]; then
         log_success "Toutes les tables principales présentes (10/10)"
     elif [ "$TABLES_CHECK" = "5" ]; then
         log_success "Tables principales confirmées présentes (5/10)"
-        log_info "Tables détectées: Users, Banks, Cards, Movements, Audit_logs"
+        log_info "Tables détectées: users, banks, cards, movements, audit_logs"
         log_info "Les autres tables seront créées si nécessaire lors du prochain démarrage"
     else
         log_warning "Tables détectées: $TABLES_CHECK/10"
