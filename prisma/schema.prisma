@@ -176,7 +176,7 @@ model AuditLog {
   // Relations
   user User @relation(fields: [userId], references: [id])
 
-  @@map("AuditLogs")
+  @@map("Audit_logs")
 }
 
 // Modèle configuration de l'application
