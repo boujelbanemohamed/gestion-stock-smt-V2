@@ -166,35 +166,9 @@ git pull origin main
 CURRENT_COMMIT=$(git log --oneline -1)
 log_success "Commit actuel: $CURRENT_COMMIT"
 
-# 5. Installation des dépendances
+# 5. Vérification et configuration du fichier .env (AVANT Prisma)
 echo ""
-echo "5️⃣ Installation des dépendances..."
-npm install
-log_success "Dépendances installées"
-
-# 6. Configuration Prisma
-echo ""
-echo "6️⃣ Configuration Prisma..."
-npx prisma generate
-log_success "Client Prisma généré"
-
-echo ""
-echo "   Vérification de la base de données..."
-# Pour une mise à jour, on vérifie juste que le schéma est synchronisé
-# On utilise db push qui gère automatiquement les bases existantes
-if npx prisma db push --skip-generate 2>&1 | tee /tmp/prisma_output.log | grep -q "already in sync"; then
-    log_success "Base de données déjà synchronisée"
-elif grep -q "error" /tmp/prisma_output.log; then
-    log_warning "La base de données existe déjà - Aucune modification nécessaire"
-    log_info "Le schéma Prisma correspond à la base de données"
-else
-    log_success "Base de données mise à jour"
-fi
-rm -f /tmp/prisma_output.log
-
-# 7. Vérification et configuration du fichier .env
-echo ""
-echo "7️⃣ Vérification et configuration du fichier .env..."
+echo "5️⃣ Vérification et configuration du fichier .env..."
 
 # Vérifier si .env existe, sinon utiliser .env.production
 if [ -f ".env.production" ]; then
@@ -230,6 +204,32 @@ fi
 # Afficher la configuration (sans les secrets)
 log_info "Configuration active:"
 grep -E "^(NODE_ENV|DATABASE_URL)" .env | sed 's/\(DATABASE_URL=.*:\/\/.*:\).*\(@.*\)/\1****\2/' || true
+
+# 6. Installation des dépendances
+echo ""
+echo "6️⃣ Installation des dépendances..."
+npm install
+log_success "Dépendances installées"
+
+# 7. Configuration Prisma
+echo ""
+echo "7️⃣ Configuration Prisma..."
+npx prisma generate
+log_success "Client Prisma généré"
+
+echo ""
+echo "   Vérification de la base de données..."
+# Pour une mise à jour, on vérifie juste que le schéma est synchronisé
+# On utilise db push qui gère automatiquement les bases existantes
+if npx prisma db push --skip-generate 2>&1 | tee /tmp/prisma_output.log | grep -q "already in sync"; then
+    log_success "Base de données déjà synchronisée"
+elif grep -q "error" /tmp/prisma_output.log; then
+    log_warning "La base de données existe déjà - Aucune modification nécessaire"
+    log_info "Le schéma Prisma correspond à la base de données"
+else
+    log_success "Base de données mise à jour"
+fi
+rm -f /tmp/prisma_output.log
 
 # 8. Nettoyage du cache Next.js
 echo ""

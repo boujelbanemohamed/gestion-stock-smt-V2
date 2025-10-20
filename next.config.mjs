@@ -15,6 +15,8 @@ const nextConfig = {
       bodySizeLimit: '2mb',
     },
   },
+  // Configuration pour éviter les erreurs de build avec les routes API
+  outputFileTracing: true,
   // Ne pas générer de pages statiques pour les routes API
   async headers() {
     return [
@@ -25,6 +27,15 @@ const nextConfig = {
         ],
       },
     ]
+  },
+  // Ignorer les erreurs de connexion DB pendant le build
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.externals.push({
+        '@prisma/client': 'commonjs @prisma/client',
+      })
+    }
+    return config
   },
 }
 
