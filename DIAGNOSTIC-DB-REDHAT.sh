@@ -33,24 +33,36 @@ echo ""
 
 # 2. Vérifier la connexion
 echo "2️⃣ Test de connexion à PostgreSQL..."
-if psql -U postgres -c "SELECT 1;" > /dev/null 2>&1; then
-    log_success "Connexion PostgreSQL réussie"
+if sudo -u postgres psql -c "SELECT 1;" > /dev/null 2>&1; then
+    log_success "Connexion PostgreSQL réussie (via sudo)"
+elif psql -U postgres -c "SELECT 1;" > /dev/null 2>&1; then
+    log_success "Connexion PostgreSQL réussie (directe)"
 else
     log_error "Impossible de se connecter à PostgreSQL"
-    log_info "Vérifiez le mot de passe ou les permissions"
+    log_info "Essayez : sudo -u postgres psql"
     exit 1
 fi
+
+# Déterminer la méthode de connexion à utiliser
+if sudo -u postgres psql -c "SELECT 1;" > /dev/null 2>&1; then
+    PSQL_CMD="sudo -u postgres psql"
+    PGDUMP_CMD="sudo -u postgres pg_dump"
+else
+    PSQL_CMD="psql -U postgres"
+    PGDUMP_CMD="pg_dump -U postgres"
+fi
+log_info "Méthode de connexion : $PSQL_CMD"
 
 echo ""
 
 # 3. Vérifier si la base de données existe
 echo "3️⃣ Vérification de la base de données 'stock_management'..."
-if psql -U postgres -lqt | cut -d \| -f 1 | grep -qw stock_management; then
+if $PSQL_CMD -lqt | cut -d \| -f 1 | grep -qw stock_management; then
     log_success "Base de données 'stock_management' existe"
 else
     log_warning "Base de données 'stock_management' n'existe pas"
     log_info "Création de la base de données..."
-    psql -U postgres -c "CREATE DATABASE stock_management;"
+    $PSQL_CMD -c "CREATE DATABASE stock_management;"
     log_success "Base de données créée"
 fi
 
@@ -58,14 +70,14 @@ echo ""
 
 # 4. Lister les tables
 echo "4️⃣ Liste des tables dans la base de données..."
-TABLES=$(psql -U postgres stock_management -c "\dt" 2>&1)
+TABLES=$($PSQL_CMD stock_management -c "\dt" 2>&1)
 
 if echo "$TABLES" | grep -q "No relations found"; then
     log_warning "Aucune table trouvée - Base de données VIDE"
     log_info "La base sera initialisée lors du déploiement"
 else
     log_success "Tables trouvées :"
-    psql -U postgres stock_management -c "\dt"
+    $PSQL_CMD stock_management -c "\dt"
 fi
 
 echo ""
@@ -79,7 +91,7 @@ count_table() {
     local display_name=$2
     
     # Essayer avec guillemets doubles (Prisma style)
-    COUNT=$(psql -U postgres stock_management -t -c "SELECT COUNT(*) FROM \"$table_name\";" 2>/dev/null | xargs)
+    COUNT=$($PSQL_CMD stock_management -t -c "SELECT COUNT(*) FROM \"$table_name\";" 2>/dev/null | xargs)
     
     if [ $? -eq 0 ] && [ ! -z "$COUNT" ]; then
         log_success "$display_name: $COUNT entrées"
@@ -87,7 +99,7 @@ count_table() {
     fi
     
     # Essayer sans guillemets (minuscules)
-    COUNT=$(psql -U postgres stock_management -t -c "SELECT COUNT(*) FROM ${table_name,,};" 2>/dev/null | xargs)
+    COUNT=$($PSQL_CMD stock_management -t -c "SELECT COUNT(*) FROM ${table_name,,};" 2>/dev/null | xargs)
     
     if [ $? -eq 0 ] && [ ! -z "$COUNT" ]; then
         log_success "$display_name: $COUNT entrées (table en minuscules)"
