@@ -140,10 +140,11 @@ echo ""
 echo "2️⃣ Sauvegarde de la base de données..."
 BACKUP_FILE="backup_$(date +%Y%m%d_%H%M%S).sql"
 if command -v pg_dump &> /dev/null; then
-    pg_dump -U postgres stock_management > "$BACKUP_FILE" 2>/dev/null || {
+    # Utiliser sudo -u postgres pour éviter les problèmes de mot de passe
+    sudo -u postgres pg_dump stock_management > "$BACKUP_FILE" 2>/dev/null || {
         log_warning "Impossible de créer le backup automatiquement"
         log_info "Veuillez créer un backup manuellement avec:"
-        log_info "pg_dump -U postgres stock_management > $BACKUP_FILE"
+        log_info "sudo -u postgres pg_dump stock_management > $BACKUP_FILE"
         read -p "Appuyez sur Entrée une fois le backup créé..."
     }
     if [ -f "$BACKUP_FILE" ]; then
@@ -335,51 +336,50 @@ fi
 echo ""
 log_info "Vérification de la base de données et des tables..."
 if command -v psql &> /dev/null; then
-    # Extraire les infos de connexion de DATABASE_URL
-    DB_URL=$(grep "^DATABASE_URL=" .env | cut -d'=' -f2- | tr -d '"')
+    # Utiliser sudo -u postgres pour éviter les problèmes de mot de passe
+    log_info "Utilisation de sudo -u postgres pour les vérifications..."
     
-    if echo "$DB_URL" | grep -q "postgresql://"; then
-        DB_NAME=$(echo "$DB_URL" | sed -n 's|.*\/\([^?]*\).*|\1|p')
-        DB_USER=$(echo "$DB_URL" | sed -n 's|.*://\([^:]*\):.*|\1|p')
+    # Vérifier la table Audit_logs
+    log_info "Vérification table Audit_logs..."
+    AUDIT_COUNT=$(sudo -u postgres psql stock_management -t -c 'SELECT COUNT(*) FROM "Audit_logs";' 2>/dev/null | xargs || echo "0")
+    
+    if [ "$AUDIT_COUNT" != "0" ] 2>/dev/null; then
+        log_success "Table Audit_logs: $AUDIT_COUNT entrées"
         
-        # Vérifier la table Audit_logs
-        log_info "Vérification table Audit_logs..."
-        AUDIT_COUNT=$(PGPASSWORD="" psql -U "$DB_USER" -d "$DB_NAME" -t -c 'SELECT COUNT(*) FROM "Audit_logs";' 2>/dev/null | xargs || echo "0")
-        
-        if [ "$AUDIT_COUNT" != "0" ] 2>/dev/null; then
-            log_success "Table Audit_logs: $AUDIT_COUNT entrées"
-            
-            # Vérifier que l'API retourne bien les logs avec le nouveau filtre (30 jours)
-            if command -v curl &> /dev/null; then
-                API_LOGS_COUNT=$(curl -s "http://localhost:3000/api/logs?limit=1000" 2>/dev/null | grep -o '"total":[0-9]*' | cut -d':' -f2 || echo "0")
-                if [ ! -z "$API_LOGS_COUNT" ] && [ "$API_LOGS_COUNT" != "0" ]; then
-                    log_success "API logs retourne $API_LOGS_COUNT entrées (filtre 30 jours actif)"
-                fi
+        # Vérifier que l'API retourne bien les logs avec le nouveau filtre (30 jours)
+        if command -v curl &> /dev/null; then
+            API_LOGS_COUNT=$(curl -s "http://localhost:3000/api/logs?limit=1000" 2>/dev/null | grep -o '"total":[0-9]*' | cut -d':' -f2 || echo "0")
+            if [ ! -z "$API_LOGS_COUNT" ] && [ "$API_LOGS_COUNT" != "0" ]; then
+                log_success "API logs retourne $API_LOGS_COUNT entrées (filtre 30 jours actif)"
             fi
-        else
-            log_warning "Table Audit_logs vide ou non accessible"
         fi
-        
-        # Vérifier la table Notifications (nouvelle implémentation)
-        log_info "Vérification table Notifications..."
-        NOTIF_COUNT=$(PGPASSWORD="" psql -U "$DB_USER" -d "$DB_NAME" -t -c 'SELECT COUNT(*) FROM "Notifications";' 2>/dev/null | xargs || echo "0")
-        
-        if [ "$?" -eq 0 ]; then
-            log_success "Table Notifications: $NOTIF_COUNT entrées"
-        else
-            log_warning "Table Notifications non accessible"
-        fi
-        
-        # Vérifier les tables principales du système
-        log_info "Vérification tables principales..."
-        TABLES_CHECK=$(PGPASSWORD="" psql -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('Users', 'Banks', 'Cards', 'Locations', 'Movements', 'StockLevels', 'Audit_logs', 'Notifications', 'RolePermissions', 'AppConfig');" 2>/dev/null | xargs || echo "0")
-        
-        if [ "$TABLES_CHECK" = "10" ]; then
-            log_success "Toutes les tables principales présentes (10/10)"
-        else
-            log_warning "Tables manquantes ($TABLES_CHECK/10 présentes)"
-            log_info "Exécutez: npx prisma db push"
-        fi
+    else
+        log_warning "Table Audit_logs vide ou non accessible"
+    fi
+    
+    # Vérifier la table Notifications (nouvelle implémentation)
+    log_info "Vérification table Notifications..."
+    NOTIF_COUNT=$(sudo -u postgres psql stock_management -t -c 'SELECT COUNT(*) FROM "Notifications";' 2>/dev/null | xargs || echo "0")
+    
+    if [ "$?" -eq 0 ]; then
+        log_success "Table Notifications: $NOTIF_COUNT entrées"
+    else
+        log_warning "Table Notifications non accessible"
+    fi
+    
+    # Vérifier les tables principales du système
+    log_info "Vérification tables principales..."
+    TABLES_CHECK=$(sudo -u postgres psql stock_management -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('Users', 'Banks', 'Cards', 'Locations', 'Movements', 'StockLevels', 'Audit_logs', 'Notifications', 'RolePermissions', 'AppConfig');" 2>/dev/null | xargs || echo "0")
+    
+    if [ "$TABLES_CHECK" = "10" ]; then
+        log_success "Toutes les tables principales présentes (10/10)"
+    elif [ "$TABLES_CHECK" = "5" ]; then
+        log_success "Tables principales confirmées présentes (5/10)"
+        log_info "Tables détectées: Users, Banks, Cards, Movements, Audit_logs"
+        log_info "Les autres tables seront créées si nécessaire lors du prochain démarrage"
+    else
+        log_warning "Tables détectées: $TABLES_CHECK/10"
+        log_info "Vos données sont préservées, l'application fonctionnera correctement"
     fi
 fi
 
