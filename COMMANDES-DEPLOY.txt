@@ -36,17 +36,23 @@ ls -lh backup_securite_*.sql
 
 ================================================================================
 
-ÉTAPE 4 : COMPTER VOS DONNÉES ACTUELLES (RECOMMANDÉ)
------------------------------------------------------
-psql -U postgres stock_management -c "
-SELECT 'Users' as type, COUNT(*) FROM \"User\"
-UNION ALL SELECT 'Banks', COUNT(*) FROM \"Bank\"
-UNION ALL SELECT 'Cards', COUNT(*) FROM \"Card\"
-UNION ALL SELECT 'Movements', COUNT(*) FROM \"Movement\"
-UNION ALL SELECT 'AuditLogs', COUNT(*) FROM \"AuditLog\";
-"
+ÉTAPE 4 : DIAGNOSTIC BASE DE DONNÉES (IMPORTANT)
+------------------------------------------------
+# Lancer le script de diagnostic
+./DIAGNOSTIC-DB-REDHAT.sh
 
-# NOTEZ CES CHIFFRES pour comparaison après déploiement
+# OU manuellement :
+
+# Vérifier si la base existe et a des tables
+psql -U postgres stock_management -c "\dt"
+
+# Si vous voyez des tables, compter les données :
+psql -U postgres stock_management -c "SELECT COUNT(*) FROM \"User\";" 2>/dev/null || echo "Table User non trouvée (normal si base vide)"
+psql -U postgres stock_management -c "SELECT COUNT(*) FROM \"Bank\";" 2>/dev/null || echo "Table Bank non trouvée (normal si base vide)"
+psql -U postgres stock_management -c "SELECT COUNT(*) FROM \"Card\";" 2>/dev/null || echo "Table Card non trouvée (normal si base vide)"
+
+# Si base VIDE : Le script deploy.sh initialisera tout automatiquement
+# Si base PLEINE : Notez les chiffres pour comparaison après
 
 
 ================================================================================
@@ -84,17 +90,19 @@ pm2 logs stock-management --lines 20
 
 ================================================================================
 
-ÉTAPE 8 : RECOMPTER LES DONNÉES
---------------------------------
-psql -U postgres stock_management -c "
-SELECT 'Users' as type, COUNT(*) FROM \"User\"
-UNION ALL SELECT 'Banks', COUNT(*) FROM \"Bank\"
-UNION ALL SELECT 'Cards', COUNT(*) FROM \"Card\"
-UNION ALL SELECT 'Movements', COUNT(*) FROM \"Movement\"
-UNION ALL SELECT 'AuditLogs', COUNT(*) FROM \"AuditLog\";
-"
+ÉTAPE 8 : VÉRIFIER LES DONNÉES APRÈS DÉPLOIEMENT
+-------------------------------------------------
+# Relancer le diagnostic
+./DIAGNOSTIC-DB-REDHAT.sh
 
-# COMPAREZ avec ÉTAPE 4 : les chiffres doivent être identiques !
+# OU compter manuellement :
+psql -U postgres stock_management -c "SELECT COUNT(*) FROM \"User\";" 2>/dev/null
+psql -U postgres stock_management -c "SELECT COUNT(*) FROM \"Bank\";" 2>/dev/null
+psql -U postgres stock_management -c "SELECT COUNT(*) FROM \"Card\";" 2>/dev/null
+
+# COMPAREZ avec ÉTAPE 4 : 
+# - Si base était VIDE : Maintenant des tables existent
+# - Si base était PLEINE : Chiffres doivent être identiques
 
 
 ================================================================================
