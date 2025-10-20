@@ -19,6 +19,7 @@ model User {
   lastName  String
   role      String   @default("user")
   isActive  Boolean  @default(true)
+  lastLogin DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -26,7 +27,7 @@ model User {
   movements Movement[]
   auditLogs AuditLog[]
 
-  @@map("users")
+  @@map("Users")
 }
 
 // Modèle banque
@@ -47,7 +48,7 @@ model Bank {
   cards     Card[]
   locations Location[]
 
-  @@map("banks")
+  @@map("Banks")
 }
 
 // Modèle carte
@@ -70,7 +71,7 @@ model Card {
   movements   Movement[]
   stockLevels StockLevel[]
 
-  @@map("cards")
+  @@map("Cards")
 }
 
 // Modèle emplacement
@@ -89,7 +90,7 @@ model Location {
   movementsTo       Movement[]   @relation("MovementTo")
   stockLevels       StockLevel[]
 
-  @@map("locations")
+  @@map("Locations")
 }
 
 // Modèle mouvement
@@ -110,7 +111,7 @@ model Movement {
   toLocation   Location? @relation("MovementTo", fields: [toLocationId], references: [id])
   user         User      @relation(fields: [userId], references: [id])
 
-  @@map("movements")
+  @@map("Movements")
 }
 
 // Modèle niveau de stock
@@ -126,7 +127,7 @@ model StockLevel {
   location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
   @@unique([cardId, locationId])
-  @@map("stock_levels")
+  @@map("StockLevels")
 }
 
 // Modèle permissions de rôle
@@ -139,7 +140,7 @@ model RolePermission {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@map("role_permissions")
+  @@map("RolePermissions")
 }
 
 // Modèle notification
@@ -152,7 +153,7 @@ model Notification {
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  @@map("notifications")
+  @@map("Notifications")
 }
 
 // Modèle journal d'audit
@@ -175,7 +176,7 @@ model AuditLog {
   // Relations
   user User @relation(fields: [userId], references: [id])
 
-  @@map("audit_logs")
+  @@map("AuditLogs")
 }
 
 // Modèle configuration de l'application
@@ -185,5 +186,5 @@ model AppConfig {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map("app_config")
+  @@map("AppConfig")
 }

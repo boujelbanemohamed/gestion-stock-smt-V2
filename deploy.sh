@@ -342,12 +342,12 @@ if command -v psql &> /dev/null; then
         DB_NAME=$(echo "$DB_URL" | sed -n 's|.*\/\([^?]*\).*|\1|p')
         DB_USER=$(echo "$DB_URL" | sed -n 's|.*://\([^:]*\):.*|\1|p')
         
-        # Vérifier la table AuditLog
-        log_info "Vérification table AuditLog..."
-        AUDIT_COUNT=$(PGPASSWORD="" psql -U "$DB_USER" -d "$DB_NAME" -t -c 'SELECT COUNT(*) FROM "AuditLog";' 2>/dev/null | xargs || echo "0")
+        # Vérifier la table AuditLogs
+        log_info "Vérification table AuditLogs..."
+        AUDIT_COUNT=$(PGPASSWORD="" psql -U "$DB_USER" -d "$DB_NAME" -t -c 'SELECT COUNT(*) FROM "AuditLogs";' 2>/dev/null | xargs || echo "0")
         
         if [ "$AUDIT_COUNT" != "0" ] 2>/dev/null; then
-            log_success "Table AuditLog: $AUDIT_COUNT entrées"
+            log_success "Table AuditLogs: $AUDIT_COUNT entrées"
             
             # Vérifier que l'API retourne bien les logs avec le nouveau filtre (30 jours)
             if command -v curl &> /dev/null; then
@@ -357,22 +357,22 @@ if command -v psql &> /dev/null; then
                 fi
             fi
         else
-            log_warning "Table AuditLog vide ou non accessible"
+            log_warning "Table AuditLogs vide ou non accessible"
         fi
         
-        # Vérifier la table Notification (nouvelle implémentation)
-        log_info "Vérification table Notification..."
-        NOTIF_COUNT=$(PGPASSWORD="" psql -U "$DB_USER" -d "$DB_NAME" -t -c 'SELECT COUNT(*) FROM "Notification";' 2>/dev/null | xargs || echo "0")
+        # Vérifier la table Notifications (nouvelle implémentation)
+        log_info "Vérification table Notifications..."
+        NOTIF_COUNT=$(PGPASSWORD="" psql -U "$DB_USER" -d "$DB_NAME" -t -c 'SELECT COUNT(*) FROM "Notifications";' 2>/dev/null | xargs || echo "0")
         
         if [ "$?" -eq 0 ]; then
-            log_success "Table Notification: $NOTIF_COUNT entrées"
+            log_success "Table Notifications: $NOTIF_COUNT entrées"
         else
-            log_warning "Table Notification non accessible"
+            log_warning "Table Notifications non accessible"
         fi
         
         # Vérifier les tables principales du système
         log_info "Vérification tables principales..."
-        TABLES_CHECK=$(PGPASSWORD="" psql -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('User', 'Bank', 'Card', 'Location', 'Movement', 'StockLevel', 'AuditLog', 'Notification', 'RolePermission', 'AppConfig');" 2>/dev/null | xargs || echo "0")
+        TABLES_CHECK=$(PGPASSWORD="" psql -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('Users', 'Banks', 'Cards', 'Locations', 'Movements', 'StockLevels', 'AuditLogs', 'Notifications', 'RolePermissions', 'AppConfig');" 2>/dev/null | xargs || echo "0")
         
         if [ "$TABLES_CHECK" = "10" ]; then
             log_success "Toutes les tables principales présentes (10/10)"
