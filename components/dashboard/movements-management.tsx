@@ -813,13 +813,13 @@ export default function MovementsManagement() {
                   Nouveau mouvement
                 </Button>
               </DialogTrigger>
-              <DialogContent className="w-full sm:max-w-[720px] md:max-w-[840px]">
+              <DialogContent className="w-full sm:max-w-[720px] md:max-w-[840px] max-h-[90vh] flex flex-col">
                 <DialogHeader>
                   <DialogTitle>Nouveau Mouvement</DialogTitle>
                   <DialogDescription>Enregistrez un nouveau mouvement de stock.</DialogDescription>
                 </DialogHeader>
-                <form onSubmit={handleSubmit}>
-                <div className="grid gap-4 py-4">
+                <form onSubmit={handleSubmit} className="flex flex-col flex-1">
+                <div className="grid gap-4 py-4 overflow-y-auto flex-1">
                   {/* 1. Sélection de la banque (OBLIGATOIRE EN PREMIER) */}
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="bank" className="text-right font-semibold">
@@ -1054,7 +1054,7 @@ export default function MovementsManagement() {
                         {formData.fromLocationId &&
                           (formData.movementType === "exit" || formData.movementType === "transfer") && (
                             <div className="mt-2">
-                              <p className="text-sm font-medium text-gray-700 mb-2">Stock disponible par carte:</p>
+                              <p className="text-sm font-medium text-red-700 mb-2">Stock disponible par carte:</p>
                               {formData.cardQuantities.map(cq => {
                                 const card = cards.find(c => c.id === cq.cardId)
                                 const stock = getAvailableStock(cq.cardId, formData.fromLocationId)
@@ -1124,7 +1124,7 @@ export default function MovementsManagement() {
                     />
                   </div>
                 </div>
-                <DialogFooter>
+                <DialogFooter className="flex-shrink-0 border-t pt-4">
                   <Button 
                     type="submit" 
                     disabled={!formData.bankId || !isStockSufficient()}
