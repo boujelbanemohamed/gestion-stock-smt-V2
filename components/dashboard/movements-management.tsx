@@ -34,7 +34,7 @@ export default function MovementsManagement() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [formData, setFormData] = useState({
     bankId: "",
-    cardId: "",
+    cardIds: [] as string[], // Changé pour permettre plusieurs cartes
     fromLocationId: "",
     toLocationId: "",
     movementType: "entry" as "entry" | "exit" | "transfer",
@@ -526,11 +526,16 @@ export default function MovementsManagement() {
       errors.quantity = "La quantité doit être supérieure à 0"
     }
 
-    // Validate card belongs to selected bank
-    if (formData.cardId) {
-      const card = cards.find(c => c.id === formData.cardId)
+    // Validate cards belong to selected bank
+    if (formData.cardIds.length === 0) {
+      alert("Veuillez sélectionner au moins une carte")
+      return
+    }
+
+    for (const cardId of formData.cardIds) {
+      const card = cards.find(c => c.id === cardId)
       if (card && card.bankId !== formData.bankId) {
-        alert("La carte sélectionnée n'appartient pas à la banque choisie")
+        alert("Une des cartes sélectionnées n'appartient pas à la banque choisie")
         return
       }
     }
@@ -560,10 +565,15 @@ export default function MovementsManagement() {
 
     // Validate available stock for exit and transfer
     if (formData.movementType === "exit" || formData.movementType === "transfer") {
-      if (formData.fromLocationId && formData.cardId) {
-        const availableStock = getAvailableStock(formData.cardId, formData.fromLocationId)
-        if (formData.quantity > availableStock) {
-          errors.quantity = `Stock insuffisant à cet emplacement (disponible: ${availableStock})`
+      if (formData.fromLocationId && formData.cardIds.length > 0) {
+        // Vérifier le stock pour chaque carte sélectionnée
+        for (const cardId of formData.cardIds) {
+          const availableStock = getAvailableStock(cardId, formData.fromLocationId)
+          if (formData.quantity > availableStock) {
+            const card = cards.find(c => c.id === cardId)
+            errors.quantity = `Stock insuffisant pour la carte ${card?.name} à cet emplacement (disponible: ${availableStock})`
+            break
+          }
         }
       }
     }
@@ -575,39 +585,56 @@ export default function MovementsManagement() {
 
     setFormErrors({})
 
-    const movementData = {
-      ...formData,
-      userId: currentUser?.id || '',
-      fromLocationId: formData.movementType === "entry" ? null : formData.fromLocationId || null,
-      toLocationId: formData.movementType === "exit" ? null : formData.toLocationId || null,
-    }
-
+    // Créer un mouvement pour chaque carte sélectionnée
     try {
-      const response = await fetch('/api/movements', {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(movementData)
-      })
+      let successCount = 0
+      let errorCount = 0
 
-      const data = await response.json()
-      if (!data.success) {
-        alert(data.error || 'Erreur lors de la création du mouvement')
-        return
+      for (const cardId of formData.cardIds) {
+        const movementData = {
+          ...formData,
+          cardId: cardId, // Une carte à la fois
+          userId: currentUser?.id || '',
+          fromLocationId: formData.movementType === "entry" ? null : formData.fromLocationId || null,
+          toLocationId: formData.movementType === "exit" ? null : formData.toLocationId || null,
+        }
+
+        const response = await fetch('/api/movements', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify(movementData)
+        })
+
+        const data = await response.json()
+        if (data.success) {
+          successCount++
+        } else {
+          errorCount++
+          console.error(`Erreur pour la carte ${cardId}:`, data.error)
+        }
       }
 
       await loadData()
       resetForm()
       setIsDialogOpen(false)
+      
+      if (successCount > 0 && errorCount === 0) {
+        alert(`${successCount} mouvement(s) créé(s) avec succès`)
+      } else if (successCount > 0 && errorCount > 0) {
+        alert(`${successCount} mouvement(s) créé(s), ${errorCount} erreur(s)`)
+      } else {
+        alert('Erreur lors de la création des mouvements')
+      }
     } catch (error) {
-      console.error('Error creating movement:', error)
-      alert('Erreur lors de la création du mouvement')
+      console.error('Error creating movements:', error)
+      alert('Erreur lors de la création des mouvements')
     }
   }
 
   const resetForm = () => {
     setFormData({
       bankId: "",
-      cardId: "",
+      cardIds: [], // Changé pour plusieurs cartes
       fromLocationId: "",
       toLocationId: "",
       movementType: "entry",
@@ -615,6 +642,22 @@ export default function MovementsManagement() {
       reason: "",
     })
     setFormErrors({})
+  }
+
+  // Fonction pour gérer la sélection multiple de cartes
+  const handleCardSelection = (cardId: string, isSelected: boolean) => {
+    setFormData(prev => {
+      if (isSelected) {
+        // Ajouter la carte si elle n'est pas déjà sélectionnée
+        if (!prev.cardIds.includes(cardId)) {
+          return { ...prev, cardIds: [...prev.cardIds, cardId] }
+        }
+      } else {
+        // Retirer la carte de la sélection
+        return { ...prev, cardIds: prev.cardIds.filter(id => id !== cardId) }
+      }
+      return prev
+    })
   }
 
   // Filtrer les cartes par banque sélectionnée
@@ -746,7 +789,7 @@ export default function MovementsManagement() {
                     <Select
                       value={formData.bankId}
                       onValueChange={(value) => {
-                        setFormData({ ...formData, bankId: value, cardId: "", fromLocationId: "", toLocationId: "" })
+                        setFormData({ ...formData, bankId: value, cardIds: [], fromLocationId: "", toLocationId: "" })
                       }}
                     >
                       <SelectTrigger className="col-span-3">
@@ -877,31 +920,39 @@ export default function MovementsManagement() {
                   )}
 
                   {/* 6. Sélection de la carte (filtrée par banque) */}
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="card" className="text-right font-semibold">
-                      Carte *
+                  <div className="grid grid-cols-4 items-start gap-4">
+                    <Label className="text-right font-semibold pt-2">
+                      Cartes *
                     </Label>
-                    <Select
-                      value={formData.cardId}
-                      onValueChange={(value) => {
-                        setFormData({ ...formData, cardId: value })
-                        if (formErrors.quantity) {
-                          setFormErrors({ ...formErrors, quantity: undefined })
-                        }
-                      }}
-                      disabled={!formData.bankId}
-                    >
-                      <SelectTrigger className="col-span-3">
-                        <SelectValue placeholder={formData.bankId ? "Sélectionner une carte" : "Sélectionnez d'abord une banque"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {getFilteredCards().map((card) => (
-                          <SelectItem key={card.id} value={card.id}>
-                            {card.name} ({card.type} - {card.subType})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="col-span-3">
+                      {!formData.bankId ? (
+                        <p className="text-sm text-gray-500">Sélectionnez d'abord une banque</p>
+                      ) : getFilteredCards().length === 0 ? (
+                        <p className="text-sm text-gray-500">Aucune carte disponible pour cette banque</p>
+                      ) : (
+                        <div className="space-y-2 max-h-40 overflow-y-auto border rounded-md p-3">
+                          {getFilteredCards().map((card) => (
+                            <div key={card.id} className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                id={`card-${card.id}`}
+                                checked={formData.cardIds.includes(card.id)}
+                                onChange={(e) => handleCardSelection(card.id, e.target.checked)}
+                                className="rounded border-gray-300"
+                              />
+                              <label htmlFor={`card-${card.id}`} className="text-sm cursor-pointer">
+                                {card.name} ({card.type} - {card.subType})
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {formData.cardIds.length > 0 && (
+                        <p className="text-sm text-green-600 mt-2">
+                          {formData.cardIds.length} carte(s) sélectionnée(s)
+                        </p>
+                      )}
+                    </div>
                   </div>
 
                   {/* 7. Quantité */}
@@ -925,12 +976,21 @@ export default function MovementsManagement() {
                         required
                       />
                       {formErrors.quantity && <p className="text-sm text-red-500 mt-1">{formErrors.quantity}</p>}
-                      {formData.cardId &&
+                      {formData.cardIds.length > 0 &&
                         formData.fromLocationId &&
                         (formData.movementType === "exit" || formData.movementType === "transfer") && (
-                          <p className="text-sm text-slate-500 mt-1">
-                            Stock disponible: {getAvailableStock(formData.cardId, formData.fromLocationId)}
-                          </p>
+                          <div className="text-sm text-slate-500 mt-1">
+                            <p>Stock disponible par carte:</p>
+                            {formData.cardIds.map(cardId => {
+                              const card = cards.find(c => c.id === cardId)
+                              const stock = getAvailableStock(cardId, formData.fromLocationId)
+                              return (
+                                <p key={cardId} className="ml-2">
+                                  • {card?.name}: {stock}
+                                </p>
+                              )
+                            })}
+                          </div>
                         )}
                     </div>
                   </div>
