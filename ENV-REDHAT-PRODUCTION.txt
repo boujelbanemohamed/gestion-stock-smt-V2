@@ -1,0 +1,29 @@
+# Base de données PostgreSQL - Configuration RedHat Production
+DATABASE_URL="postgresql://postgres@localhost:5432/stock_management?schema=public"
+
+# Configuration de l'application
+NODE_ENV="production"
+NEXT_PUBLIC_API_URL="https://172.17.5.199"
+
+# Session et sécurité
+SESSION_SECRET="przFeJuWQFfZ15KGJ1+atTmeNfPH9IrlMiTVSXqPG08="
+JWT_SECRET="Pq5NWU4IuduKa4qTBP7kU/noGGXhzp8eoQLpDy04Sd8="
+
+# Configuration SMTP (à adapter selon votre serveur)
+SMTP_HOST="smtp.gmail.com"
+SMTP_PORT="587"
+SMTP_SECURE="false"
+SMTP_USER="your-email@gmail.com"
+SMTP_PASSWORD="your-app-password"
+SMTP_FROM_EMAIL="noreply@172.17.5.199"
+SMTP_FROM_NAME="Monetique Tunisie - Gestion de Stocks"
+
+# Configuration des notifications
+NOTIFICATIONS_ENABLED="true"
+NOTIFICATIONS_LOW_STOCK_ALERTS="true"
+NOTIFICATIONS_MOVEMENT_NOTIFICATIONS="true"
+NOTIFICATIONS_USER_ACTIVITY_ALERTS="true"
+NOTIFICATIONS_LOW_STOCK_THRESHOLD="10"
+NOTIFICATIONS_CRITICAL_STOCK_THRESHOLD="5"
+NOTIFICATIONS_EMAIL_NOTIFICATIONS="true"
+NOTIFICATIONS_IN_APP_NOTIFICATIONS="true"
