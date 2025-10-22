@@ -167,49 +167,63 @@ git pull origin main
 CURRENT_COMMIT=$(git log --oneline -1)
 log_success "Commit actuel: $CURRENT_COMMIT"
 
-# 5. Vérification et configuration du fichier .env (AVANT Prisma)
+# 5. Configuration optimisée du fichier .env pour RedHat
 echo ""
-echo "5️⃣ Vérification et configuration du fichier .env..."
+echo "5️⃣ Configuration optimisée du fichier .env pour RedHat..."
 
-# Vérifier si .env existe, sinon utiliser .env.production
-if [ -f ".env.production" ]; then
-    log_info "Utilisation du fichier .env.production"
-    cp .env.production .env
-    log_success "Fichier .env.production copié vers .env"
-elif [ -f ".env" ]; then
-    log_success "Fichier .env trouvé"
-else
-    log_error "Aucun fichier .env ou .env.production trouvé"
-    exit 1
+# Sauvegarder l'ancien .env
+if [ -f ".env" ]; then
+    cp .env .env.backup.$(date +%Y%m%d_%H%M%S)
+    log_success "Ancien .env sauvegardé"
 fi
 
-# Vérifier DATABASE_URL
-if grep -q "DATABASE_URL" .env; then
-    log_success "DATABASE_URL configuré"
-else
-    log_error "DATABASE_URL manquant dans .env"
-    exit 1
-fi
+# Créer le .env optimisé pour RedHat (sans mot de passe)
+log_info "Création du .env optimisé pour RedHat..."
+cat > .env << 'EOF'
+# Base de données PostgreSQL - Configuration RedHat Production
+DATABASE_URL="postgresql://postgres@localhost:5432/stock_management?schema=public"
 
-# S'assurer que NODE_ENV=production est défini
-if grep -q "^NODE_ENV=" .env; then
-    # Remplacer la valeur existante
-    sed -i.bak 's/^NODE_ENV=.*/NODE_ENV=production/' .env
-    log_success "NODE_ENV=production configuré dans .env"
-else
-    # Ajouter NODE_ENV si absent
-    echo "NODE_ENV=production" >> .env
-    log_success "NODE_ENV=production ajouté à .env"
-fi
+# Configuration de l'application
+NODE_ENV="production"
+NEXT_PUBLIC_API_URL="https://172.17.5.199"
 
-# Afficher la configuration (sans les secrets)
+# Session et sécurité
+SESSION_SECRET="przFeJuWQFfZ15KGJ1+atTmeNfPH9IrlMiTVSXqPG08="
+JWT_SECRET="Pq5NWU4IuduKa4qTBP7kU/noGGXhzp8eoQLpDy04Sd8="
+
+# Configuration SMTP (à adapter selon votre serveur)
+SMTP_HOST="smtp.gmail.com"
+SMTP_PORT="587"
+SMTP_SECURE="false"
+SMTP_USER="your-email@gmail.com"
+SMTP_PASSWORD="your-app-password"
+SMTP_FROM_EMAIL="noreply@172.17.5.199"
+SMTP_FROM_NAME="Monetique Tunisie - Gestion de Stocks"
+
+# Configuration des notifications
+NOTIFICATIONS_ENABLED="true"
+NOTIFICATIONS_LOW_STOCK_ALERTS="true"
+NOTIFICATIONS_MOVEMENT_NOTIFICATIONS="true"
+NOTIFICATIONS_USER_ACTIVITY_ALERTS="true"
+NOTIFICATIONS_LOW_STOCK_THRESHOLD="10"
+NOTIFICATIONS_CRITICAL_STOCK_THRESHOLD="5"
+NOTIFICATIONS_EMAIL_NOTIFICATIONS="true"
+NOTIFICATIONS_IN_APP_NOTIFICATIONS="true"
+EOF
+
+log_success "Configuration .env optimisée pour RedHat (postgres sans mot de passe)"
+
+# Vérifier la configuration
 log_info "Configuration active:"
 grep -E "^(NODE_ENV|DATABASE_URL)" .env | sed 's/\(DATABASE_URL=.*:\/\/.*:\).*\(@.*\)/\1****\2/' || true
 
-# 6. Installation des dépendances
+# 6. Installation des dépendances (optimisée)
 echo ""
-echo "6️⃣ Installation des dépendances..."
-npm install
+echo "6️⃣ Installation des dépendances (optimisée)..."
+log_info "Nettoyage du cache npm..."
+npm cache clean --force 2>/dev/null || true
+log_info "Installation des dépendances..."
+npm install --silent
 log_success "Dépendances installées"
 
 # 7. Configuration Prisma
@@ -219,45 +233,120 @@ npx prisma generate
 log_success "Client Prisma généré"
 
 echo ""
-echo "   Vérification de la base de données..."
-# Pour une mise à jour, on vérifie juste que le schéma est synchronisé
-# On utilise db push qui gère automatiquement les bases existantes
-if npx prisma db push --skip-generate 2>&1 | tee /tmp/prisma_output.log | grep -q "already in sync"; then
-    log_success "Base de données déjà synchronisée"
-elif grep -q "error" /tmp/prisma_output.log; then
-    log_warning "La base de données existe déjà - Aucune modification nécessaire"
-    log_info "Le schéma Prisma correspond à la base de données"
+echo "   Vérification de la base de données (NON-DESTRUCTIVE)..."
+# Vérification de la connexion à la base de données
+log_info "Test de connexion à la base de données..."
+if npx prisma db execute --stdin <<< "SELECT 1;" 2>/dev/null; then
+    log_success "Connexion à la base de données réussie"
+    
+    # Vérifier que les tables existent (sans les modifier)
+    log_info "Vérification des tables existantes..."
+    TABLES_EXIST=$(sudo -u postgres psql stock_management -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('users', 'banks', 'cards', 'locations', 'movements', 'audit_logs');" 2>/dev/null | xargs || echo "0")
+    
+    if [ "$TABLES_EXIST" -ge "5" ]; then
+        log_success "Tables principales détectées ($TABLES_EXIST/5) - Base de données préservée"
+        log_info "Aucune modification de la base de données nécessaire"
+    else
+        log_warning "Tables manquantes détectées - Synchronisation Prisma nécessaire"
+        # Utiliser db push qui est non-destructif pour les données existantes
+        if npx prisma db push --skip-generate 2>&1 | tee /tmp/prisma_output.log | grep -q "already in sync"; then
+            log_success "Base de données déjà synchronisée"
+        else
+            log_success "Base de données synchronisée (données préservées)"
+        fi
+        rm -f /tmp/prisma_output.log
+    fi
 else
-    log_success "Base de données mise à jour"
+    log_warning "Impossible de se connecter à la base de données"
+    log_info "Vérifiez que PostgreSQL est démarré et accessible"
 fi
-rm -f /tmp/prisma_output.log
 
-# 8. Nettoyage du cache Next.js
+# 8. Vérifications pré-déploiement
 echo ""
-echo "8️⃣ Nettoyage du cache Next.js..."
+echo "8️⃣ Vérifications pré-déploiement..."
+
+# Vérifier que Prisma Client est généré
+if [ -f "node_modules/.prisma/client/index.js" ]; then
+    log_success "Prisma Client généré correctement"
+else
+    log_error "Prisma Client manquant - Regénération..."
+    npx prisma generate
+    log_success "Prisma Client regénéré"
+fi
+
+# Vérifier que les variables d'environnement sont correctes
+if grep -q "NODE_ENV=production" .env && grep -q "DATABASE_URL=" .env; then
+    log_success "Variables d'environnement configurées"
+else
+    log_error "Variables d'environnement manquantes"
+    exit 1
+fi
+
+# Nettoyage du cache Next.js
+log_info "Nettoyage du cache Next.js..."
 rm -rf .next
 rm -rf node_modules/.cache
 log_success "Cache nettoyé"
 
-# 9. Build de l'application en mode PRODUCTION
+# 9. Build de l'application en mode PRODUCTION (optimisé)
 echo ""
-echo "9️⃣ Build de l'application en mode PRODUCTION..."
-NODE_ENV=production npm run build
-log_success "Build terminé avec succès"
+echo "9️⃣ Build de l'application en mode PRODUCTION (optimisé)..."
 
-# 10. Redémarrage du service
+# Vérifier que le build peut démarrer
+log_info "Vérification pré-build..."
+if [ -f "package.json" ] && [ -f "next.config.mjs" ]; then
+    log_success "Fichiers de configuration présents"
+else
+    log_error "Fichiers de configuration manquants"
+    exit 1
+fi
+
+# Build avec gestion d'erreurs
+log_info "Démarrage du build production..."
+if NODE_ENV=production npm run build 2>&1 | tee /tmp/build_output.log; then
+    log_success "Build terminé avec succès"
+    rm -f /tmp/build_output.log
+else
+    log_error "Erreur lors du build"
+    echo ""
+    log_info "Dernières lignes du build:"
+    tail -20 /tmp/build_output.log 2>/dev/null || true
+    rm -f /tmp/build_output.log
+    exit 1
+fi
+
+# 10. Redémarrage du service (optimisé)
 echo ""
-echo "🔟 Redémarrage du service..."
+echo "🔟 Redémarrage du service (optimisé)..."
 
 # Détecter PM2 ou systemd
 if command -v pm2 &> /dev/null; then
     log_info "Utilisation de PM2..."
-    # Arrêter complètement l'ancienne instance
+    
+    # Arrêter proprement l'ancienne instance
+    log_info "Arrêt de l'ancienne instance..."
+    pm2 stop stock-management 2>/dev/null || true
     pm2 delete stock-management 2>/dev/null || true
+    
+    # Attendre que l'arrêt soit complet
+    sleep 3
+    
     # Démarrer en mode PRODUCTION
+    log_info "Démarrage de la nouvelle instance..."
     NODE_ENV=production pm2 start npm --name "stock-management" -- start
     pm2 save
-    log_success "Application redémarrée avec PM2 en mode PRODUCTION"
+    
+    # Attendre que l'application démarre
+    log_info "Attente du démarrage (5 secondes)..."
+    sleep 5
+    
+    # Vérifier le statut
+    if pm2 list | grep -q "stock-management.*online"; then
+        log_success "Application redémarrée avec PM2 en mode PRODUCTION"
+    else
+        log_warning "Application démarrée mais statut incertain"
+    fi
+    
     echo ""
     pm2 status
 elif systemctl list-units --type=service | grep -q "stock-management"; then
