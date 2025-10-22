@@ -34,6 +34,10 @@ export default function LocationsManagement() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [isSearchDialogOpen, setIsSearchDialogOpen] = useState(false)
+  const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false)
+  const [printMode, setPrintMode] = useState<"bank" | "location" | null>(null)
+  const [selectedBankId, setSelectedBankId] = useState<string>("")
+  const [selectedLocationId, setSelectedLocationId] = useState<string>("")
   const [editingLocation, setEditingLocation] = useState<Location | null>(null)
   const [cardsByLocation, setCardsByLocation] = useState<Map<string, { card: any; quantity: number }[]>>(new Map())
   const [importResults, setImportResults] = useState<{
@@ -123,8 +127,17 @@ export default function LocationsManagement() {
           .date { color: #6b7280; margin-top: 10px; }
           .location { margin-bottom: 20px; border: 1px solid #e5e7eb; padding: 15px; border-radius: 8px; }
           .location-name { font-size: 18px; font-weight: bold; color: #374151; margin-bottom: 10px; }
-          .location-address { color: #6b7280; margin-bottom: 10px; }
-          .cards-count { font-size: 16px; color: #059669; font-weight: bold; }
+          .location-address { color: #6b7280; margin-bottom: 5px; }
+          .location-description { color: #6b7280; margin-bottom: 15px; font-style: italic; }
+          .cards-details { margin-top: 15px; }
+          .cards-details h4 { font-size: 16px; color: #374151; margin-bottom: 10px; }
+          .cards-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+          .cards-table th, .cards-table td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+          .cards-table th { background-color: #f9fafb; font-weight: bold; color: #374151; }
+          .cards-table tr:nth-child(even) { background-color: #f9fafb; }
+          .quantity { text-align: center; font-weight: bold; color: #059669; }
+          .no-cards { color: #6b7280; font-style: italic; margin: 10px 0; }
+          .cards-count { font-size: 16px; color: #059669; font-weight: bold; margin-top: 10px; }
           .total { margin-top: 30px; padding: 20px; background-color: #f3f4f6; border-radius: 8px; text-align: center; }
           .total-label { font-size: 18px; color: #374151; }
           .total-value { font-size: 24px; font-weight: bold; color: #059669; margin-top: 5px; }
@@ -145,7 +158,35 @@ export default function LocationsManagement() {
             <div class="location">
               <div class="location-name">${location.name}</div>
               <div class="location-address">${location.address || 'Adresse non renseignée'}</div>
-              <div class="cards-count">${locationTotal} cartes disponibles</div>
+              <div class="location-description">${location.description || 'Aucune description'}</div>
+              
+              ${locationCards.length > 0 ? `
+                <div class="cards-details">
+                  <h4>Cartes stockées dans cet emplacement:</h4>
+                  <table class="cards-table">
+                    <thead>
+                      <tr>
+                        <th>Nom de la carte</th>
+                        <th>Type</th>
+                        <th>Sous-type</th>
+                        <th>Stock</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${locationCards.map(item => `
+                        <tr>
+                          <td>${item.card.name}</td>
+                          <td>${item.card.type}</td>
+                          <td>${item.card.subType}</td>
+                          <td class="quantity">${item.quantity}</td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              ` : '<div class="no-cards">Aucune carte stockée dans cet emplacement</div>'}
+              
+              <div class="cards-count">Total: ${locationTotal} cartes disponibles</div>
             </div>
           `
         }).join('')}
@@ -443,6 +484,37 @@ export default function LocationsManagement() {
     setSearchTerm("")
   }
 
+  // Fonctions de gestion du modal d'impression
+  const handlePrintDialogOpen = () => {
+    setIsPrintDialogOpen(true)
+    setPrintMode(null)
+    setSelectedBankId("")
+    setSelectedLocationId("")
+  }
+
+  const handlePrintModeSelect = (mode: "bank" | "location") => {
+    setPrintMode(mode)
+    setSelectedBankId("")
+    setSelectedLocationId("")
+  }
+
+  const handlePrintExecute = () => {
+    if (printMode === "bank" && selectedBankId) {
+      printByBank(selectedBankId)
+      setIsPrintDialogOpen(false)
+    } else if (printMode === "location" && selectedLocationId) {
+      printByLocation(selectedLocationId)
+      setIsPrintDialogOpen(false)
+    }
+  }
+
+  const handlePrintCancel = () => {
+    setIsPrintDialogOpen(false)
+    setPrintMode(null)
+    setSelectedBankId("")
+    setSelectedLocationId("")
+  }
+
   const handlePrint = () => {
     const printWindow = window.open("", "_blank")
     if (!printWindow) return
@@ -656,47 +728,10 @@ export default function LocationsManagement() {
             </svg>
             Recherche
           </Button>
-          <Select onValueChange={(value) => {
-            if (value.startsWith('bank-')) {
-              printByBank(value.replace('bank-', ''))
-            } else if (value.startsWith('location-')) {
-              printByLocation(value.replace('location-', ''))
-            }
-          }}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Options d'impression" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="header" disabled>
-                <div className="flex items-center">
-                  <Printer className="h-4 w-4 mr-2" />
-                  <span className="font-medium">Imprimer par...</span>
-                </div>
-              </SelectItem>
-              <SelectItem value="divider" disabled>
-                <div className="border-t border-gray-200 my-1"></div>
-              </SelectItem>
-              {banks.map(bank => (
-                <SelectItem key={`bank-${bank.id}`} value={`bank-${bank.id}`}>
-                  <div className="flex items-center">
-                    <Building2 className="h-4 w-4 mr-2" />
-                    <span>Banque: {bank.name}</span>
-                  </div>
-                </SelectItem>
-              ))}
-              <SelectItem value="divider2" disabled>
-                <div className="border-t border-gray-200 my-1"></div>
-              </SelectItem>
-              {locations.map(location => (
-                <SelectItem key={`location-${location.id}`} value={`location-${location.id}`}>
-                  <div className="flex items-center">
-                    <MapPin className="h-4 w-4 mr-2" />
-                    <span>Emplacement: {location.name}</span>
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Button variant="outline" onClick={handlePrintDialogOpen}>
+            <Printer className="h-4 w-4 mr-2" />
+            Imprimer le stock
+          </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button onClick={resetForm}>
@@ -873,6 +908,131 @@ export default function LocationsManagement() {
               Réinitialiser
             </Button>
             <Button onClick={handleSearch}>Rechercher</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de sélection d'impression */}
+      <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Impression du stock de cartes</DialogTitle>
+            <DialogDescription>
+              Choisissez le mode d'impression et sélectionnez l'entité à imprimer
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            {/* Étape 1: Sélection du mode d'impression */}
+            <div>
+              <Label className="text-base font-semibold">1. Choisissez le type d'impression</Label>
+              <div className="grid grid-cols-2 gap-4 mt-3">
+                <Button
+                  variant={printMode === "bank" ? "default" : "outline"}
+                  onClick={() => handlePrintModeSelect("bank")}
+                  className="h-20 flex flex-col items-center justify-center space-y-2"
+                >
+                  <Building2 className="h-6 w-6" />
+                  <span className="text-sm font-medium">Par Banque</span>
+                  <span className="text-xs text-gray-500">Vue globale</span>
+                </Button>
+                <Button
+                  variant={printMode === "location" ? "default" : "outline"}
+                  onClick={() => handlePrintModeSelect("location")}
+                  className="h-20 flex flex-col items-center justify-center space-y-2"
+                >
+                  <MapPin className="h-6 w-6" />
+                  <span className="text-sm font-medium">Par Emplacement</span>
+                  <span className="text-xs text-gray-500">Vue détaillée</span>
+                </Button>
+              </div>
+            </div>
+
+            {/* Étape 2: Sélection de l'entité */}
+            {printMode && (
+              <div>
+                <Label className="text-base font-semibold">
+                  2. Sélectionnez {printMode === "bank" ? "la banque" : "l'emplacement"}
+                </Label>
+                <div className="mt-3">
+                  {printMode === "bank" ? (
+                    <Select value={selectedBankId} onValueChange={setSelectedBankId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choisissez une banque" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {banks.map(bank => (
+                          <SelectItem key={bank.id} value={bank.id}>
+                            <div className="flex items-center">
+                              <Building2 className="h-4 w-4 mr-2" />
+                              {bank.name}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choisissez un emplacement" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {locations.map(location => (
+                          <SelectItem key={location.id} value={location.id}>
+                            <div className="flex items-center">
+                              <MapPin className="h-4 w-4 mr-2" />
+                              {location.name}
+                              <span className="text-gray-500 ml-2">
+                                ({banks.find(b => b.id === location.bankId)?.name})
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Informations sur le mode sélectionné */}
+            {printMode && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start">
+                  <div className="flex-shrink-0">
+                    {printMode === "bank" ? (
+                      <Building2 className="h-5 w-5 text-blue-600" />
+                    ) : (
+                      <MapPin className="h-5 w-5 text-blue-600" />
+                    )}
+                  </div>
+                  <div className="ml-3">
+                    <h4 className="text-sm font-medium text-blue-800">
+                      {printMode === "bank" ? "Impression par Banque" : "Impression par Emplacement"}
+                    </h4>
+                    <p className="text-sm text-blue-700 mt-1">
+                      {printMode === "bank" 
+                        ? "Affichera tous les emplacements de la banque avec le détail des cartes stockées dans chaque emplacement."
+                        : "Affichera toutes les cartes stockées dans l'emplacement sélectionné avec leurs informations complètes."
+                      }
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={handlePrintCancel}>
+              Annuler
+            </Button>
+            <Button 
+              onClick={handlePrintExecute}
+              disabled={!printMode || (!selectedBankId && !selectedLocationId)}
+            >
+              <Printer className="h-4 w-4 mr-2" />
+              Imprimer
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
