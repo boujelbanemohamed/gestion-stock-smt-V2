@@ -34,11 +34,10 @@ export default function MovementsManagement() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [formData, setFormData] = useState({
     bankId: "",
-    cardIds: [] as string[], // Changé pour permettre plusieurs cartes
+    cardQuantities: [] as { cardId: string; quantity: number }[], // Quantité par carte
     fromLocationId: "",
     toLocationId: "",
     movementType: "entry" as "entry" | "exit" | "transfer",
-    quantity: 0,
     reason: "",
   })
 
@@ -521,21 +520,22 @@ export default function MovementsManagement() {
       return
     }
 
-    // Validate quantity is positive
-    if (formData.quantity <= 0) {
-      errors.quantity = "La quantité doit être supérieure à 0"
-    }
+    // Validation des quantités par carte (déjà fait dans la boucle ci-dessus)
 
     // Validate cards belong to selected bank
-    if (formData.cardIds.length === 0) {
+    if (formData.cardQuantities.length === 0) {
       alert("Veuillez sélectionner au moins une carte")
       return
     }
 
-    for (const cardId of formData.cardIds) {
-      const card = cards.find(c => c.id === cardId)
+    for (const cardQuantity of formData.cardQuantities) {
+      const card = cards.find(c => c.id === cardQuantity.cardId)
       if (card && card.bankId !== formData.bankId) {
         alert("Une des cartes sélectionnées n'appartient pas à la banque choisie")
+        return
+      }
+      if (cardQuantity.quantity <= 0) {
+        alert(`La quantité pour la carte ${card?.name} doit être supérieure à 0`)
         return
       }
     }
@@ -565,14 +565,14 @@ export default function MovementsManagement() {
 
     // Validate available stock for exit and transfer
     if (formData.movementType === "exit" || formData.movementType === "transfer") {
-      if (formData.fromLocationId && formData.cardIds.length > 0) {
+      if (formData.fromLocationId && formData.cardQuantities.length > 0) {
         // Vérifier le stock pour chaque carte sélectionnée
-        for (const cardId of formData.cardIds) {
-          const availableStock = getAvailableStock(cardId, formData.fromLocationId)
-          if (formData.quantity > availableStock) {
-            const card = cards.find(c => c.id === cardId)
-            errors.quantity = `Stock insuffisant pour la carte ${card?.name} à cet emplacement (disponible: ${availableStock})`
-            break
+        for (const cardQuantity of formData.cardQuantities) {
+          const availableStock = getAvailableStock(cardQuantity.cardId, formData.fromLocationId)
+          if (cardQuantity.quantity > availableStock) {
+            const card = cards.find(c => c.id === cardQuantity.cardId)
+            alert(`Stock insuffisant pour la carte ${card?.name} à cet emplacement (disponible: ${availableStock}, demandé: ${cardQuantity.quantity})`)
+            return
           }
         }
       }
@@ -585,15 +585,16 @@ export default function MovementsManagement() {
 
     setFormErrors({})
 
-    // Créer un mouvement pour chaque carte sélectionnée
+    // Créer un mouvement pour chaque carte avec sa quantité
     try {
       let successCount = 0
       let errorCount = 0
 
-      for (const cardId of formData.cardIds) {
+      for (const cardQuantity of formData.cardQuantities) {
         const movementData = {
           ...formData,
-          cardId: cardId, // Une carte à la fois
+          cardId: cardQuantity.cardId,
+          quantity: cardQuantity.quantity, // Quantité spécifique à cette carte
           userId: currentUser?.id || '',
           fromLocationId: formData.movementType === "entry" ? null : formData.fromLocationId || null,
           toLocationId: formData.movementType === "exit" ? null : formData.toLocationId || null,
@@ -610,7 +611,8 @@ export default function MovementsManagement() {
           successCount++
         } else {
           errorCount++
-          console.error(`Erreur pour la carte ${cardId}:`, data.error)
+          const card = cards.find(c => c.id === cardQuantity.cardId)
+          console.error(`Erreur pour la carte ${card?.name}:`, data.error)
         }
       }
 
@@ -634,30 +636,39 @@ export default function MovementsManagement() {
   const resetForm = () => {
     setFormData({
       bankId: "",
-      cardIds: [], // Changé pour plusieurs cartes
+      cardQuantities: [], // Quantités par carte
       fromLocationId: "",
       toLocationId: "",
       movementType: "entry",
-      quantity: 0,
       reason: "",
     })
     setFormErrors({})
   }
 
-  // Fonction pour gérer la sélection multiple de cartes
+  // Fonction pour gérer la sélection des cartes avec quantité
   const handleCardSelection = (cardId: string, isSelected: boolean) => {
     setFormData(prev => {
       if (isSelected) {
-        // Ajouter la carte si elle n'est pas déjà sélectionnée
-        if (!prev.cardIds.includes(cardId)) {
-          return { ...prev, cardIds: [...prev.cardIds, cardId] }
+        // Ajouter la carte avec quantité par défaut de 1
+        if (!prev.cardQuantities.find(cq => cq.cardId === cardId)) {
+          return { ...prev, cardQuantities: [...prev.cardQuantities, { cardId, quantity: 1 }] }
         }
       } else {
         // Retirer la carte de la sélection
-        return { ...prev, cardIds: prev.cardIds.filter(id => id !== cardId) }
+        return { ...prev, cardQuantities: prev.cardQuantities.filter(cq => cq.cardId !== cardId) }
       }
       return prev
     })
+  }
+
+  // Fonction pour mettre à jour la quantité d'une carte
+  const handleCardQuantityChange = (cardId: string, quantity: number) => {
+    setFormData(prev => ({
+      ...prev,
+      cardQuantities: prev.cardQuantities.map(cq => 
+        cq.cardId === cardId ? { ...cq, quantity } : cq
+      )
+    }))
   }
 
   // Filtrer les cartes par banque sélectionnée
@@ -789,7 +800,7 @@ export default function MovementsManagement() {
                     <Select
                       value={formData.bankId}
                       onValueChange={(value) => {
-                        setFormData({ ...formData, bankId: value, cardIds: [], fromLocationId: "", toLocationId: "" })
+                        setFormData({ ...formData, bankId: value, cardQuantities: [], fromLocationId: "", toLocationId: "" })
                       }}
                     >
                       <SelectTrigger className="col-span-3">
@@ -930,70 +941,106 @@ export default function MovementsManagement() {
                       ) : getFilteredCards().length === 0 ? (
                         <p className="text-sm text-gray-500">Aucune carte disponible pour cette banque</p>
                       ) : (
-                        <div className="space-y-2 max-h-40 overflow-y-auto border rounded-md p-3">
-                          {getFilteredCards().map((card) => (
-                            <div key={card.id} className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                id={`card-${card.id}`}
-                                checked={formData.cardIds.includes(card.id)}
-                                onChange={(e) => handleCardSelection(card.id, e.target.checked)}
-                                className="rounded border-gray-300"
-                              />
-                              <label htmlFor={`card-${card.id}`} className="text-sm cursor-pointer">
-                                {card.name} ({card.type} - {card.subType})
-                              </label>
-                            </div>
-                          ))}
+                        <div className="space-y-3 max-h-60 overflow-y-auto border rounded-md p-3">
+                          {getFilteredCards().map((card) => {
+                            const cardQuantity = formData.cardQuantities.find(cq => cq.cardId === card.id)
+                            const isSelected = !!cardQuantity
+                            
+                            return (
+                              <div key={card.id} className="border rounded-md p-3 bg-gray-50">
+                                <div className="flex items-center space-x-2 mb-2">
+                                  <input
+                                    type="checkbox"
+                                    id={`card-${card.id}`}
+                                    checked={isSelected}
+                                    onChange={(e) => handleCardSelection(card.id, e.target.checked)}
+                                    className="rounded border-gray-300"
+                                  />
+                                  <label htmlFor={`card-${card.id}`} className="text-sm font-medium cursor-pointer">
+                                    {card.name} ({card.type} - {card.subType})
+                                  </label>
+                                </div>
+                                
+                                {isSelected && (
+                                  <div className="ml-6">
+                                    <label htmlFor={`quantity-${card.id}`} className="text-xs text-gray-600">
+                                      Quantité pour cette carte:
+                                    </label>
+                                    <input
+                                      type="number"
+                                      id={`quantity-${card.id}`}
+                                      min="1"
+                                      value={cardQuantity?.quantity || 1}
+                                      onChange={(e) => handleCardQuantityChange(card.id, Number.parseInt(e.target.value) || 1)}
+                                      className="w-20 ml-2 px-2 py-1 text-sm border rounded"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
                         </div>
                       )}
-                      {formData.cardIds.length > 0 && (
-                        <p className="text-sm text-green-600 mt-2">
-                          {formData.cardIds.length} carte(s) sélectionnée(s)
-                        </p>
+                      {formData.cardQuantities.length > 0 && (
+                        <div className="text-sm text-green-600 mt-2">
+                          <p>{formData.cardQuantities.length} carte(s) sélectionnée(s):</p>
+                          {formData.cardQuantities.map(cq => {
+                            const card = cards.find(c => c.id === cq.cardId)
+                            return (
+                              <p key={cq.cardId} className="ml-2 text-xs">
+                                • {card?.name}: {cq.quantity}
+                              </p>
+                            )
+                          })}
+                        </div>
                       )}
                     </div>
                   </div>
 
-                  {/* 7. Quantité */}
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="quantity" className="text-right font-semibold">
-                      Quantité *
-                    </Label>
-                    <div className="col-span-3">
-                      <Input
-                        id="quantity"
-                        type="number"
-                        value={formData.quantity}
-                        onChange={(e) => {
-                          setFormData({ ...formData, quantity: Number.parseInt(e.target.value) || 0 })
-                          if (formErrors.quantity) {
-                            setFormErrors({ ...formErrors, quantity: undefined })
-                          }
-                        }}
-                        className={formErrors.quantity ? "border-red-500" : ""}
-                        min="1"
-                        required
-                      />
-                      {formErrors.quantity && <p className="text-sm text-red-500 mt-1">{formErrors.quantity}</p>}
-                      {formData.cardIds.length > 0 &&
-                        formData.fromLocationId &&
-                        (formData.movementType === "exit" || formData.movementType === "transfer") && (
-                          <div className="text-sm text-slate-500 mt-1">
-                            <p>Stock disponible par carte:</p>
-                            {formData.cardIds.map(cardId => {
-                              const card = cards.find(c => c.id === cardId)
-                              const stock = getAvailableStock(cardId, formData.fromLocationId)
-                              return (
-                                <p key={cardId} className="ml-2">
-                                  • {card?.name}: {stock}
-                                </p>
-                              )
-                            })}
+                  {/* 7. Résumé des quantités */}
+                  {formData.cardQuantities.length > 0 && (
+                    <div className="grid grid-cols-4 items-start gap-4">
+                      <Label className="text-right font-semibold pt-2">
+                        Résumé
+                      </Label>
+                      <div className="col-span-3">
+                        <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                          <p className="text-sm font-medium text-blue-800 mb-2">Quantités sélectionnées:</p>
+                          {formData.cardQuantities.map(cq => {
+                            const card = cards.find(c => c.id === cq.cardId)
+                            return (
+                              <div key={cq.cardId} className="flex justify-between items-center text-sm">
+                                <span>{card?.name}</span>
+                                <span className="font-medium">{cq.quantity}</span>
+                              </div>
+                            )
+                          })}
+                          <div className="border-t border-blue-200 mt-2 pt-2">
+                            <div className="flex justify-between items-center text-sm font-medium">
+                              <span>Total:</span>
+                              <span>{formData.cardQuantities.reduce((sum, cq) => sum + cq.quantity, 0)}</span>
+                            </div>
                           </div>
-                        )}
+                        </div>
+                        
+                        {formData.fromLocationId &&
+                          (formData.movementType === "exit" || formData.movementType === "transfer") && (
+                            <div className="text-sm text-slate-500 mt-2">
+                              <p>Stock disponible par carte:</p>
+                              {formData.cardQuantities.map(cq => {
+                                const card = cards.find(c => c.id === cq.cardId)
+                                const stock = getAvailableStock(cq.cardId, formData.fromLocationId)
+                                return (
+                                  <p key={cq.cardId} className="ml-2">
+                                    • {card?.name}: {stock} (demandé: {cq.quantity})
+                                  </p>
+                                )
+                              })}
+                            </div>
+                          )}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* 8. Motif */}
                   <div className="grid grid-cols-4 items-start gap-4">
