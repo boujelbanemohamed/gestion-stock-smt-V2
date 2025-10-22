@@ -25,6 +25,7 @@ import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 import type { Location, Bank, LocationImportRow, LocationFilters } from "@/lib/types"
 import { ListSkeleton } from "@/components/ui/loading-skeleton"
 import { getAuthHeaders } from "@/lib/api-client"
+import { Printer, Building2, MapPin } from "lucide-react"
 
 export default function LocationsManagement() {
   const [locations, setLocations] = useState<Location[]>([])
@@ -93,6 +94,154 @@ export default function LocationsManagement() {
       console.error('Error loading locations:', error)
     }
     setIsLoading(false)
+  }
+
+  // Fonction d'impression par banque
+  const printByBank = (bankId: string) => {
+    const bank = banks.find(b => b.id === bankId)
+    if (!bank) return
+
+    const bankLocations = locations.filter(l => l.bankId === bankId)
+    let totalCards = 0
+
+    // Calculer le total de cartes pour la banque
+    bankLocations.forEach(location => {
+      const locationCards = cardsByLocation.get(location.id) || []
+      const locationTotal = locationCards.reduce((sum, item) => sum + item.quantity, 0)
+      totalCards += locationTotal
+    })
+
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Stock par Banque - ${bank.name}</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 20px; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .bank-name { font-size: 24px; font-weight: bold; color: #1f2937; }
+          .date { color: #6b7280; margin-top: 10px; }
+          .location { margin-bottom: 20px; border: 1px solid #e5e7eb; padding: 15px; border-radius: 8px; }
+          .location-name { font-size: 18px; font-weight: bold; color: #374151; margin-bottom: 10px; }
+          .location-address { color: #6b7280; margin-bottom: 10px; }
+          .cards-count { font-size: 16px; color: #059669; font-weight: bold; }
+          .total { margin-top: 30px; padding: 20px; background-color: #f3f4f6; border-radius: 8px; text-align: center; }
+          .total-label { font-size: 18px; color: #374151; }
+          .total-value { font-size: 24px; font-weight: bold; color: #059669; margin-top: 5px; }
+          @media print { body { margin: 0; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="bank-name">${bank.name}</div>
+          <div class="date">Rapport de stock - ${new Date().toLocaleDateString('fr-FR')}</div>
+        </div>
+
+        ${bankLocations.map(location => {
+          const locationCards = cardsByLocation.get(location.id) || []
+          const locationTotal = locationCards.reduce((sum, item) => sum + item.quantity, 0)
+          
+          return `
+            <div class="location">
+              <div class="location-name">${location.name}</div>
+              <div class="location-address">${location.address || 'Adresse non renseignée'}</div>
+              <div class="cards-count">${locationTotal} cartes disponibles</div>
+            </div>
+          `
+        }).join('')}
+
+        <div class="total">
+          <div class="total-label">Total des cartes pour ${bank.name}</div>
+          <div class="total-value">${totalCards} cartes</div>
+        </div>
+      </body>
+      </html>
+    `
+
+    const printWindow = window.open('', '_blank')
+    if (printWindow) {
+      printWindow.document.write(printContent)
+      printWindow.document.close()
+      printWindow.focus()
+      printWindow.print()
+    }
+  }
+
+  // Fonction d'impression par emplacement
+  const printByLocation = (locationId: string) => {
+    const location = locations.find(l => l.id === locationId)
+    if (!location) return
+
+    const bank = banks.find(b => b.id === location.bankId)
+    const locationCards = cardsByLocation.get(locationId) || []
+
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Stock par Emplacement - ${location.name}</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 20px; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .bank-name { font-size: 20px; color: #6b7280; margin-bottom: 5px; }
+          .location-name { font-size: 24px; font-weight: bold; color: #1f2937; }
+          .location-address { color: #6b7280; margin-top: 10px; }
+          .date { color: #6b7280; margin-top: 10px; }
+          .cards-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          .cards-table th, .cards-table td { border: 1px solid #e5e7eb; padding: 12px; text-align: left; }
+          .cards-table th { background-color: #f9fafb; font-weight: bold; color: #374151; }
+          .cards-table tr:nth-child(even) { background-color: #f9fafb; }
+          .quantity { text-align: center; font-weight: bold; color: #059669; }
+          .total { margin-top: 30px; padding: 20px; background-color: #f3f4f6; border-radius: 8px; text-align: center; }
+          .total-label { font-size: 18px; color: #374151; }
+          .total-value { font-size: 24px; font-weight: bold; color: #059669; margin-top: 5px; }
+          @media print { body { margin: 0; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="bank-name">${bank?.name || 'Banque inconnue'}</div>
+          <div class="location-name">${location.name}</div>
+          <div class="location-address">${location.address || 'Adresse non renseignée'}</div>
+          <div class="date">Rapport de stock - ${new Date().toLocaleDateString('fr-FR')}</div>
+        </div>
+
+        <table class="cards-table">
+          <thead>
+            <tr>
+              <th>Nom de la carte</th>
+              <th>Type</th>
+              <th>Sous-type</th>
+              <th>Stock disponible</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${locationCards.map(item => `
+              <tr>
+                <td>${item.card.name}</td>
+                <td>${item.card.type}</td>
+                <td>${item.card.subType}</td>
+                <td class="quantity">${item.quantity}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+
+        <div class="total">
+          <div class="total-label">Total des cartes dans ${location.name}</div>
+          <div class="total-value">${locationCards.reduce((sum, item) => sum + item.quantity, 0)} cartes</div>
+        </div>
+      </body>
+      </html>
+    `
+
+    const printWindow = window.open('', '_blank')
+    if (printWindow) {
+      printWindow.document.write(printContent)
+      printWindow.document.close()
+      printWindow.focus()
+      printWindow.print()
+    }
   }
 
   const { isRefreshing: isSyncRefreshing } = useDataSync(["locations", "banks", "cards"], loadData)
@@ -507,17 +656,47 @@ export default function LocationsManagement() {
             </svg>
             Recherche
           </Button>
-          <Button variant="outline" onClick={handlePrint}>
-            <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
-              />
-            </svg>
-            Imprimer
-          </Button>
+          <Select onValueChange={(value) => {
+            if (value.startsWith('bank-')) {
+              printByBank(value.replace('bank-', ''))
+            } else if (value.startsWith('location-')) {
+              printByLocation(value.replace('location-', ''))
+            }
+          }}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Options d'impression" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="header" disabled>
+                <div className="flex items-center">
+                  <Printer className="h-4 w-4 mr-2" />
+                  <span className="font-medium">Imprimer par...</span>
+                </div>
+              </SelectItem>
+              <SelectItem value="divider" disabled>
+                <div className="border-t border-gray-200 my-1"></div>
+              </SelectItem>
+              {banks.map(bank => (
+                <SelectItem key={`bank-${bank.id}`} value={`bank-${bank.id}`}>
+                  <div className="flex items-center">
+                    <Building2 className="h-4 w-4 mr-2" />
+                    <span>Banque: {bank.name}</span>
+                  </div>
+                </SelectItem>
+              ))}
+              <SelectItem value="divider2" disabled>
+                <div className="border-t border-gray-200 my-1"></div>
+              </SelectItem>
+              {locations.map(location => (
+                <SelectItem key={`location-${location.id}`} value={`location-${location.id}`}>
+                  <div className="flex items-center">
+                    <MapPin className="h-4 w-4 mr-2" />
+                    <span>Emplacement: {location.name}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button onClick={resetForm}>
