@@ -567,13 +567,30 @@ export default function MovementsManagement() {
     if (formData.movementType === "exit" || formData.movementType === "transfer") {
       if (formData.fromLocationId && formData.cardQuantities.length > 0) {
         // Vérifier le stock pour chaque carte sélectionnée
+        const insufficientCards = []
+        
         for (const cardQuantity of formData.cardQuantities) {
           const availableStock = getAvailableStock(cardQuantity.cardId, formData.fromLocationId)
           if (cardQuantity.quantity > availableStock) {
             const card = cards.find(c => c.id === cardQuantity.cardId)
-            alert(`Stock insuffisant pour la carte ${card?.name} à cet emplacement (disponible: ${availableStock}, demandé: ${cardQuantity.quantity})`)
-            return
+            insufficientCards.push({
+              cardName: card?.name || 'Carte inconnue',
+              available: availableStock,
+              requested: cardQuantity.quantity,
+              missing: cardQuantity.quantity - availableStock
+            })
           }
+        }
+        
+        if (insufficientCards.length > 0) {
+          const message = `❌ Le mouvement ne peut pas être effectué à cause de quantités insuffisantes:\n\n` +
+            insufficientCards.map(card => 
+              `• ${card.cardName}: ${card.available} disponible (demandé: ${card.requested}, manque: ${card.missing})`
+            ).join('\n') +
+            `\n\nVeuillez ajuster les quantités ou choisir un autre emplacement source.`
+          
+          alert(message)
+          return
         }
       }
     }
@@ -675,6 +692,17 @@ export default function MovementsManagement() {
   const getFilteredCards = () => {
     if (!formData.bankId) return []
     return cards.filter(card => card.bankId === formData.bankId)
+  }
+
+  // Vérifier si le stock est suffisant pour toutes les cartes
+  const isStockSufficient = () => {
+    if (formData.movementType !== "exit" && formData.movementType !== "transfer") return true
+    if (!formData.fromLocationId || formData.cardQuantities.length === 0) return true
+    
+    return formData.cardQuantities.every(cq => {
+      const availableStock = getAvailableStock(cq.cardId, formData.fromLocationId)
+      return cq.quantity <= availableStock
+    })
   }
 
   // Filtrer les emplacements par banque sélectionnée
@@ -1025,17 +1053,56 @@ export default function MovementsManagement() {
                         
                         {formData.fromLocationId &&
                           (formData.movementType === "exit" || formData.movementType === "transfer") && (
-                            <div className="text-sm text-slate-500 mt-2">
-                              <p>Stock disponible par carte:</p>
+                            <div className="mt-2">
+                              <p className="text-sm font-medium text-gray-700 mb-2">Stock disponible par carte:</p>
                               {formData.cardQuantities.map(cq => {
                                 const card = cards.find(c => c.id === cq.cardId)
                                 const stock = getAvailableStock(cq.cardId, formData.fromLocationId)
+                                const isInsufficient = cq.quantity > stock
+                                
                                 return (
-                                  <p key={cq.cardId} className="ml-2">
-                                    • {card?.name}: {stock} (demandé: {cq.quantity})
-                                  </p>
+                                  <div key={cq.cardId} className={`ml-2 p-2 rounded-md mb-1 ${
+                                    isInsufficient 
+                                      ? 'bg-red-50 border border-red-200' 
+                                      : 'bg-green-50 border border-green-200'
+                                  }`}>
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-sm font-medium">{card?.name}</span>
+                                      <div className="text-sm">
+                                        <span className={isInsufficient ? 'text-red-600' : 'text-green-600'}>
+                                          {stock} disponible
+                                        </span>
+                                        <span className="text-gray-500 ml-2">
+                                          (demandé: {cq.quantity})
+                                        </span>
+                                      </div>
+                                    </div>
+                                    {isInsufficient && (
+                                      <p className="text-xs text-red-600 mt-1">
+                                        ⚠️ Quantité insuffisante (manque {cq.quantity - stock})
+                                      </p>
+                                    )}
+                                  </div>
                                 )
                               })}
+                              
+                              {/* Message global si une ou plusieurs cartes ont un stock insuffisant */}
+                              {formData.cardQuantities.some(cq => {
+                                const stock = getAvailableStock(cq.cardId, formData.fromLocationId)
+                                return cq.quantity > stock
+                              }) && (
+                                <div className="mt-3 p-3 bg-red-100 border border-red-300 rounded-md">
+                                  <div className="flex items-center">
+                                    <span className="text-red-600 mr-2">⚠️</span>
+                                    <p className="text-sm text-red-800 font-medium">
+                                      Le mouvement ne peut pas être effectué à cause de quantités insuffisantes
+                                    </p>
+                                  </div>
+                                  <p className="text-xs text-red-600 mt-1">
+                                    Veuillez ajuster les quantités ou choisir un autre emplacement source
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           )}
                       </div>
@@ -1058,7 +1125,13 @@ export default function MovementsManagement() {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button type="submit" disabled={!formData.bankId}>Enregistrer</Button>
+                  <Button 
+                    type="submit" 
+                    disabled={!formData.bankId || !isStockSufficient()}
+                    className={!isStockSufficient() ? "opacity-50 cursor-not-allowed" : ""}
+                  >
+                    {!isStockSufficient() ? "Stock insuffisant" : "Enregistrer"}
+                  </Button>
                 </DialogFooter>
                 </form>
               </DialogContent>
