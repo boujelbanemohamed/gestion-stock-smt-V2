@@ -182,9 +182,9 @@ export default function MovementsManagement() {
           const card = cards.find(c => c.id === movement.cardId)
           const bank = card ? banks.find(b => b.id === card.bankId) : null
           const bankName = bank?.name || "Banque non trouvée"
-          const bankAddress = bank?.address || "Adresse non renseignée"
+          const bankAddress = bank?.address || ""
           const destination = movement.movementType === 'exit' 
-            ? `${bankName}<br/>${bankAddress}` 
+            ? (bankAddress ? `${bankName}<br/>${bankAddress}` : bankName)
             : (movement.toLocationId ? getLocationName(movement.toLocationId) : "-")
           
           return `
