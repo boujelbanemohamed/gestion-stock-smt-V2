@@ -177,11 +177,11 @@ if [ -f ".env" ]; then
     log_success "Ancien .env sauvegardé"
 fi
 
-# Créer le .env optimisé pour RedHat (sans mot de passe)
+# Créer le .env optimisé pour RedHat (avec stockapp:SMT2025)
 log_info "Création du .env optimisé pour RedHat..."
 cat > .env << 'EOF'
 # Base de données PostgreSQL - Configuration RedHat Production
-DATABASE_URL="postgresql://postgres@localhost:5432/stock_management?schema=public"
+DATABASE_URL="postgresql://stockapp:SMT2025@localhost:5432/stock_management?schema=public"
 
 # Configuration de l'application
 NODE_ENV="production"
@@ -211,7 +211,7 @@ NOTIFICATIONS_EMAIL_NOTIFICATIONS="true"
 NOTIFICATIONS_IN_APP_NOTIFICATIONS="true"
 EOF
 
-log_success "Configuration .env optimisée pour RedHat (postgres sans mot de passe)"
+log_success "Configuration .env optimisée pour RedHat (stockapp:SMT2025)"
 
 # Vérifier la configuration
 log_info "Configuration active:"
@@ -241,7 +241,7 @@ if npx prisma db execute --stdin <<< "SELECT 1;" 2>/dev/null; then
     
     # Vérifier que les tables existent (sans les modifier)
     log_info "Vérification des tables existantes..."
-    TABLES_EXIST=$(sudo -u postgres psql stock_management -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('users', 'banks', 'cards', 'locations', 'movements', 'audit_logs');" 2>/dev/null | xargs || echo "0")
+    TABLES_EXIST=$(PGPASSWORD=SMT2025 psql -U stockapp -d stock_management -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('users', 'banks', 'cards', 'locations', 'movements', 'audit_logs');" 2>/dev/null | xargs || echo "0")
     
     if [ "$TABLES_EXIST" -ge "5" ]; then
         log_success "Tables principales détectées ($TABLES_EXIST/5) - Base de données préservée"
@@ -425,12 +425,12 @@ fi
 echo ""
 log_info "Vérification de la base de données et des tables..."
 if command -v psql &> /dev/null; then
-    # Utiliser sudo -u postgres pour éviter les problèmes de mot de passe
-    log_info "Utilisation de sudo -u postgres pour les vérifications..."
+    # Utiliser stockapp:SMT2025 pour les vérifications
+    log_info "Utilisation de stockapp:SMT2025 pour les vérifications..."
     
         # Vérifier la table audit_logs
         log_info "Vérification table audit_logs..."
-        AUDIT_COUNT=$(sudo -u postgres psql stock_management -t -c 'SELECT COUNT(*) FROM "audit_logs";' 2>/dev/null | xargs || echo "0")
+        AUDIT_COUNT=$(PGPASSWORD=SMT2025 psql -U stockapp -d stock_management -t -c 'SELECT COUNT(*) FROM "audit_logs";' 2>/dev/null | xargs || echo "0")
     
     if [ "$AUDIT_COUNT" != "0" ] 2>/dev/null; then
             log_success "Table audit_logs: $AUDIT_COUNT entrées"
@@ -448,7 +448,7 @@ if command -v psql &> /dev/null; then
     
         # Vérifier la table notifications (nouvelle implémentation)
         log_info "Vérification table notifications..."
-        NOTIF_COUNT=$(sudo -u postgres psql stock_management -t -c 'SELECT COUNT(*) FROM "notifications";' 2>/dev/null | xargs || echo "0")
+        NOTIF_COUNT=$(PGPASSWORD=SMT2025 psql -U stockapp -d stock_management -t -c 'SELECT COUNT(*) FROM "notifications";' 2>/dev/null | xargs || echo "0")
     
     if [ "$?" -eq 0 ]; then
             log_success "Table notifications: $NOTIF_COUNT entrées"
@@ -458,7 +458,7 @@ if command -v psql &> /dev/null; then
     
     # Vérifier les tables principales du système
     log_info "Vérification tables principales..."
-        TABLES_CHECK=$(sudo -u postgres psql stock_management -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('users', 'banks', 'cards', 'locations', 'movements', 'stock_levels', 'audit_logs', 'notifications', 'role_permissions', 'app_config');" 2>/dev/null | xargs || echo "0")
+        TABLES_CHECK=$(PGPASSWORD=SMT2025 psql -U stockapp -d stock_management -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('users', 'banks', 'cards', 'locations', 'movements', 'stock_levels', 'audit_logs', 'notifications', 'role_permissions', 'app_config');" 2>/dev/null | xargs || echo "0")
     
     if [ "$TABLES_CHECK" = "10" ]; then
         log_success "Toutes les tables principales présentes (10/10)"
