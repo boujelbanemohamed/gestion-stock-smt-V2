@@ -146,6 +146,7 @@ const allNavigation: NavigationItem[] = [
   {
     name: "Configuration",
     href: "/dashboard/config",
+    permission: "config:view",
     icon: (
       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
@@ -179,7 +180,8 @@ export default function DashboardLayout({
     
     // Filtrer la navigation selon les permissions
     const filteredNav = allNavigation.filter((item) => {
-      if (!item.permission) return true
+      // Si pas de permission définie, ne pas afficher (sécurité)
+      if (!item.permission) return false
       
       // Extraire module et action de la permission (format "module:action")
       const [module, action] = item.permission.split(':')
