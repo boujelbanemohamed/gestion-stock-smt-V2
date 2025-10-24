@@ -123,6 +123,7 @@ export default function LocationsManagement() {
         <style>
           body { font-family: Arial, sans-serif; margin: 20px; }
           .header { text-align: center; margin-bottom: 30px; }
+          .company-name { font-size: 20px; font-weight: bold; color: #1f2937; margin-bottom: 10px; }
           .bank-name { font-size: 24px; font-weight: bold; color: #1f2937; }
           .date { color: #6b7280; margin-top: 10px; }
           .location { margin-bottom: 20px; border: 1px solid #e5e7eb; padding: 15px; border-radius: 8px; }
@@ -141,11 +142,14 @@ export default function LocationsManagement() {
           .total { margin-top: 30px; padding: 20px; background-color: #f3f4f6; border-radius: 8px; text-align: center; }
           .total-label { font-size: 18px; color: #374151; }
           .total-value { font-size: 24px; font-weight: bold; color: #059669; margin-top: 5px; }
+          .footer { margin-top: 40px; text-align: center; padding: 20px; border-top: 1px solid #e5e7eb; }
+          .footer-address { font-size: 12px; color: #6b7280; }
           @media print { body { margin: 0; } }
         </style>
       </head>
       <body>
         <div class="header">
+          <div class="company-name">Société Monétique Tunisie</div>
           <div class="bank-name">${bank.name}</div>
           <div class="date">Rapport de stock - ${new Date().toLocaleDateString('fr-FR')}</div>
         </div>
@@ -195,6 +199,10 @@ export default function LocationsManagement() {
           <div class="total-label">Total des cartes pour ${bank.name}</div>
           <div class="total-value">${totalCards} cartes</div>
         </div>
+        
+        <div class="footer">
+          <div class="footer-address">Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</div>
+        </div>
       </body>
       </html>
     `
@@ -224,6 +232,7 @@ export default function LocationsManagement() {
         <style>
           body { font-family: Arial, sans-serif; margin: 20px; }
           .header { text-align: center; margin-bottom: 30px; }
+          .company-name { font-size: 20px; font-weight: bold; color: #1f2937; margin-bottom: 10px; }
           .bank-name { font-size: 20px; color: #6b7280; margin-bottom: 5px; }
           .location-name { font-size: 24px; font-weight: bold; color: #1f2937; }
           .location-address { color: #6b7280; margin-top: 10px; }
@@ -236,11 +245,14 @@ export default function LocationsManagement() {
           .total { margin-top: 30px; padding: 20px; background-color: #f3f4f6; border-radius: 8px; text-align: center; }
           .total-label { font-size: 18px; color: #374151; }
           .total-value { font-size: 24px; font-weight: bold; color: #059669; margin-top: 5px; }
+          .footer { margin-top: 40px; text-align: center; padding: 20px; border-top: 1px solid #e5e7eb; }
+          .footer-address { font-size: 12px; color: #6b7280; }
           @media print { body { margin: 0; } }
         </style>
       </head>
       <body>
         <div class="header">
+          <div class="company-name">Société Monétique Tunisie</div>
           <div class="bank-name">${bank?.name || 'Banque inconnue'}</div>
           <div class="location-name">${location.name}</div>
           <div class="location-address">${location.address || 'Adresse non renseignée'}</div>
@@ -271,6 +283,10 @@ export default function LocationsManagement() {
         <div class="total">
           <div class="total-label">Total des cartes dans ${location.name}</div>
           <div class="total-value">${locationCards.reduce((sum, item) => sum + item.quantity, 0)} cartes</div>
+        </div>
+        
+        <div class="footer">
+          <div class="footer-address">Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</div>
         </div>
       </body>
       </html>
