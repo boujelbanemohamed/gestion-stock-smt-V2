@@ -371,20 +371,27 @@ export default function LocationsManagement() {
   }
 
   const handleDelete = async (id: string) => {
-    if (confirm("Êtes-vous sûr de vouloir supprimer cet emplacement ?")) {
+    const location = locations.find(l => l.id === id)
+    if (!location) return
+
+    const confirmMessage = `⚠️ ATTENTION : SUPPRESSION DÉFINITIVE ⚠️\n\nÊtes-vous sûr de vouloir supprimer définitivement l'emplacement "${location.name}" ?\n\nCette action est IRRÉVERSIBLE et supprimera :\n• L'emplacement de la base de données\n• Toutes les données associées\n\nCette action ne peut pas être annulée !`
+    
+    if (confirm(confirmMessage)) {
       try {
         const response = await fetch(`/api/locations/${id}`, {
-          method: 'DELETE'
+          method: 'DELETE',
+          headers: getAuthHeaders()
         })
         const data = await response.json()
         if (data.success) {
+          alert('✅ Emplacement supprimé définitivement avec succès')
           await loadData()
         } else {
-          alert(data.error || 'Erreur lors de la suppression')
+          alert(`❌ Erreur lors de la suppression : ${data.error || 'Erreur inconnue'}`)
         }
       } catch (error) {
         console.error('Error deleting location:', error)
-        alert('Erreur lors de la suppression')
+        alert('❌ Erreur lors de la suppression')
       }
     }
   }

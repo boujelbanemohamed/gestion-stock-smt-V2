@@ -96,7 +96,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
   }
 }
 
-// DELETE /api/locations/[id] - Supprimer (désactiver) un emplacement
+// DELETE /api/locations/[id] - Supprimer définitivement un emplacement
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     // Récupérer l'utilisateur depuis le header
@@ -108,13 +108,58 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       where: { id: params.id }
     })
 
-    await prisma.location.update({
-      where: { id: params.id },
-      data: { isActive: false }
+    if (!location) {
+      return NextResponse.json<ApiResponse>(
+        {
+          success: false,
+          error: "Emplacement non trouvé",
+        },
+        { status: 404 },
+      )
+    }
+
+    // Vérifier s'il y a des mouvements associés à cet emplacement
+    const movementsCount = await prisma.movement.count({
+      where: {
+        OR: [
+          { fromLocationId: params.id },
+          { toLocationId: params.id }
+        ]
+      }
+    })
+
+    if (movementsCount > 0) {
+      return NextResponse.json<ApiResponse>(
+        {
+          success: false,
+          error: `Impossible de supprimer cet emplacement car il est associé à ${movementsCount} mouvement(s). Veuillez d'abord supprimer ou modifier ces mouvements.`,
+        },
+        { status: 400 },
+      )
+    }
+
+    // Vérifier s'il y a des niveaux de stock associés à cet emplacement
+    const stockLevelsCount = await prisma.stockLevel.count({
+      where: { locationId: params.id }
+    })
+
+    if (stockLevelsCount > 0) {
+      return NextResponse.json<ApiResponse>(
+        {
+          success: false,
+          error: `Impossible de supprimer cet emplacement car il contient ${stockLevelsCount} niveau(x) de stock. Veuillez d'abord vider le stock de cet emplacement.`,
+        },
+        { status: 400 },
+      )
+    }
+
+    // Supprimer définitivement l'emplacement
+    await prisma.location.delete({
+      where: { id: params.id }
     })
 
     // Logger l'action
-    if (userData && location) {
+    if (userData) {
       await logAudit({
         userId: userData.id,
         userEmail: userData.email,
@@ -123,14 +168,14 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
         entityType: "location",
         entityId: location.id,
         entityName: location.name,
-        details: `Suppression de l'emplacement ${location.name}`,
+        details: `Suppression définitive de l'emplacement ${location.name}`,
         status: "success"
       }, request)
     }
 
     return NextResponse.json<ApiResponse>({
       success: true,
-      message: "Emplacement supprimé avec succès",
+      message: "Emplacement supprimé définitivement avec succès",
     })
   } catch (error) {
     console.error('Error deleting location:', error)
