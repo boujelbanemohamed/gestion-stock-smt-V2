@@ -193,7 +193,7 @@ export default function MovementsManagement() {
           <td style="border: 1px solid #ddd; padding: 8px;">${getCardName(movement.cardId)}</td>
           <td style="border: 1px solid #ddd; padding: 8px;">${getMovementTypeLabel(movement.movementType)}</td>
           <td style="border: 1px solid #ddd; padding: 8px;">${movement.fromLocationId ? getLocationName(movement.fromLocationId) : "-"}</td>
-          <td style="border: 1px solid #ddd; padding: 8px;">${destination}</td>
+          <td style="border: 1px solid #ddd; padding: 8px;" class="destination-cell">${destination}</td>
           <td style="border: 1px solid #ddd; padding: 8px;">${movement.quantity}</td>
           <td style="border: 1px solid #ddd; padding: 8px;">${movement.reason}</td>
           <td style="border: 1px solid #ddd; padding: 8px;">${getUserName(movement.userId)}</td>
@@ -238,6 +238,10 @@ export default function MovementsManagement() {
             td {
               padding: 8px;
               border: 1px solid #ddd;
+            }
+            .destination-cell {
+              font-size: 12px;
+              line-height: 1.3;
             }
             tr:nth-child(even) {
               background-color: #f8fafc;
@@ -360,7 +364,7 @@ export default function MovementsManagement() {
       </tr>
       <tr>
         <td style="border: 1px solid #ddd; padding: 8px;"><strong>${movement.movementType === 'exit' ? 'Banque de destination' : 'Emplacement destination'}:</strong></td>
-        <td style="border: 1px solid #ddd; padding: 8px;">${destinationInfo}</td>
+        <td style="border: 1px solid #ddd; padding: 8px;" class="destination-cell">${destinationInfo}</td>
       </tr>
       <tr>
         <td style="border: 1px solid #ddd; padding: 8px;"><strong>Quantité:</strong></td>
@@ -406,6 +410,10 @@ export default function MovementsManagement() {
             td {
               padding: 12px;
               border: 1px solid #ddd;
+            }
+            .destination-cell {
+              font-size: 12px;
+              line-height: 1.3;
             }
             td:first-child {
               background-color: #f8fafc;
