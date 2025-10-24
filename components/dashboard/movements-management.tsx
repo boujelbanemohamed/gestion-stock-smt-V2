@@ -243,6 +243,15 @@ export default function MovementsManagement() {
               font-size: 12px;
               line-height: 1.3;
             }
+            .recipient-section {
+              font-size: 11px;
+            }
+            .recipient-section h3 {
+              font-size: 14px;
+            }
+            .recipient-section p {
+              font-size: 11px;
+            }
             tr:nth-child(even) {
               background-color: #f8fafc;
             }
@@ -285,7 +294,7 @@ export default function MovementsManagement() {
             </tbody>
           </table>
           
-          <div style="margin-top: 40px; padding: 20px; border-top: 2px solid #1e293b;">
+          <div class="recipient-section" style="margin-top: 40px; padding: 20px; border-top: 2px solid #1e293b;">
             <h3 style="color: #1e293b; margin-bottom: 30px;">Destinataire :</h3>
             
             <div style="display: flex; flex-wrap: wrap; gap: 30px; margin-bottom: 20px;">
@@ -415,6 +424,15 @@ export default function MovementsManagement() {
               font-size: 12px;
               line-height: 1.3;
             }
+            .recipient-section {
+              font-size: 11px;
+            }
+            .recipient-section h3 {
+              font-size: 14px;
+            }
+            .recipient-section p {
+              font-size: 11px;
+            }
             td:first-child {
               background-color: #f8fafc;
               font-weight: bold;
@@ -446,7 +464,7 @@ export default function MovementsManagement() {
             </tbody>
           </table>
           
-          <div style="margin-top: 40px; padding: 20px; border-top: 2px solid #1e293b;">
+          <div class="recipient-section" style="margin-top: 40px; padding: 20px; border-top: 2px solid #1e293b;">
             <h3 style="color: #1e293b; margin-bottom: 30px;">Destinataire :</h3>
             
             <div style="display: flex; flex-wrap: wrap; gap: 30px; margin-bottom: 20px;">
