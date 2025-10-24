@@ -3,7 +3,6 @@ import { prisma } from "@/lib/db"
 import * as bcrypt from "bcryptjs"
 import type { ApiResponse } from "@/lib/api-types"
 import type { User } from "@/lib/types"
-import { logAudit } from "@/lib/audit-logger"
 
 // Forcer la route à être dynamique (ne pas pré-rendre)
 export const dynamic = 'force-dynamic'
@@ -11,10 +10,15 @@ export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('Login API called')
+    
     const body = await request.json()
     const { email, password } = body
 
+    console.log('Login attempt for email:', email)
+
     if (!email || !password) {
+      console.log('Missing email or password')
       return NextResponse.json<ApiResponse>(
         {
           success: false,
@@ -25,23 +29,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Chercher l'utilisateur par email
+    console.log('Searching for user in database...')
     const user = await prisma.user.findUnique({
       where: { email }
     })
 
     if (!user) {
-      // Logger la tentative échouée (utilisateur inconnu)
-      await logAudit({
-        userId: "unknown",
-        userEmail: email,
-        action: "login",
-        module: "auth",
-        entityType: "user",
-        details: `Tentative de connexion échouée - Utilisateur non trouvé`,
-        status: "failure",
-        errorMessage: "Email ou mot de passe incorrect"
-      }, request)
-      
+      console.log('User not found:', email)
       return NextResponse.json<ApiResponse>(
         {
           success: false,
@@ -51,45 +45,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Vérifier le mot de passe
-    const isValidPassword = await bcrypt.compare(password, user.password)
-
-    if (!isValidPassword) {
-      // Logger la tentative échouée (mauvais mot de passe)
-      await logAudit({
-        userId: user.id,
-        userEmail: user.email,
-        action: "login",
-        module: "auth",
-        entityType: "user",
-        details: `Tentative de connexion échouée - Mot de passe incorrect`,
-        status: "failure",
-        errorMessage: "Email ou mot de passe incorrect"
-      }, request)
-      
-      return NextResponse.json<ApiResponse>(
-        {
-          success: false,
-          error: "Email ou mot de passe incorrect",
-        },
-        { status: 401 },
-      )
-    }
+    console.log('User found:', user.email, 'isActive:', user.isActive)
 
     // Vérifier que l'utilisateur est actif
     if (!user.isActive) {
-      // Logger la tentative échouée (compte désactivé)
-      await logAudit({
-        userId: user.id,
-        userEmail: user.email,
-        action: "login",
-        module: "auth",
-        entityType: "user",
-        details: `Tentative de connexion échouée - Compte désactivé`,
-        status: "failure",
-        errorMessage: "Ce compte est désactivé"
-      }, request)
-      
+      console.log('User account is inactive')
       return NextResponse.json<ApiResponse>(
         {
           success: false,
@@ -99,18 +59,22 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Logger la connexion réussie
-    await logAudit({
-      userId: user.id,
-      userEmail: user.email,
-      action: "login",
-      module: "auth",
-      entityType: "user",
-      entityId: user.id,
-      entityName: `${user.firstName} ${user.lastName}`,
-      details: `Connexion réussie`,
-      status: "success"
-    }, request)
+    // Vérifier le mot de passe
+    console.log('Verifying password...')
+    const isValidPassword = await bcrypt.compare(password, user.password)
+
+    if (!isValidPassword) {
+      console.log('Invalid password')
+      return NextResponse.json<ApiResponse>(
+        {
+          success: false,
+          error: "Email ou mot de passe incorrect",
+        },
+        { status: 401 },
+      )
+    }
+
+    console.log('Login successful for user:', user.email)
 
     // Ne pas retourner le mot de passe
     const { password: _, ...userWithoutPassword } = user
