@@ -36,7 +36,7 @@ psql -U "$DB_USER" -d "$DB_NAME" -c "\dt" 2>&1
 
 # 3. Vérifier les utilisateurs existants
 log_message "3. Vérification des utilisateurs existants..."
-psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT id, email, role, isActive FROM users;" 2>&1
+psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT id, email, role, \"isActive\" FROM users;" 2>&1
 
 # 4. Vérifier les rôles et permissions
 log_message "4. Vérification des rôles et permissions..."
@@ -78,7 +78,7 @@ fi
 
 # 6. Vérifier que l'utilisateur a été créé
 log_message "6. Vérification de l'utilisateur créé..."
-psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT id, email, role, isActive FROM users WHERE email = 'mohamed.boujelbane@monetiquetunisie.com';" 2>&1
+psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT id, email, role, \"isActive\" FROM users WHERE email = 'mohamed.boujelbane@monetiquetunisie.com';" 2>&1
 
 # 7. Créer un rôle avec permissions si nécessaire
 log_message "7. Vérification des rôles..."
