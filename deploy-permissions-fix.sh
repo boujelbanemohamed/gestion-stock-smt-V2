@@ -132,8 +132,12 @@ else
   log_message "✓ Fichier .env déjà existant. Assurez-vous qu'il contient les bonnes variables."
 fi
 
-# Charger les variables d'environnement pour le script
-export $(grep -v '^#' "$ENV_FILE" | xargs)
+# Charger les variables d'environnement pour le script (sécurisé)
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  source "$ENV_FILE"
+  set +a
+fi
 
 # 6. Installation des dépendances
 log_message "6. Installation des dépendances..."
