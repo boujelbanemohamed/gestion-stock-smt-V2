@@ -101,15 +101,15 @@ export async function GET(request: NextRequest) {
         }
       },
       select: {
-        type: true,
+        movementType: true,
         quantity: true
       }
     })
 
     // Calculer les moyennes par type de mouvement
-    const entryMovements = movementsLast30Days.filter(m => m.type === 'entry')
-    const exitMovements = movementsLast30Days.filter(m => m.type === 'exit')
-    const transferMovements = movementsLast30Days.filter(m => m.type === 'transfer')
+    const entryMovements = movementsLast30Days.filter(m => m.movementType === 'entry')
+    const exitMovements = movementsLast30Days.filter(m => m.movementType === 'exit')
+    const transferMovements = movementsLast30Days.filter(m => m.movementType === 'transfer')
 
     const avgEntryPerDay = entryMovements.length / 30
     const avgExitPerDay = exitMovements.length / 30
