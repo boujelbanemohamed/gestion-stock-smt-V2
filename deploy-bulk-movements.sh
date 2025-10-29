@@ -1,6 +1,7 @@
 #!/bin/bash
 
-set -euo pipefail
+# Désactiver 'set -e' temporairement pour gérer les erreurs manuellement
+set +euo pipefail
 
 APP_DIR="/var/www/stock-management"
 BRANCH="main"
@@ -54,40 +55,89 @@ else
   success "Libellé du bouton détecté, poursuite du déploiement."
 fi
 
+# Nettoyage avant reconstruction
+info "Nettoyage du build précédent..."
+rm -rf .next
+rm -rf node_modules/.cache
+
+# Vérification des variables d'environnement
+info "Vérification des variables d'environnement..."
+if [ ! -f ".env" ]; then
+  error "Fichier .env non trouvé"
+  exit 1
+fi
+
 # Installation des dépendances
 info "Installation des dépendances (npm ci)"
- npm ci --prefer-offline --no-audit --no-fund
+if ! npm ci --prefer-offline --no-audit --no-fund; then
+  error "Erreur lors de l'installation des dépendances"
+  exit 1
+fi
 
 # Prisma (si présent)
 if [ -f "prisma/schema.prisma" ]; then
   info "Regénération du client Prisma"
-  npx prisma generate
+  if ! npx prisma generate; then
+    error "Erreur lors de la génération de Prisma Client"
+    exit 1
+  fi
 fi
 
 # Build
 info "Construction de l'application (npm run build)"
- npm run build
+if ! npm run build; then
+  error "Erreur lors du build"
+  exit 1
+fi
+success "Build terminé avec succès"
 
 # Redémarrage PM2
 if command -v pm2 >/dev/null 2>&1; then
-  info "Redémarrage PM2"
-  pm2 reload all || pm2 restart all
+  info "Arrêt de PM2..."
+  pm2 stop all 2>/dev/null || true
+  pm2 delete all 2>/dev/null || true
+  
+  info "Démarrage de PM2..."
+  pm2 start npm --name "stock-app" -- start || {
+    error "Erreur lors du démarrage PM2"
+    exit 1
+  }
+  
+  info "Attente du démarrage (15s)..."
+  sleep 15
+  
   pm2 status || true
 else
   warn "PM2 non détecté. Démarrage via 'npm start' conseillé manuellement."
 fi
 
-# Diagnostics rapides
-info "Diagnostics rapides"
- node -v
- npm -v
- curl -s -o /dev/null -w "%{http_code}\n" http://localhost/ || true
-
-# Vérification API mouvements
+# Test de l'API /api/auth/login (test critique)
+info "Test de l'API /api/auth/login..."
 if command -v curl >/dev/null 2>&1; then
-  info "Test API /api/movements"
-  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/api/movements || true)
-  echo "HTTP /api/movements: $HTTP_CODE"
+  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost/api/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"email":"test","password":"test"}' 2>/dev/null || echo "000")
+  
+  if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "400" ]; then
+    success "✅ API /api/auth/login répond correctement (code: $HTTP_CODE - réponse attendue)"
+  elif [ "$HTTP_CODE" = "500" ]; then
+    error "❌ Erreur 500 détectée sur /api/auth/login"
+    warn "Affichage des logs PM2 récents..."
+    pm2 logs --lines 50 --nostream || true
+    error "Veuillez exécuter: ./fix-500-error-bulk-deploy.sh"
+    exit 1
+  elif [ "$HTTP_CODE" = "000" ]; then
+    warn "⚠️ Impossible de contacter l'API (service peut être en cours de démarrage)"
+    warn "Vérifiez les logs PM2: pm2 logs"
+  else
+    info "Réponse HTTP: $HTTP_CODE"
+  fi
 fi
 
+# Diagnostics rapides
+info "Diagnostics rapides"
+node -v || warn "Node.js non disponible"
+npm -v || warn "npm non disponible"
+
 success "Déploiement terminé. La fonctionnalité de génération en masse est en place."
+info "Si vous rencontrez une erreur 500, exécutez: ./fix-500-error-bulk-deploy.sh"
