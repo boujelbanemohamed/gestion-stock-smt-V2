@@ -14,15 +14,14 @@ error() { echo -e "\033[1;31m[ERROR]\033[0m $*"; }
 
 rollback() {
   error "Une erreur est survenue. ROLLBACK vers le commit précédent: $PREV_COMMIT"
-  cd "$APP_DIR"
+  cd "$APP_DIR" || exit 1
   git reset --hard "$PREV_COMMIT" || true
   npm ci --prefer-offline --no-audit --no-fund || true
   npm run build || true
-  pm2 reload all || true
+  pm2 restart all || pm2 start npm --name "stock-app" -- start || true
   error "Rollback exécuté."
+  exit 1
 }
-
-trap 'rollback' ERR
 
 info "Déploiement de la fonctionnalité: Générer en masse les mouvements"
 info "Répertoire: $APP_DIR | Branche: $BRANCH"
