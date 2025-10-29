@@ -173,6 +173,7 @@ export default function LocationsManagement() {
                         <th>Nom de la carte</th>
                         <th>Type</th>
                         <th>Sous-type</th>
+                        <th>Sous-sous-type</th>
                         <th>Stock</th>
                       </tr>
                     </thead>
@@ -180,8 +181,9 @@ export default function LocationsManagement() {
                       ${locationCards.map(item => `
                         <tr>
                           <td>${item.card.name}</td>
-                          <td>${item.card.type}</td>
-                          <td>${item.card.subType}</td>
+                          <td>${item.card?.type ?? '-'}</td>
+                          <td>${item.card?.subType ?? '-'}</td>
+                          <td>${item.card?.subSubType ?? '-'}</td>
                           <td class="quantity">${item.quantity}</td>
                         </tr>
                       `).join('')}
@@ -272,8 +274,9 @@ export default function LocationsManagement() {
             ${locationCards.map(item => `
               <tr>
                 <td>${item.card.name}</td>
-                <td>${item.card.type}</td>
-                <td>${item.card.subType}</td>
+                <td>${item.card?.type ?? '-'}</td>
+                <td>${item.card?.subType ?? '-'}</td>
+                <td>${item.card?.subSubType ?? '-'}</td>
                 <td class="quantity">${item.quantity}</td>
               </tr>
             `).join('')}
