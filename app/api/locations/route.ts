@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
         stockLevels: {
           include: {
             card: {
-              select: { id: true, name: true, type: true }
+              select: { id: true, name: true, type: true, subType: true, subSubType: true }
             }
           }
         }
