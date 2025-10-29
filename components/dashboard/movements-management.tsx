@@ -46,6 +46,7 @@ export default function MovementsManagement() {
     fromLocationId?: string
     toLocationId?: string
   }>({})
+  const [isGeneratingBulk, setIsGeneratingBulk] = useState(false)
 
   // États pour les filtres
   const [filters, setFilters] = useState({
@@ -714,6 +715,70 @@ export default function MovementsManagement() {
     }))
   }
 
+  // Fonction pour générer en masse les mouvements
+  const generateBulkMovements = () => {
+    // Vérifier que les prérequis sont remplis
+    if (!formData.bankId || !formData.fromLocationId) {
+      alert("Veuillez sélectionner une banque et un emplacement source (De)")
+      return
+    }
+
+    if (formData.movementType !== "exit" && formData.movementType !== "transfer") {
+      alert("La génération en masse est disponible uniquement pour les mouvements de type Sortie et Transfert")
+      return
+    }
+
+    setIsGeneratingBulk(true)
+
+    try {
+      // Parcourir toutes les cartes de la banque sélectionnée
+      const filteredCards = getFilteredCards()
+      const cardsWithStock: { cardId: string; quantity: number }[] = []
+      let totalCardsGenerated = 0
+
+      for (const card of filteredCards) {
+        // Vérifier le stock disponible pour cette carte dans l'emplacement source
+        const availableStock = getAvailableStock(card.id, formData.fromLocationId)
+        
+        // Si la carte contient du stock (quantité > 0)
+        if (availableStock > 0) {
+          // Ajouter la carte avec la totalité du stock disponible
+          cardsWithStock.push({
+            cardId: card.id,
+            quantity: availableStock
+          })
+          totalCardsGenerated++
+        }
+      }
+
+      if (cardsWithStock.length === 0) {
+        alert("Aucune carte avec stock disponible trouvée dans cet emplacement")
+        setIsGeneratingBulk(false)
+        return
+      }
+
+      // Fusionner avec les cartes déjà sélectionnées (éviter les doublons, mais garder les modifications manuelles)
+      const existingCardIds = new Set(formData.cardQuantities.map(cq => cq.cardId))
+      const newCards = cardsWithStock.filter(card => !existingCardIds.has(card.cardId))
+      const wasEmpty = formData.cardQuantities.length === 0
+
+      setFormData(prev => ({
+        ...prev,
+        // Garder les cartes déjà sélectionnées et ajouter les nouvelles
+        cardQuantities: [...prev.cardQuantities, ...newCards]
+      }))
+
+      // Afficher un message de confirmation
+      const totalCardsNow = formData.cardQuantities.length + newCards.length
+      alert(`${totalCardsGenerated} carte(s) avec stock disponible ${wasEmpty ? 'sélectionnée(s)' : 'ajoutée(s)'} automatiquement avec leur stock complet.\n\nTotal: ${totalCardsNow} carte(s) sélectionnée(s).\n\nVous pouvez maintenant modifier les quantités si nécessaire.`)
+    } catch (error) {
+      console.error('Error generating bulk movements:', error)
+      alert('Erreur lors de la génération en masse des mouvements')
+    } finally {
+      setIsGeneratingBulk(false)
+    }
+  }
+
   // Filtrer les cartes par banque sélectionnée
   const getFilteredCards = () => {
     if (!formData.bankId) return []
@@ -901,40 +966,74 @@ export default function MovementsManagement() {
 
                   {/* 3. Emplacement source (pour Sortie et Transfert) */}
                   {(formData.movementType === "exit" || formData.movementType === "transfer") && (
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <Label htmlFor="fromLocation" className="text-right font-semibold">
-                        Emplacement (De) *
-                      </Label>
-                      <div className="col-span-3">
-                        <Select
-                          value={formData.fromLocationId}
-                          onValueChange={(value) => {
-                            setFormData({ ...formData, fromLocationId: value })
-                            if (formErrors.fromLocationId) {
-                              setFormErrors({ ...formErrors, fromLocationId: undefined })
-                            }
-                            if (formErrors.quantity) {
-                              setFormErrors({ ...formErrors, quantity: undefined })
-                            }
-                          }}
-                          disabled={!formData.bankId}
-                        >
-                          <SelectTrigger className={formErrors.fromLocationId ? "border-red-500" : ""}>
-                            <SelectValue placeholder={formData.bankId ? "Emplacement source" : "Sélectionnez d'abord une banque"} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {getFilteredLocations().map((location) => (
-                              <SelectItem key={location.id} value={location.id}>
-                                {location.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {formErrors.fromLocationId && (
-                          <p className="text-sm text-red-500 mt-1">{formErrors.fromLocationId}</p>
-                        )}
+                    <>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="fromLocation" className="text-right font-semibold">
+                          Emplacement (De) *
+                        </Label>
+                        <div className="col-span-3">
+                          <Select
+                            value={formData.fromLocationId}
+                            onValueChange={(value) => {
+                              setFormData({ ...formData, fromLocationId: value, cardQuantities: [] })
+                              if (formErrors.fromLocationId) {
+                                setFormErrors({ ...formErrors, fromLocationId: undefined })
+                              }
+                              if (formErrors.quantity) {
+                                setFormErrors({ ...formErrors, quantity: undefined })
+                              }
+                            }}
+                            disabled={!formData.bankId}
+                          >
+                            <SelectTrigger className={formErrors.fromLocationId ? "border-red-500" : ""}>
+                              <SelectValue placeholder={formData.bankId ? "Emplacement source" : "Sélectionnez d'abord une banque"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getFilteredLocations().map((location) => (
+                                <SelectItem key={location.id} value={location.id}>
+                                  {location.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {formErrors.fromLocationId && (
+                            <p className="text-sm text-red-500 mt-1">{formErrors.fromLocationId}</p>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                      
+                      {/* Bouton Générer en masse */}
+                      {formData.bankId && formData.fromLocationId && (
+                        <div className="grid grid-cols-4 items-center gap-4">
+                          <div className="col-span-4 flex justify-center">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={generateBulkMovements}
+                              disabled={isGeneratingBulk || !formData.bankId || !formData.fromLocationId}
+                              className="w-full sm:w-auto"
+                            >
+                              {isGeneratingBulk ? (
+                                <>
+                                  <svg className="animate-spin h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                  </svg>
+                                  Génération en cours...
+                                </>
+                              ) : (
+                                <>
+                                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                  </svg>
+                                  Générer en masse les mouvements
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
 
                   {/* 4. Emplacement destination (pour Entrée et Transfert uniquement) */}
