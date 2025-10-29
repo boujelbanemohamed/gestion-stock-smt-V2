@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-APP_DIR="/root/stock-management"
+APP_DIR="/var/www/stock-management"
 BRANCH="main"
 PM2_APP_NAME="stock-app"
 
