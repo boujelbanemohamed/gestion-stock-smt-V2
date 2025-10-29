@@ -39,6 +39,30 @@ pm2 delete all 2>/dev/null || true
 
 # 4. Création d'un fichier ecosystem.config.js pour PM2
 info "4. Création de la configuration PM2 avec variables d'environnement..."
+
+# Lire .env et créer le contenu env pour ecosystem.config.js
+ENV_CONTENT=""
+while IFS= read -r line || [ -n "$line" ]; do
+  # Ignorer les lignes vides et les commentaires
+  [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+  [[ "$line" =~ ^[[:space:]]*# ]] && continue
+  
+  # Extraire la clé et la valeur
+  if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
+    KEY="${BASH_REMATCH[1]}"
+    VALUE="${BASH_REMATCH[2]}"
+    # Nettoyer les espaces au début et à la fin
+    KEY=$(echo "$KEY" | xargs)
+    VALUE=$(echo "$VALUE" | xargs)
+    # Retirer les guillemets au début et à la fin si présents
+    VALUE=$(echo "$VALUE" | sed -e 's/^["'\'']//' -e 's/["'\'']$//')
+    # Échapper les apostrophes dans la valeur
+    VALUE=$(echo "$VALUE" | sed "s/'/\\\'/g")
+    ENV_CONTENT="${ENV_CONTENT}      ${KEY}: '${VALUE}',"$'\n'
+  fi
+done < .env
+
+# Créer le fichier ecosystem.config.js
 cat > ecosystem.config.js <<EOF
 module.exports = {
   apps: [{
@@ -49,12 +73,7 @@ module.exports = {
     instances: 1,
     exec_mode: 'fork',
     env: {
-      NODE_ENV: 'production',
-      $(grep -v '^#' .env | grep -v '^$' | while IFS='=' read -r key value; do
-        # Échapper les guillemets dans la valeur
-        value=$(echo "$value" | sed "s/^[\"']//; s/[\"']$//")
-        echo "      ${key}: '${value}',"
-      done | sed '$ s/,$//')
+${ENV_CONTENT%?}
     },
     error_file: '/root/.pm2/logs/stock-app-error.log',
     out_file: '/root/.pm2/logs/stock-app-out.log',
