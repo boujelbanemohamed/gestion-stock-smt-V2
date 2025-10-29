@@ -695,7 +695,7 @@ export default function LocationsManagement() {
                                 <div className="flex-1 min-w-0">
                                   <div className="font-medium text-slate-900 truncate">{ci.card.name}</div>
                                   <div className="text-xs text-slate-500 mt-0.5">
-                                    {ci.card?.type || '-'} {ci.card?.subType ? `- ${ci.card.subType}` : ''}
+                                    {ci.card?.type || '-'} {ci.card?.subType ? `- ${ci.card.subType}` : ''} {ci.card?.subSubType ? `- ${ci.card.subSubType}` : ''}
                                   </div>
                                 </div>
                                 <Badge variant="outline" className={`ml-2 flex-shrink-0 ${ci.quantity < (ci.card.minThreshold || 0) ? "bg-red-50 text-red-700 border-red-200" : "bg-green-50 text-green-700 border-green-200"}`}>
