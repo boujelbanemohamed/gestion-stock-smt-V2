@@ -706,7 +706,13 @@ export default function MovementsManagement() {
   ) => {
     if (!currentUser) return
     const bank = banks.find(b => b.id === ctx.bankId)
-    const fromName = ctx.movementType !== 'entry' && ctx.fromLocationId ? getLocationName(ctx.fromLocationId) : '-'
+    // Afficher pour "De" le nom + adresse de l'emplacement source (si disponible)
+    let fromName = '-'
+    if (ctx.movementType !== 'entry' && ctx.fromLocationId) {
+      const fromLoc = locations.find(l => l.id === ctx.fromLocationId) as any
+      const fromAddress = fromLoc?.address ? ` - ${fromLoc.address}` : ''
+      fromName = fromLoc ? `${fromLoc.name}${fromAddress}` : getLocationName(ctx.fromLocationId)
+    }
     const toName = ctx.movementType !== 'exit' && ctx.toLocationId ? getLocationName(ctx.toLocationId) : '-'
     const bankAddress = bank?.address || ''
     const destinationInfo = ctx.movementType === 'exit'
