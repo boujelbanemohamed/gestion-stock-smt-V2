@@ -631,8 +631,18 @@ export default function MovementsManagement() {
 
     // Créer un mouvement pour chaque carte avec sa quantité
     try {
+      // Snapshot des infos pour l'impression consolidée avant reset
+      const bulkContext = {
+        bankId: formData.bankId,
+        fromLocationId: formData.fromLocationId,
+        toLocationId: formData.toLocationId,
+        movementType: formData.movementType,
+        reason: formData.reason,
+        cardQuantities: [...formData.cardQuantities],
+      }
       let successCount = 0
       let errorCount = 0
+      const createdMovements: Movement[] = [] as any
 
       for (const cardQuantity of formData.cardQuantities) {
         const movementData = {
@@ -653,6 +663,7 @@ export default function MovementsManagement() {
         const data = await response.json()
         if (data.success) {
           successCount++
+          createdMovements.push(data.data)
         } else {
           errorCount++
           const card = cards.find(c => c.id === cardQuantity.cardId)
@@ -661,6 +672,10 @@ export default function MovementsManagement() {
       }
 
       await loadData()
+      // Impression d'un bon consolidé si plusieurs cartes (génération en masse)
+      if (bulkContext.cardQuantities.length > 1 && successCount > 0) {
+        printBulkSlip(bulkContext, createdMovements)
+      }
       resetForm()
       setIsDialogOpen(false)
       
@@ -675,6 +690,97 @@ export default function MovementsManagement() {
       console.error('Error creating movements:', error)
       alert('Erreur lors de la création des mouvements')
     }
+  }
+
+  // Impression d'un bon consolidé pour la génération en masse
+  const printBulkSlip = (
+    ctx: {
+      bankId: string
+      fromLocationId: string
+      toLocationId: string
+      movementType: "entry" | "exit" | "transfer"
+      reason: string
+      cardQuantities: { cardId: string; quantity: number }[]
+    },
+    created: Movement[]
+  ) => {
+    if (!currentUser) return
+    const bank = banks.find(b => b.id === ctx.bankId)
+    const fromName = ctx.movementType !== 'entry' && ctx.fromLocationId ? getLocationName(ctx.fromLocationId) : '-'
+    const toName = ctx.movementType !== 'exit' && ctx.toLocationId ? getLocationName(ctx.toLocationId) : '-'
+    const bankAddress = bank?.address || ''
+    const destinationInfo = ctx.movementType === 'exit'
+      ? (bankAddress ? `${bank?.name || ''}<br/>${bankAddress}` : (bank?.name || '-'))
+      : toName
+
+    const rows = ctx.cardQuantities.map(cq => {
+      const card = cards.find(c => c.id === cq.cardId) as any
+      return `
+        <tr>
+          <td style="border:1px solid #ddd;padding:8px;">${card?.name || '-'}</td>
+          <td style="border:1px solid #ddd;padding:8px;">${card?.type || '-'}</td>
+          <td style="border:1px solid #ddd;padding:8px;">${card?.subType || '-'}</td>
+          <td style="border:1px solid #ddd;padding:8px;">${card?.subSubType || '-'}</td>
+          <td style="border:1px solid #ddd;padding:8px;text-align:right;">${cq.quantity}</td>
+        </tr>
+      `
+    }).join('')
+
+    const totalQty = ctx.cardQuantities.reduce((s, cq) => s + (cq.quantity || 0), 0)
+
+    const w = window.open('', '_blank')
+    if (!w) return
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Bon de mouvement (Consolidé)</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          h1 { text-align: center; color: #1e293b; margin-bottom: 4px; }
+          h2 { text-align: center; color: #1e293b; margin: 0 0 16px; font-size: 18px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+          th { background: #1e293b; color: #fff; padding: 10px; text-align: left; border: 1px solid #ddd; }
+          td { padding: 8px; border: 1px solid #ddd; }
+          .meta { margin-top: 10px; color: #64748b; }
+          .summary { margin-top: 16px; text-align: right; font-weight: bold; }
+          @media print { button { display: none; } }
+        </style>
+      </head>
+      <body>
+        <h1>Société Monétique Tunisie</h1>
+        <h2>Bon de Mouvement de Stock (Consolidé)</h2>
+        <div class="meta">
+          <div>Date: ${new Date().toLocaleString('fr-FR')}</div>
+          <div>Type: ${getMovementTypeLabel(ctx.movementType)}</div>
+          <div>De: ${fromName}</div>
+          <div>Vers / Adresse: ${destinationInfo}</div>
+          <div>Banque: ${bank?.name || '-'}</div>
+          <div>Motif: ${ctx.reason || '-'}</div>
+          <div>Généré par: ${currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : 'N/A'}</div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Carte</th>
+              <th>Type</th>
+              <th>Sous-type</th>
+              <th>Sous-sous-type</th>
+              <th style="text-align:right;">Quantité</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+        <div class="summary">Total quantité: ${totalQty}</div>
+        <script>window.onload = () => window.print()</script>
+      </body>
+      </html>
+    `
+    w.document.write(html)
+    w.document.close()
   }
 
   const resetForm = () => {
