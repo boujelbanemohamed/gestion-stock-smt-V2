@@ -711,7 +711,7 @@ export default function MovementsManagement() {
     // - Sinon: afficher nom + adresse de l'emplacement source si disponible
     let fromName = '-'
     if (ctx.movementType === 'exit') {
-      fromName = 'SMT - MT - Centre urbain Nord, Sana Center, bloc C – 1082, Tunis - Tunisie'
+      fromName = 'SMT  - Centre urbain Nord, Sana Center, bloc C – 1082, Tunis - Tunisie'
     } else if (ctx.movementType !== 'entry' && ctx.fromLocationId) {
       const fromLoc = locations.find(l => l.id === ctx.fromLocationId) as any
       const fromAddress = fromLoc?.address ? ` - ${fromLoc.address}` : ''
