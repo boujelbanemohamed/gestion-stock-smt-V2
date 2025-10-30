@@ -810,6 +810,29 @@ export default function MovementsManagement() {
           <div class="total-value">${totalQty} cartes</div>
         </div>
 
+        ${ctx.movementType === 'exit' ? `
+        <div style="margin-top: 30px; padding-top: 10px;">
+          <table style="width:100%; border-collapse:collapse;">
+            <tr>
+              <td style="vertical-align:top; width:50%; padding:10px; border:1px solid #e5e7eb;">
+                <div style="font-weight:bold; color:#374151; margin-bottom:8px;">Expéditeur</div>
+                <div style="margin-top:8px; font-size:12px; color:#6b7280;">Nom & Prénom :</div>
+                <div style="height:28px; border-bottom:1px solid #1e293b; margin-bottom:14px;"></div>
+                <div style="margin-top:8px; font-size:12px; color:#6b7280;">Signature et Cachet :</div>
+                <div style="height:50px; border:1px dashed #9ca3af; margin-top:6px;"></div>
+              </td>
+              <td style="vertical-align:top; width:50%; padding:10px; border:1px solid #e5e7eb;">
+                <div style="font-weight:bold; color:#374151; margin-bottom:8px;">Destinataire</div>
+                <div style="margin-top:8px; font-size:12px; color:#6b7280;">Nom & Prénom :</div>
+                <div style="height:28px; border-bottom:1px solid #1e293b; margin-bottom:14px;"></div>
+                <div style="margin-top:8px; font-size:12px; color:#6b7280;">Signature et Cachet :</div>
+                <div style="height:50px; border:1px dashed #9ca3af; margin-top:6px;"></div>
+              </td>
+            </tr>
+          </table>
+        </div>
+        ` : ''}
+
         <div class="footer">
           <div class="footer-address">Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</div>
         </div>
