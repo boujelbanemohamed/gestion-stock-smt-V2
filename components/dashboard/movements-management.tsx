@@ -737,44 +737,72 @@ export default function MovementsManagement() {
         <meta charset="utf-8" />
         <title>Bon de mouvement (Consolidé)</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 20px; }
-          h1 { text-align: center; color: #1e293b; margin-bottom: 4px; }
-          h2 { text-align: center; color: #1e293b; margin: 0 0 16px; font-size: 18px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-          th { background: #1e293b; color: #fff; padding: 10px; text-align: left; border: 1px solid #ddd; }
-          td { padding: 8px; border: 1px solid #ddd; }
-          .meta { margin-top: 10px; color: #64748b; }
-          .summary { margin-top: 16px; text-align: right; font-weight: bold; }
-          @media print { button { display: none; } }
+          body { font-family: Arial, sans-serif; margin: 20px; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .company-name { font-size: 20px; font-weight: bold; color: #1f2937; margin-bottom: 10px; }
+          .bank-name { font-size: 24px; font-weight: bold; color: #1f2937; }
+          .date { color: #6b7280; margin-top: 10px; }
+          .meta-grid { margin-top: 10px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; color: #374151; }
+          .meta-item { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px 10px; }
+          .meta-label { font-size: 12px; color: #6b7280; display: block; }
+          .meta-value { font-size: 14px; font-weight: 600; }
+          .cards-details { margin-top: 15px; }
+          .cards-details h4 { font-size: 16px; color: #374151; margin-bottom: 10px; }
+          .cards-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+          .cards-table th, .cards-table td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+          .cards-table th { background-color: #f9fafb; font-weight: bold; color: #374151; }
+          .cards-table tr:nth-child(even) { background-color: #f9fafb; }
+          .quantity { text-align: right; font-weight: bold; color: #059669; }
+          .total { margin-top: 30px; padding: 20px; background-color: #f3f4f6; border-radius: 8px; text-align: center; }
+          .total-label { font-size: 18px; color: #374151; }
+          .total-value { font-size: 24px; font-weight: bold; color: #059669; margin-top: 5px; }
+          .footer { margin-top: 40px; text-align: center; padding: 20px; border-top: 1px solid #e5e7eb; }
+          .footer-address { font-size: 12px; color: #6b7280; }
+          @media print { body { margin: 0; } }
         </style>
       </head>
       <body>
-        <h1>Société Monétique Tunisie</h1>
-        <h2>Bon de Mouvement de Stock (Consolidé)</h2>
-        <div class="meta">
-          <div>Date: ${new Date().toLocaleString('fr-FR')}</div>
-          <div>Type: ${getMovementTypeLabel(ctx.movementType)}</div>
-          <div>De: ${fromName}</div>
-          <div>Vers / Adresse: ${destinationInfo}</div>
-          <div>Banque: ${bank?.name || '-'}</div>
-          <div>Motif: ${ctx.reason || '-'}</div>
-          <div>Généré par: ${currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : 'N/A'}</div>
+        <div class="header">
+          <div class="company-name">Société Monétique Tunisie</div>
+          <div class="bank-name">${bank?.name || ''}</div>
+          <div class="date">Bon de Mouvement de Stock (Consolidé) - ${new Date().toLocaleDateString('fr-FR')}</div>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Carte</th>
-              <th>Type</th>
-              <th>Sous-type</th>
-              <th>Sous-sous-type</th>
-              <th style="text-align:right;">Quantité</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows}
-          </tbody>
-        </table>
-        <div class="summary">Total quantité: ${totalQty}</div>
+
+        <div class="meta-grid">
+          <div class="meta-item"><span class="meta-label">Type</span><span class="meta-value">${getMovementTypeLabel(ctx.movementType)}</span></div>
+          <div class="meta-item"><span class="meta-label">Motif</span><span class="meta-value">${ctx.reason || '-'}</span></div>
+          <div class="meta-item"><span class="meta-label">De</span><span class="meta-value">${fromName}</span></div>
+          <div class="meta-item"><span class="meta-label">Vers / Adresse</span><span class="meta-value">${destinationInfo}</span></div>
+          <div class="meta-item"><span class="meta-label">Généré par</span><span class="meta-value">${currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : 'N/A'}</span></div>
+          <div class="meta-item"><span class="meta-label">Heure</span><span class="meta-value">${new Date().toLocaleTimeString('fr-FR')}</span></div>
+        </div>
+
+        <div class="cards-details">
+          <h4>Détails des cartes</h4>
+          <table class="cards-table">
+            <thead>
+              <tr>
+                <th>Nom de la carte</th>
+                <th>Type</th>
+                <th>Sous-type</th>
+                <th>Sous-sous-type</th>
+                <th>Quantité</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="total">
+          <div class="total-label">Total des cartes dans le bon</div>
+          <div class="total-value">${totalQty} cartes</div>
+        </div>
+
+        <div class="footer">
+          <div class="footer-address">Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</div>
+        </div>
         <script>window.onload = () => window.print()</script>
       </body>
       </html>
