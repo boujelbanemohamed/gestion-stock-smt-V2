@@ -249,6 +249,20 @@ export async function POST(request: NextRequest) {
       return level?.quantity ?? 0
     }
 
+    // Stock total réel = somme des stock_levels (source de vérité).
+    // On ne fait jamais confiance à card.quantity pour la validation car ce
+    // champ est un compteur dupliqué qui peut diverger (import, correction
+    // manuelle en base, etc.). On l'utilise seulement pour l'affichage/stats
+    // et on le recalcule après chaque mouvement pour qu'il reste toujours
+    // synchronisé (auto-correction).
+    const getTotalStock = async (cardId: string, tx: any = prisma) => {
+      const agg = await tx.stockLevel.aggregate({
+        where: { cardId },
+        _sum: { quantity: true },
+      })
+      return agg._sum.quantity ?? 0
+    }
+
     const adjustStockLevel = async (
       tx: any,
       cardId: string,
@@ -270,30 +284,39 @@ export async function POST(request: NextRequest) {
     const newMovement = await prisma.$transaction(async (tx) => {
       // Ajustements selon le type
       if (body.movementType === 'entry') {
-        // + carte, + stock destination
-        await tx.card.update({ where: { id: card.id }, data: { quantity: card.quantity + body.quantity } })
+        // + stock destination, puis on resynchronise card.quantity sur le vrai total
         await adjustStockLevel(tx, card.id, body.toLocationId, +body.quantity)
+        const total = await getTotalStock(card.id, tx)
+        await tx.card.update({ where: { id: card.id }, data: { quantity: total } })
       } else if (body.movementType === 'exit') {
-        // Vérifier stocks
+        // Vérifier stock à l'emplacement source (seule contrainte métier réelle:
+        // on ne peut pas sortir plus que ce qui est physiquement à cet emplacement)
         const locQty = await getStockLevel(card.id, body.fromLocationId)
         if (locQty < body.quantity) {
           throw new Error("Quantité insuffisante à l'emplacement source")
         }
-        if (card.quantity < body.quantity) {
+        // Vérification du total réel (calculé depuis stock_levels, pas depuis
+        // le champ card.quantity qui peut être désynchronisé)
+        const totalStock = await getTotalStock(card.id, tx)
+        if (totalStock < body.quantity) {
           throw new Error("Quantité totale de carte insuffisante")
         }
-        // - carte, - stock source
-        await tx.card.update({ where: { id: card.id }, data: { quantity: card.quantity - body.quantity } })
+        // - stock source, puis resynchronisation de card.quantity
         await adjustStockLevel(tx, card.id, body.fromLocationId, -body.quantity)
+        const total = await getTotalStock(card.id, tx)
+        await tx.card.update({ where: { id: card.id }, data: { quantity: total } })
       } else if (body.movementType === 'transfer') {
         // Vérifier stock source
         const locQty = await getStockLevel(card.id, body.fromLocationId)
         if (locQty < body.quantity) {
           throw new Error("Quantité insuffisante à l'emplacement source pour le transfert")
         }
-        // 0 carte, - source, + destination
+        // 0 carte au total, - source, + destination
         await adjustStockLevel(tx, card.id, body.fromLocationId, -body.quantity)
         await adjustStockLevel(tx, card.id, body.toLocationId, +body.quantity)
+        // Resynchronisation de card.quantity par sécurité (devrait rester inchangé)
+        const total = await getTotalStock(card.id, tx)
+        await tx.card.update({ where: { id: card.id }, data: { quantity: total } })
       }
 
       // Créer le mouvement
