@@ -1,0 +1,31 @@
+diff --git a/app/dashboard/layout.tsx b/app/dashboard/layout.tsx
+index c643f51..1436b39 100644
+--- a/app/dashboard/layout.tsx
++++ b/app/dashboard/layout.tsx
+@@ -307,26 +307,6 @@ export default function DashboardLayout({
+             )
+           })}
+         </nav>
+-
+-        {/* User Info */}
+-        <div className="p-4 border-t border-slate-200">
+-          <div className="flex items-center space-x-3 mb-3">
+-            <div className="h-8 w-8 rounded-full bg-slate-200 flex items-center justify-center">
+-              <span className="text-sm font-medium text-slate-700">
+-                {(currentUser?.firstName && currentUser.firstName.length > 0) ? currentUser.firstName[0] : ''}
+-                {(currentUser?.lastName && currentUser.lastName.length > 0) ? currentUser.lastName[0] : ''}
+-              </span>
+-            </div>
+-            <div className="flex-1 min-w-0">
+-              <p className="text-sm font-medium text-slate-900 truncate">
+-                {currentUser?.firstName || ''} {currentUser?.lastName || ''}
+-              </p>
+-              <Badge variant={getRoleBadgeVariant(currentUser?.role || 'user')} className="text-xs">
+-                {currentUser?.role ? (currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1)) : 'User'}
+-              </Badge>
+-            </div>
+-          </div>
+-        </div>
+       </div>
+ 
+       {/* Main Content */}

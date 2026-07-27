@@ -4,14 +4,21 @@ import type { ApiResponse } from "@/lib/api-types"
 import type { RolePermissions } from "@/lib/types"
 import { eventBus } from "@/lib/event-bus"
 import { logAudit } from "@/lib/audit-logger"
+import { requireAuth, requireAdmin } from "@/lib/auth-middleware"
 
 // GET /api/roles - Récupérer tous les rôles
+// Accessible à tout utilisateur authentifié : cette route est utilisée par
+// usePermissions() pour résoudre les permissions de CHAQUE utilisateur connecté,
+// pas seulement les admins.
 
 // Forcer la route à être dynamique (ne pas pré-rendre)
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const roles = await prisma.rolePermission.findMany({
       orderBy: { role: 'asc' }
@@ -35,19 +42,12 @@ export async function GET(request: NextRequest) {
 
 // POST /api/roles - Créer un nouveau rôle
 export async function POST(request: NextRequest) {
+  const auth = requireAdmin(request)
+  if (!auth.authorized) return auth.response
+  const userData = auth.user
+
   try {
     const body = await request.json()
-
-    // Récupérer l'utilisateur depuis le header
-    const userHeader = request.headers.get("x-user-data")
-    let userData = null
-    try {
-      if (userHeader) {
-        userData = JSON.parse(userHeader)
-      }
-    } catch (error) {
-      console.error('Error parsing user header:', error)
-    }
 
     if (!body.role || !body.permissions) {
       return NextResponse.json<ApiResponse>(

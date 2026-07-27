@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { Bank } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
+import { requireAuth } from "@/lib/auth-middleware"
 
 // GET /api/banks/[id] - Récupérer une banque spécifique
 // PUT /api/banks/[id] - Mettre à jour une banque
@@ -16,6 +17,9 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const { id } = params
 
@@ -69,20 +73,14 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const body = await request.json()
     const { id } = params
 
-    // Récupérer l'utilisateur depuis le header
-    const userHeader = request.headers.get("x-user-data")
-    let userData = null
-    try {
-      if (userHeader) {
-        userData = JSON.parse(userHeader)
-      }
-    } catch (error) {
-      console.error('Error parsing user header:', error)
-    }
+    const userData = auth.user
 
     const updatedBank = await prisma.bank.update({
       where: { id },
@@ -133,19 +131,13 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const { id } = params
 
-    // Récupérer l'utilisateur depuis le header
-    const userHeader = request.headers.get("x-user-data")
-    let userData = null
-    try {
-      if (userHeader) {
-        userData = JSON.parse(userHeader)
-      }
-    } catch (error) {
-      console.error('Error parsing user header:', error)
-    }
+    const userData = auth.user
 
     // Récupérer les infos de la banque avant suppression
     const bank = await prisma.bank.findUnique({

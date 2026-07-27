@@ -1,0 +1,49 @@
+diff --git a/vitest.setup.ts b/vitest.setup.ts
+index b9e7622..46eea60 100644
+--- a/vitest.setup.ts
++++ b/vitest.setup.ts
+@@ -1 +1,44 @@
+ import "@testing-library/jest-dom/vitest"
++
++// Remplace toute implémentation native de localStorage (celle de jsdom, ou
++// celle, expérimentale et parfois incomplète selon la version de Node,
++// exposée nativement par Node 22+ - ex. .clear()/.removeItem() absents sans
++// fichier de stockage configuré) par une implémentation simple et complète en
++// mémoire, pour un comportement déterministe quel que soit l'environnement.
++class MemoryStorage implements Storage {
++  private store = new Map<string, string>()
++
++  get length() {
++    return this.store.size
++  }
++
++  clear(): void {
++    this.store.clear()
++  }
++
++  getItem(key: string): string | null {
++    return this.store.has(key) ? this.store.get(key)! : null
++  }
++
++  key(index: number): string | null {
++    return Array.from(this.store.keys())[index] ?? null
++  }
++
++  removeItem(key: string): void {
++    this.store.delete(key)
++  }
++
++  setItem(key: string, value: string): void {
++    this.store.set(key, String(value))
++  }
++}
++
++try {
++  Object.defineProperty(globalThis, "localStorage", {
++    value: new MemoryStorage(),
++    writable: true,
++    configurable: true,
++  })
++} catch (error) {
++  console.warn("Impossible de remplacer globalThis.localStorage dans les tests:", error)
++}

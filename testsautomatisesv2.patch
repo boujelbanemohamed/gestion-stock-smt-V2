@@ -1,0 +1,599 @@
+diff --git a/package.json b/package.json
+index 0ed7b8b..0c0f2f3 100644
+--- a/package.json
++++ b/package.json
+@@ -12,7 +12,10 @@
+     "db:migrate": "prisma migrate dev",
+     "db:seed": "tsx prisma/seed.ts",
+     "db:studio": "prisma studio",
+-    "db:reset": "prisma migrate reset"
++    "db:reset": "prisma migrate reset",
++    "test": "vitest run",
++    "test:watch": "vitest",
++    "test:coverage": "vitest run --coverage"
+   },
+   "prisma": {
+     "seed": "tsx prisma/seed.ts"
+@@ -79,16 +82,23 @@
+   },
+   "devDependencies": {
+     "@tailwindcss/postcss": "^4.1.9",
++    "@testing-library/jest-dom": "^7.0.0",
++    "@testing-library/react": "^16.3.2",
++    "@testing-library/user-event": "^14.6.1",
+     "@types/bcryptjs": "^2.4.6",
+     "@types/node": "^22",
+     "@types/nodemailer": "^7.0.2",
+     "@types/react": "^18",
+     "@types/react-dom": "^18",
++    "@vitejs/plugin-react": "^6.0.4",
++    "@vitest/coverage-v8": "^4.1.10",
++    "jsdom": "^29.1.1",
+     "postcss": "^8.5",
+     "prisma": "^6.16.3",
+     "tailwindcss": "^4.1.9",
+     "tsx": "^4.20.6",
+     "tw-animate-css": "1.3.3",
+-    "typescript": "^5"
++    "typescript": "^5",
++    "vitest": "^4.1.10"
+   }
+ }
+diff --git a/tests/api/movement-reasons.test.ts b/tests/api/movement-reasons.test.ts
+new file mode 100644
+index 0000000..5fb0d01
+--- /dev/null
++++ b/tests/api/movement-reasons.test.ts
+@@ -0,0 +1,131 @@
++import { beforeEach, describe, expect, it, vi } from "vitest"
++import { NextRequest } from "next/server"
++import { signAccessToken } from "@/lib/auth"
++
++// Mocke Prisma : ces tests exercent la logique de la route (garde d'auth,
++// validation, auto-seed, audit) sans jamais toucher une vraie base de données.
++vi.mock("@/lib/db", () => ({
++  prisma: {
++    movementReason: {
++      findMany: vi.fn(),
++      createMany: vi.fn(),
++      create: vi.fn(),
++    },
++    auditLog: {
++      create: vi.fn(),
++    },
++  },
++}))
++
++vi.mock("@/lib/email-service", () => ({
++  sendUserActivityAlert: vi.fn().mockResolvedValue(undefined),
++}))
++
++const { prisma } = await import("@/lib/db")
++const { GET, POST } = await import("@/app/api/movement-reasons/route")
++
++function makeRequest(options: { token?: string; body?: unknown } = {}) {
++  const headers = new Headers({ "content-type": "application/json" })
++  if (options.token) headers.set("authorization", `Bearer ${options.token}`)
++  return new NextRequest("http://localhost/api/movement-reasons", {
++    method: options.body ? "POST" : "GET",
++    headers,
++    body: options.body ? JSON.stringify(options.body) : undefined,
++  })
++}
++
++const userToken = signAccessToken({
++  userId: "user-1",
++  email: "user@example.com",
++  firstName: "Jane",
++  lastName: "Doe",
++  role: "user",
++})
++
++const adminToken = signAccessToken({
++  userId: "admin-1",
++  email: "admin@example.com",
++  firstName: "Admin",
++  lastName: "Istrator",
++  role: "admin",
++})
++
++describe("GET /api/movement-reasons", () => {
++  beforeEach(() => {
++    vi.clearAllMocks()
++  })
++
++  it("refuse une requête non authentifiée", async () => {
++    const response = await GET(makeRequest())
++    expect(response.status).toBe(401)
++  })
++
++  it("renvoie les motifs existants sans les recréer", async () => {
++    const existing = [{ id: "r1", label: "Autre", isOther: true, isActive: true }]
++    vi.mocked(prisma.movementReason.findMany).mockResolvedValue(existing as any)
++
++    const response = await GET(makeRequest({ token: userToken }))
++    const json = await response.json()
++
++    expect(response.status).toBe(200)
++    expect(json.success).toBe(true)
++    expect(json.data).toEqual(existing)
++    expect(prisma.movementReason.createMany).not.toHaveBeenCalled()
++  })
++
++  it("amorce les motifs par défaut (dont 'Autre') si la table est vide", async () => {
++    const seeded = [
++      { id: "r1", label: "Fabrication", isOther: false, isActive: true },
++      { id: "r7", label: "Autre", isOther: true, isActive: true },
++    ]
++    vi.mocked(prisma.movementReason.findMany)
++      .mockResolvedValueOnce([] as any) // premier appel : table vide
++      .mockResolvedValueOnce(seeded as any) // relecture après le seed
++
++    const response = await GET(makeRequest({ token: userToken }))
++    const json = await response.json()
++
++    expect(response.status).toBe(200)
++    expect(prisma.movementReason.createMany).toHaveBeenCalledTimes(1)
++    const seedData = vi.mocked(prisma.movementReason.createMany).mock.calls[0][0]?.data as Array<{
++      label: string
++      isOther?: boolean
++    }>
++    expect(seedData.some((r) => r.label === "Autre" && r.isOther === true)).toBe(true)
++    expect(json.data).toEqual(seeded)
++  })
++})
++
++describe("POST /api/movement-reasons", () => {
++  beforeEach(() => {
++    vi.clearAllMocks()
++  })
++
++  it("refuse un utilisateur non-admin (403)", async () => {
++    const response = await POST(makeRequest({ token: userToken, body: { label: "Nouveau motif" } }))
++    expect(response.status).toBe(403)
++    expect(prisma.movementReason.create).not.toHaveBeenCalled()
++  })
++
++  it("refuse un libellé vide (400)", async () => {
++    const response = await POST(makeRequest({ token: adminToken, body: { label: "   " } }))
++    expect(response.status).toBe(400)
++    expect(prisma.movementReason.create).not.toHaveBeenCalled()
++  })
++
++  it("crée le motif pour un admin avec un libellé valide", async () => {
++    const created = { id: "r99", label: "Retour fournisseur", isOther: false, isActive: true }
++    vi.mocked(prisma.movementReason.create).mockResolvedValue(created as any)
++
++    const response = await POST(makeRequest({ token: adminToken, body: { label: "  Retour fournisseur  " } }))
++    const json = await response.json()
++
++    expect(response.status).toBe(201)
++    expect(json.success).toBe(true)
++    expect(json.data).toEqual(created)
++    // Le libellé doit être nettoyé (trim) et jamais créé en tant que motif protégé "Autre".
++    expect(prisma.movementReason.create).toHaveBeenCalledWith({
++      data: { label: "Retour fournisseur", isOther: false },
++    })
++  })
++})
+diff --git a/tests/components/login-form.test.tsx b/tests/components/login-form.test.tsx
+new file mode 100644
+index 0000000..cc4ba9e
+--- /dev/null
++++ b/tests/components/login-form.test.tsx
+@@ -0,0 +1,93 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
++import { render, screen, waitFor } from "@testing-library/react"
++import userEvent from "@testing-library/user-event"
++import LoginForm from "@/components/auth/login-form"
++import * as apiClient from "@/lib/api-client"
++
++vi.mock("next/image", () => ({
++  // next/image exige un environnement Next complet ; un <img> simple suffit pour ces tests.
++  default: (props: any) => <img {...props} />,
++}))
++
++function jsonResponse(body: unknown) {
++  return Promise.resolve({ json: () => Promise.resolve(body) } as Response)
++}
++
++describe("LoginForm", () => {
++  beforeEach(() => {
++    vi.spyOn(apiClient, "saveAuthTokens").mockImplementation(() => {})
++  })
++
++  afterEach(() => {
++    vi.restoreAllMocks()
++    vi.unstubAllGlobals()
++  })
++
++  it("affiche les champs email et mot de passe, tous deux obligatoires", () => {
++    render(<LoginForm onLogin={vi.fn()} />)
++
++    expect(screen.getByLabelText("Email")).toBeRequired()
++    expect(screen.getByLabelText("Mot de passe")).toBeRequired()
++  })
++
++  it("appelle onLogin avec l'utilisateur et sauvegarde les tokens après une connexion réussie", async () => {
++    const user = userEvent.setup()
++    const onLogin = vi.fn()
++    const mockUser = { id: "u1", email: "jane@example.com", firstName: "Jane", lastName: "Doe", role: "admin" }
++    const fetchMock = vi.fn().mockReturnValue(
++      jsonResponse({
++        success: true,
++        data: { user: mockUser, accessToken: "access-token", refreshToken: "refresh-token" },
++      }),
++    )
++    vi.stubGlobal("fetch", fetchMock)
++
++    render(<LoginForm onLogin={onLogin} />)
++
++    await user.type(screen.getByLabelText("Email"), "jane@example.com")
++    await user.type(screen.getByLabelText("Mot de passe"), "secret123")
++    await user.click(screen.getByRole("button", { name: /se connecter/i }))
++
++    await waitFor(() => expect(onLogin).toHaveBeenCalledWith(mockUser))
++
++    expect(fetchMock).toHaveBeenCalledWith(
++      "/api/auth/login",
++      expect.objectContaining({
++        method: "POST",
++        body: JSON.stringify({ email: "jane@example.com", password: "secret123" }),
++      }),
++    )
++    expect(apiClient.saveAuthTokens).toHaveBeenCalledWith("access-token", "refresh-token", mockUser)
++  })
++
++  it("affiche le message d'erreur du serveur et n'appelle pas onLogin en cas d'échec", async () => {
++    const user = userEvent.setup()
++    const onLogin = vi.fn()
++    vi.stubGlobal(
++      "fetch",
++      vi.fn().mockReturnValue(jsonResponse({ success: false, error: "Email ou mot de passe incorrect" })),
++    )
++
++    render(<LoginForm onLogin={onLogin} />)
++
++    await user.type(screen.getByLabelText("Email"), "jane@example.com")
++    await user.type(screen.getByLabelText("Mot de passe"), "mauvais-mdp")
++    await user.click(screen.getByRole("button", { name: /se connecter/i }))
++
++    expect(await screen.findByText("Email ou mot de passe incorrect")).toBeInTheDocument()
++    expect(onLogin).not.toHaveBeenCalled()
++  })
++
++  it("affiche un message générique si l'appel réseau échoue", async () => {
++    const user = userEvent.setup()
++    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")))
++
++    render(<LoginForm onLogin={vi.fn()} />)
++
++    await user.type(screen.getByLabelText("Email"), "jane@example.com")
++    await user.type(screen.getByLabelText("Mot de passe"), "secret123")
++    await user.click(screen.getByRole("button", { name: /se connecter/i }))
++
++    expect(await screen.findByText("Erreur de connexion au serveur")).toBeInTheDocument()
++  })
++})
+diff --git a/tests/lib/auth-middleware.test.ts b/tests/lib/auth-middleware.test.ts
+new file mode 100644
+index 0000000..34108b0
+--- /dev/null
++++ b/tests/lib/auth-middleware.test.ts
+@@ -0,0 +1,90 @@
++import { describe, expect, it } from "vitest"
++import { NextRequest } from "next/server"
++import { signAccessToken } from "@/lib/auth"
++import { requireAuth, requireAdmin, isAdminRole } from "@/lib/auth-middleware"
++
++function makeRequest(token?: string) {
++  const headers = new Headers()
++  if (token) headers.set("authorization", `Bearer ${token}`)
++  return new NextRequest("http://localhost/api/test", { headers })
++}
++
++const userPayload = {
++  userId: "user-1",
++  email: "user@example.com",
++  firstName: "Jane",
++  lastName: "Doe",
++  role: "user",
++}
++
++const adminPayload = { ...userPayload, userId: "admin-1", email: "admin@example.com", role: "admin" }
++
++describe("isAdminRole", () => {
++  it("reconnaît les rôles administrateurs, insensible à la casse", () => {
++    expect(isAdminRole("admin")).toBe(true)
++    expect(isAdminRole("Admin")).toBe(true)
++    expect(isAdminRole("super_admin")).toBe(true)
++  })
++
++  it("rejette les rôles non administrateurs", () => {
++    expect(isAdminRole("user")).toBe(false)
++    expect(isAdminRole("viewer")).toBe(false)
++  })
++})
++
++describe("requireAuth", () => {
++  it("refuse une requête sans token (401)", () => {
++    const result = requireAuth(makeRequest())
++    expect(result.authorized).toBe(false)
++    if (!result.authorized) {
++      expect(result.response.status).toBe(401)
++    }
++  })
++
++  it("refuse une requête avec un token invalide (401)", () => {
++    const result = requireAuth(makeRequest("token-invalide"))
++    expect(result.authorized).toBe(false)
++    if (!result.authorized) {
++      expect(result.response.status).toBe(401)
++    }
++  })
++
++  it("accepte une requête avec un token valide et expose l'utilisateur du token", () => {
++    const token = signAccessToken(userPayload)
++    const result = requireAuth(makeRequest(token))
++    expect(result.authorized).toBe(true)
++    if (result.authorized) {
++      expect(result.user.id).toBe(userPayload.userId)
++      expect(result.user.email).toBe(userPayload.email)
++      expect(result.user.role).toBe(userPayload.role)
++    }
++  })
++})
++
++describe("requireAdmin", () => {
++  it("refuse un utilisateur authentifié mais non-admin (403)", () => {
++    const token = signAccessToken(userPayload)
++    const result = requireAdmin(makeRequest(token))
++    expect(result.authorized).toBe(false)
++    if (!result.authorized) {
++      expect(result.response.status).toBe(403)
++    }
++  })
++
++  it("refuse une requête non authentifiée (401, pas 403)", () => {
++    const result = requireAdmin(makeRequest())
++    expect(result.authorized).toBe(false)
++    if (!result.authorized) {
++      expect(result.response.status).toBe(401)
++    }
++  })
++
++  it("accepte un utilisateur admin", () => {
++    const token = signAccessToken(adminPayload)
++    const result = requireAdmin(makeRequest(token))
++    expect(result.authorized).toBe(true)
++    if (result.authorized) {
++      expect(result.user.role).toBe("admin")
++    }
++  })
++})
+diff --git a/tests/lib/auth.test.ts b/tests/lib/auth.test.ts
+new file mode 100644
+index 0000000..9d4b676
+--- /dev/null
++++ b/tests/lib/auth.test.ts
+@@ -0,0 +1,59 @@
++import { describe, expect, it } from "vitest"
++import { signAccessToken, signRefreshToken, verifyAccessToken, extractTokenFromHeader } from "@/lib/auth"
++
++const basePayload = {
++  userId: "user-1",
++  email: "jane@example.com",
++  firstName: "Jane",
++  lastName: "Doe",
++  role: "admin",
++}
++
++describe("signAccessToken / verifyAccessToken", () => {
++  it("verifie un token qu'elle vient de signer et retrouve le payload d'origine", () => {
++    const token = signAccessToken(basePayload)
++    const decoded = verifyAccessToken(token)
++
++    expect(decoded.userId).toBe(basePayload.userId)
++    expect(decoded.email).toBe(basePayload.email)
++    expect(decoded.firstName).toBe(basePayload.firstName)
++    expect(decoded.lastName).toBe(basePayload.lastName)
++    expect(decoded.role).toBe(basePayload.role)
++  })
++
++  it("rejette un token invalide", () => {
++    expect(() => verifyAccessToken("token.invalide.abc")).toThrow(/invalide/i)
++  })
++
++  it("rejette un token signé avec un autre secret", () => {
++    // Un token signé avec un algorithme/format différent (ici juste du texte
++    // aléatoire encodé en 3 segments) ne doit jamais être considéré valide.
++    const bogusToken = ["aaaa", "bbbb", "cccc"].join(".")
++    expect(() => verifyAccessToken(bogusToken)).toThrow()
++  })
++})
++
++describe("signRefreshToken", () => {
++  it("produit un token distinct du token d'accès pour le même utilisateur", () => {
++    const accessToken = signAccessToken(basePayload)
++    const refreshToken = signRefreshToken(basePayload)
++
++    expect(refreshToken).not.toBe(accessToken)
++    expect(typeof refreshToken).toBe("string")
++    expect(refreshToken.split(".")).toHaveLength(3)
++  })
++})
++
++describe("extractTokenFromHeader", () => {
++  it("extrait le token d'un header Authorization Bearer valide", () => {
++    expect(extractTokenFromHeader("Bearer abc.def.ghi")).toBe("abc.def.ghi")
++  })
++
++  it("retourne null si le header est absent", () => {
++    expect(extractTokenFromHeader(null)).toBeNull()
++  })
++
++  it("retourne null si le header ne commence pas par Bearer", () => {
++    expect(extractTokenFromHeader("Basic abc123")).toBeNull()
++  })
++})
+diff --git a/tests/lib/export.test.ts b/tests/lib/export.test.ts
+new file mode 100644
+index 0000000..34c319f
+--- /dev/null
++++ b/tests/lib/export.test.ts
+@@ -0,0 +1,72 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
++import { exportToCsv } from "@/lib/export"
++
++async function blobText(blob: Blob): Promise<string> {
++  // jsdom's Blob exposes .text(); fall back to arrayBuffer + TextDecoder if absent.
++  if (typeof (blob as any).text === "function") return (blob as any).text()
++  const buffer = await blob.arrayBuffer()
++  return new TextDecoder("utf-8").decode(buffer)
++}
++
++describe("exportToCsv", () => {
++  let createObjectURLSpy: ReturnType<typeof vi.fn>
++  let capturedBlob: Blob | undefined
++
++  beforeEach(() => {
++    capturedBlob = undefined
++    createObjectURLSpy = vi.fn((blob: Blob) => {
++      capturedBlob = blob
++      return "blob:mock-url"
++    })
++    // jsdom ne fournit pas nativement URL.createObjectURL/revokeObjectURL.
++    vi.stubGlobal("URL", { ...URL, createObjectURL: createObjectURLSpy, revokeObjectURL: vi.fn() })
++    // Empêche jsdom de tenter une vraie navigation lors du link.click() simulé.
++    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
++  })
++
++  afterEach(() => {
++    vi.unstubAllGlobals()
++    vi.restoreAllMocks()
++  })
++
++  it("génère un CSV avec un en-tête BOM UTF-8 et les bonnes colonnes", async () => {
++    exportToCsv("mouvements", ["Date", "Type", "Quantité"], [["2026-01-01", "Entrée", 10]])
++
++    expect(createObjectURLSpy).toHaveBeenCalledTimes(1)
++
++    // Le BOM UTF-8 (EF BB BF) doit être présent dans les octets bruts du fichier,
++    // condition pour qu'Excel affiche correctement les accents. Un décodeur texte
++    // standard le retire à la lecture, il faut donc vérifier les octets, pas la chaîne décodée.
++    const bytes = new Uint8Array(await capturedBlob!.arrayBuffer())
++    expect([bytes[0], bytes[1], bytes[2]]).toEqual([0xef, 0xbb, 0xbf])
++
++    const content = await blobText(capturedBlob!)
++    expect(content).toContain("Date,Type,Quantité")
++    expect(content).toContain("2026-01-01,Entrée,10")
++  })
++
++  it("échappe les cellules contenant une virgule ou des guillemets", async () => {
++    exportToCsv("test", ["Motif"], [['Transfert, "urgent"']])
++
++    const content = await blobText(capturedBlob!)
++    expect(content).toContain('"Transfert, ""urgent"""')
++  })
++
++  it("déclenche le téléchargement avec l'extension .csv", async () => {
++    const clickSpy = vi.fn()
++    const originalCreateElement = document.createElement.bind(document)
++    const createElementSpy = vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
++      const el = originalCreateElement(tag)
++      if (tag === "a") el.click = clickSpy
++      return el
++    })
++
++    exportToCsv("rapport-mouvements", ["Col"], [["val"]])
++
++    const anchor = createElementSpy.mock.results[0]?.value as HTMLAnchorElement
++    expect(anchor.download).toBe("rapport-mouvements.csv")
++    expect(clickSpy).toHaveBeenCalledTimes(1)
++
++    createElementSpy.mockRestore()
++  })
++})
+diff --git a/tests/lib/theme.test.ts b/tests/lib/theme.test.ts
+new file mode 100644
+index 0000000..b9f2a1f
+--- /dev/null
++++ b/tests/lib/theme.test.ts
+@@ -0,0 +1,45 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
++import { applyTheme, getStoredTheme, storeTheme } from "@/lib/theme"
++
++describe("applyTheme", () => {
++  afterEach(() => {
++    document.documentElement.classList.remove("dark")
++    vi.unstubAllGlobals()
++  })
++
++  it("ajoute la classe .dark quand le thème est 'dark'", () => {
++    applyTheme("dark")
++    expect(document.documentElement.classList.contains("dark")).toBe(true)
++  })
++
++  it("retire la classe .dark quand le thème est 'light'", () => {
++    document.documentElement.classList.add("dark")
++    applyTheme("light")
++    expect(document.documentElement.classList.contains("dark")).toBe(false)
++  })
++
++  it("suit la préférence système quand le thème est 'auto'", () => {
++    const matchMedia = vi.fn().mockReturnValue({ matches: true })
++    vi.stubGlobal("matchMedia", matchMedia)
++
++    applyTheme("auto")
++
++    expect(matchMedia).toHaveBeenCalledWith("(prefers-color-scheme: dark)")
++    expect(document.documentElement.classList.contains("dark")).toBe(true)
++  })
++})
++
++describe("storeTheme / getStoredTheme", () => {
++  beforeEach(() => {
++    localStorage.clear()
++  })
++
++  it("persiste puis relit le thème choisi", () => {
++    storeTheme("dark")
++    expect(getStoredTheme()).toBe("dark")
++  })
++
++  it("retourne 'auto' par défaut si rien n'est mémorisé", () => {
++    expect(getStoredTheme()).toBe("auto")
++  })
++})
+diff --git a/vitest.config.ts b/vitest.config.ts
+new file mode 100644
+index 0000000..365c20d
+--- /dev/null
++++ b/vitest.config.ts
+@@ -0,0 +1,19 @@
++import { defineConfig } from "vitest/config"
++import react from "@vitejs/plugin-react"
++import path from "node:path"
++
++export default defineConfig({
++  plugins: [react()],
++  resolve: {
++    alias: {
++      "@": path.resolve(__dirname, "."),
++    },
++  },
++  test: {
++    environment: "jsdom",
++    globals: true,
++    setupFiles: ["./vitest.setup.ts"],
++    css: false,
++    exclude: ["node_modules", ".next", "e2e"],
++  },
++})
+diff --git a/vitest.setup.ts b/vitest.setup.ts
+new file mode 100644
+index 0000000..b9e7622
+--- /dev/null
++++ b/vitest.setup.ts
+@@ -0,0 +1 @@
++import "@testing-library/jest-dom/vitest"

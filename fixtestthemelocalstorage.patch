@@ -1,0 +1,16 @@
+diff --git a/tests/lib/theme.test.ts b/tests/lib/theme.test.ts
+index b9f2a1f..2ccace0 100644
+--- a/tests/lib/theme.test.ts
++++ b/tests/lib/theme.test.ts
+@@ -31,7 +31,10 @@ describe("applyTheme", () => {
+ 
+ describe("storeTheme / getStoredTheme", () => {
+   beforeEach(() => {
+-    localStorage.clear()
++    // localStorage.clear() n'est pas fiable partout (ex. Node 22+ expose son propre
++    // global localStorage expérimental, dont l'implémentation peut différer de celle
++    // de jsdom) ; on ne retire que la clé qui nous concerne, ce qui est plus portable.
++    localStorage.removeItem("theme")
+   })
+ 
+   it("persiste puis relit le thème choisi", () => {

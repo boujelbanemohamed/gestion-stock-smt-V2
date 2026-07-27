@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useState, useEffect, useRef } from "react"
+import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -26,6 +27,7 @@ import { ChevronDown, ChevronRight, Download, Upload, Search, Filter, Printer } 
 import { getAuthHeaders } from "@/lib/api-client"
 
 export default function BanksManagement() {
+  const searchParams = useSearchParams()
   const [banks, setBanks] = useState<Bank[]>([])
   const [locations, setLocations] = useState<any[]>([])
   const [cards, setCards] = useState<any[]>([])
@@ -33,9 +35,12 @@ export default function BanksManagement() {
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [editingBank, setEditingBank] = useState<Bank | null>(null)
   const [expandedBanks, setExpandedBanks] = useState<Set<string>>(new Set())
+  // Pré-rempli dès le premier rendu avec ?q=... (recherche globale) pour éviter
+  // qu'un premier fetch non filtré ne parte en parallèle de celui, filtré, déclenché
+  // par un effet séparé (l'un des deux résultats écrasant l'autre selon l'ordre de retour réseau).
   const [filters, setFilters] = useState<BankFilters>({
     status: "all",
-    searchTerm: "",
+    searchTerm: searchParams.get("q") || "",
   })
   const [countries, setCountries] = useState<string[]>([])
   const [importFile, setImportFile] = useState<File | null>(null)
@@ -73,25 +78,25 @@ export default function BanksManagement() {
       if (filters.status && filters.status !== 'all') params.append('status', filters.status)
       if (filters.searchTerm) params.append('search', filters.searchTerm)
       
-      const response = await fetch(`/api/banks?${params.toString()}`)
+      const response = await fetch(`/api/banks?${params.toString()}`, { headers: getAuthHeaders() })
       const data = await response.json()
-      
+
       if (data.success) {
         setBanks(data.data || [])
-        
+
         // Extraire les pays uniques
         const uniqueCountries = Array.from(new Set(data.data.map((b: Bank) => b.country)))
         setCountries(uniqueCountries as string[])
       }
 
       // Charger aussi les locations et cartes pour l'affichage des détails
-      const locationsResponse = await fetch('/api/locations')
+      const locationsResponse = await fetch('/api/locations', { headers: getAuthHeaders() })
       const locationsData = await locationsResponse.json()
       if (locationsData.success) {
         setLocations(locationsData.data || [])
       }
 
-      const cardsResponse = await fetch('/api/cards')
+      const cardsResponse = await fetch('/api/cards', { headers: getAuthHeaders() })
       const cardsData = await cardsResponse.json()
       if (cardsData.success) {
         setCards(cardsData.data || [])
@@ -110,7 +115,6 @@ export default function BanksManagement() {
   useEffect(() => {
     loadBanks()
   }, [filters])
-
 
   // Gestion de la soumission du formulaire (async pour les appels API)
   const handleSubmit = async (e: React.FormEvent) => {
@@ -555,7 +559,7 @@ export default function BanksManagement() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Gestion des Banques</h2>
-          <p className="text-slate-600">Gérez vos banques partenaires</p>
+          <p className="text-xs text-[#008DA8]">Gérez vos banques partenaires</p>
           {isRefreshing && <p className="text-sm text-blue-600">Actualisation en cours...</p>}
         </div>
         <div className="flex gap-2 items-center">

@@ -1,10 +1,17 @@
 "use client"
 
+import type React from "react"
 import { useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 import { usePermissions } from "@/hooks/use-permissions"
 import type { User, RolePermissions, UserFilters, Permission, Module, Action } from "@/lib/types"
-import { getAuthHeaders } from "@/lib/api-client"
+import { getAuthHeaders, authenticatedFetch } from "@/lib/api-client"
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
+import { toast } from "@/hooks/use-toast"
+import { eventBus } from "@/lib/event-bus"
+import { cn } from "@/lib/utils"
+import { Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -38,7 +45,9 @@ const ALL_PERMISSIONS: Permission[] = [
 ]
 
 export default function UsersManagement() {
-  const { hasPermission, isLoading: permissionsLoading } = usePermissions()
+  const { user: currentUser, hasPermission, isLoading: permissionsLoading } = usePermissions()
+  const isSuperAdmin = Boolean(currentUser?.role && ["admin", "super_admin"].includes(currentUser.role.toLowerCase()))
+  const searchParams = useSearchParams()
   const [users, setUsers] = useState<User[]>([])
   const [rolePermissions, setRolePermissions] = useState<RolePermissions[]>([])
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
@@ -48,10 +57,13 @@ export default function UsersManagement() {
   const [selectedRole, setSelectedRole] = useState<RolePermissions | null>(null)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [isUpdatingRole, setIsUpdatingRole] = useState(false)
+  // Pré-rempli dès le premier rendu avec ?q=... (recherche globale) pour éviter
+  // qu'un premier fetch non filtré ne parte en parallèle de celui, filtré, déclenché
+  // par un effet séparé (l'un des deux résultats écrasant l'autre selon l'ordre de retour réseau).
   const [filters, setFilters] = useState<UserFilters>({
     role: "all",
     status: "all",
-    searchTerm: "",
+    searchTerm: searchParams.get("q") || "",
   })
 
   const [formData, setFormData] = useState({
@@ -69,6 +81,14 @@ export default function UsersManagement() {
     lastName?: string
     password?: string
   }>({})
+
+  const [showAddPassword, setShowAddPassword] = useState(false)
+  const [showEditPassword, setShowEditPassword] = useState(false)
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
+  // Type d'authentification exigé de l'utilisateur modifié (réservé au super admin).
+  const [editTwoFactorEnabled, setEditTwoFactorEnabled] = useState(false)
+  const [isSavingTwoFactor, setIsSavingTwoFactor] = useState(false)
+  const [isResettingTwoFactor, setIsResettingTwoFactor] = useState(false)
 
   const [roleFormData, setRoleFormData] = useState({
     role: "",
@@ -88,14 +108,14 @@ export default function UsersManagement() {
       if (filters.status && filters.status !== 'all') params.append('status', filters.status)
       if (filters.searchTerm) params.append('search', filters.searchTerm)
       
-      const usersResponse = await fetch(`/api/users?${params.toString()}`)
+      const usersResponse = await fetch(`/api/users?${params.toString()}`, { headers: getAuthHeaders() })
       const usersData = await usersResponse.json()
       if (usersData.success) {
         setUsers(usersData.data || [])
       }
 
       // Charger les rôles
-      const rolesResponse = await fetch('/api/roles')
+      const rolesResponse = await fetch('/api/roles', { headers: getAuthHeaders() })
       const rolesData = await rolesResponse.json()
       if (rolesData.success) {
         setRolePermissions(rolesData.data || [])
@@ -186,6 +206,66 @@ export default function UsersManagement() {
     }
   }
 
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file || !selectedUser) return
+
+    setIsUploadingAvatar(true)
+    try {
+      const body = new FormData()
+      body.append("file", file)
+
+      const response = await authenticatedFetch(`/api/users/${selectedUser.id}/avatar`, {
+        method: 'POST',
+        body,
+      })
+      const data = await response.json()
+
+      if (data.success) {
+        const updatedUser = { ...selectedUser, avatarUrl: data.data.avatarUrl }
+        setSelectedUser(updatedUser)
+        eventBus.emit("user:updated", updatedUser)
+        toast({ title: "Avatar mis à jour", description: `Photo de ${selectedUser.firstName} ${selectedUser.lastName} mise à jour.` })
+        await loadData()
+      } else {
+        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
+      }
+    } catch (error) {
+      console.error('Error uploading avatar:', error)
+      toast({ title: "Erreur", description: "Erreur lors du téléversement de l'avatar", variant: "destructive" })
+    } finally {
+      setIsUploadingAvatar(false)
+    }
+  }
+
+  const handleRemoveAvatar = async () => {
+    if (!selectedUser) return
+
+    setIsUploadingAvatar(true)
+    try {
+      const response = await authenticatedFetch(`/api/users/${selectedUser.id}/avatar`, {
+        method: 'DELETE',
+      })
+      const data = await response.json()
+
+      if (data.success) {
+        const updatedUser = { ...selectedUser, avatarUrl: null }
+        setSelectedUser(updatedUser)
+        eventBus.emit("user:updated", updatedUser)
+        toast({ title: "Avatar supprimé", description: `Photo de ${selectedUser.firstName} ${selectedUser.lastName} retirée.` })
+        await loadData()
+      } else {
+        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
+      }
+    } catch (error) {
+      console.error('Error removing avatar:', error)
+      toast({ title: "Erreur", description: "Erreur lors de la suppression de l'avatar", variant: "destructive" })
+    } finally {
+      setIsUploadingAvatar(false)
+    }
+  }
+
   const handleEditUser = async () => {
     if (!selectedUser) return
 
@@ -193,6 +273,7 @@ export default function UsersManagement() {
       email?: string
       firstName?: string
       lastName?: string
+      password?: string
     } = {}
 
     if (!formData.email || formData.email.trim() === "") {
@@ -212,12 +293,18 @@ export default function UsersManagement() {
       errors.lastName = "Le nom est obligatoire"
     }
 
+    if (formData.password && formData.password.trim() !== "" && formData.password.length < 6) {
+      errors.password = "Le mot de passe doit contenir au moins 6 caractères"
+    }
+
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors)
       return
     }
 
     setFormErrors({})
+
+    const passwordChanged = Boolean(formData.password && formData.password.trim() !== "")
 
     try {
       const response = await fetch(`/api/users/${selectedUser.id}`, {
@@ -228,12 +315,13 @@ export default function UsersManagement() {
           firstName: formData.firstName,
           lastName: formData.lastName,
           role: formData.role,
+          ...(passwordChanged ? { password: formData.password } : {}),
         })
       })
 
       const data = await response.json()
       if (!data.success) {
-        alert(data.error || 'Erreur lors de la mise à jour')
+        toast({ title: "Erreur", description: data.error || "Erreur lors de la mise à jour", variant: "destructive" })
         return
       }
 
@@ -241,9 +329,15 @@ export default function UsersManagement() {
       setSelectedUser(null)
       resetForm()
       await loadData()
+      toast({
+        title: "Utilisateur mis à jour",
+        description: passwordChanged
+          ? "Les informations et le mot de passe ont été mis à jour avec succès."
+          : "Les informations ont été mises à jour avec succès.",
+      })
     } catch (error) {
       console.error('Error updating user:', error)
-      alert('Erreur lors de la mise à jour')
+      toast({ title: "Erreur", description: "Erreur lors de la mise à jour", variant: "destructive" })
     }
   }
 
@@ -273,7 +367,8 @@ export default function UsersManagement() {
     if (confirm("Êtes-vous sûr de vouloir désactiver cet utilisateur ?")) {
       try {
         const response = await fetch(`/api/users/${userId}`, {
-          method: 'DELETE'
+          method: 'DELETE',
+          headers: getAuthHeaders(),
         })
         const data = await response.json()
         if (data.success) {
@@ -299,7 +394,76 @@ export default function UsersManagement() {
       sendEmail: false,
     })
     setFormErrors({})
+    setShowEditPassword(false)
+    setEditTwoFactorEnabled(Boolean(user.twoFactorEnabled))
     setIsEditDialogOpen(true)
+  }
+
+  // Change le type d'authentification exigé (mot de passe seul <-> mot de
+  // passe + 2FA) pour l'utilisateur en cours d'édition. Réservé au super admin.
+  const handleSaveTwoFactorRequirement = async () => {
+    if (!selectedUser) return
+
+    setIsSavingTwoFactor(true)
+    try {
+      const response = await fetch(`/api/users/${selectedUser.id}/two-factor`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ enabled: editTwoFactorEnabled }),
+      })
+      const data = await response.json()
+      if (!data.success) {
+        toast({ title: "Erreur", description: data.error || "Erreur lors de la mise à jour", variant: "destructive" })
+        return
+      }
+
+      setSelectedUser({ ...selectedUser, twoFactorEnabled: editTwoFactorEnabled })
+      await loadData()
+      toast({
+        title: "Type d'authentification mis à jour",
+        description: editTwoFactorEnabled
+          ? "L'utilisateur devra utiliser la double authentification à sa prochaine connexion."
+          : "L'utilisateur pourra se connecter avec son mot de passe seul.",
+      })
+    } catch (error) {
+      console.error('Error updating two-factor requirement:', error)
+      toast({ title: "Erreur", description: "Erreur lors de la mise à jour du type d'authentification", variant: "destructive" })
+    } finally {
+      setIsSavingTwoFactor(false)
+    }
+  }
+
+  // Efface le secret 2FA déjà configuré (ex. authenticator perdu) : l'utilisateur
+  // devra en reconfigurer un nouveau à sa prochaine connexion. Réservé au super admin.
+  const handleResetTwoFactor = async () => {
+    if (!selectedUser) return
+    if (!confirm(`Réinitialiser la configuration 2FA de ${selectedUser.firstName} ${selectedUser.lastName} ? L'utilisateur devra reconfigurer une nouvelle application d'authentification.`)) {
+      return
+    }
+
+    setIsResettingTwoFactor(true)
+    try {
+      const response = await fetch(`/api/users/${selectedUser.id}/two-factor/reset`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      })
+      const data = await response.json()
+      if (!data.success) {
+        toast({ title: "Erreur", description: data.error || "Erreur lors de la réinitialisation", variant: "destructive" })
+        return
+      }
+
+      await loadData()
+      toast({
+        title: "Configuration 2FA réinitialisée",
+        description: "L'utilisateur devra configurer une nouvelle application d'authentification à sa prochaine connexion.",
+      })
+    } catch (error) {
+      console.error('Error resetting two-factor config:', error)
+      toast({ title: "Erreur", description: "Erreur lors de la réinitialisation de la configuration 2FA", variant: "destructive" })
+    } finally {
+      setIsResettingTwoFactor(false)
+    }
   }
 
   const resetForm = () => {
@@ -312,6 +476,7 @@ export default function UsersManagement() {
       sendEmail: false,
     })
     setFormErrors({})
+    setShowAddPassword(false)
   }
 
   const handleAddRole = async () => {
@@ -429,7 +594,8 @@ export default function UsersManagement() {
     if (confirm(`Êtes-vous sûr de vouloir supprimer le rôle "${role.role}" ?`)) {
       try {
         const response = await fetch(`/api/roles/${roleId}`, {
-          method: 'DELETE'
+          method: 'DELETE',
+          headers: getAuthHeaders(),
         })
 
         const data = await response.json()
@@ -599,7 +765,7 @@ export default function UsersManagement() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-2xl font-bold text-slate-900">Gestion des Utilisateurs</h2>
-              <p className="text-sm text-slate-600">Gérez les utilisateurs et leurs droits d'accès</p>
+              <p className="text-xs text-[#008DA8]">Gérez les utilisateurs et leurs droits d'accès</p>
             </div>
             {hasPermission('users', 'create') && (
               <Button
@@ -678,6 +844,7 @@ export default function UsersManagement() {
                     <TableHead>Email</TableHead>
                     <TableHead>Rôle</TableHead>
                     <TableHead>Statut</TableHead>
+                    <TableHead>Authentification</TableHead>
                     <TableHead>Date de création</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -686,7 +853,16 @@ export default function UsersManagement() {
                   {users.map((user) => (
                     <TableRow key={user.id}>
                       <TableCell className="font-medium">
-                        {user.firstName} {user.lastName}
+                        <div className="flex items-center gap-2">
+                          <Avatar className="h-7 w-7">
+                            <AvatarImage src={user.avatarUrl || undefined} alt={`${user.firstName} ${user.lastName}`} />
+                            <AvatarFallback className="text-xs">
+                              {user.firstName?.[0] || ""}
+                              {user.lastName?.[0] || ""}
+                            </AvatarFallback>
+                          </Avatar>
+                          {user.firstName} {user.lastName}
+                        </div>
                       </TableCell>
                       <TableCell>{user.email}</TableCell>
                       <TableCell>
@@ -695,6 +871,11 @@ export default function UsersManagement() {
                       <TableCell>
                         <Badge variant={user.isActive ? "default" : "secondary"}>
                           {user.isActive ? "Actif" : "Inactif"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={user.twoFactorEnabled ? "default" : "outline"}>
+                          {user.twoFactorEnabled ? "Mot de passe + 2FA" : "Mot de passe seul"}
                         </Badge>
                       </TableCell>
                       <TableCell>{new Date(user.createdAt).toLocaleDateString("fr-FR")}</TableCell>
@@ -887,19 +1068,30 @@ export default function UsersManagement() {
             
             <div>
               <Label htmlFor="password">Mot de passe (optionnel)</Label>
-              <Input
-                id="password"
-                type="password"
-                value={formData.password}
-                onChange={(e) => {
-                  setFormData({ ...formData, password: e.target.value })
-                  if (formErrors.password) {
-                    setFormErrors({ ...formErrors, password: undefined })
-                  }
-                }}
-                className={formErrors.password ? "border-red-500" : ""}
-                placeholder="Laissez vide pour générer automatiquement"
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showAddPassword ? "text" : "password"}
+                  value={formData.password}
+                  onChange={(e) => {
+                    setFormData({ ...formData, password: e.target.value })
+                    if (formErrors.password) {
+                      setFormErrors({ ...formErrors, password: undefined })
+                    }
+                  }}
+                  className={cn("pr-10", formErrors.password && "border-red-500")}
+                  placeholder="Laissez vide pour générer automatiquement"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAddPassword(!showAddPassword)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  tabIndex={-1}
+                  aria-label={showAddPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                >
+                  {showAddPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
               <p className="text-sm text-muted-foreground mt-1">
                 Si vide, un mot de passe temporaire sera généré automatiquement
               </p>
@@ -931,6 +1123,39 @@ export default function UsersManagement() {
             <DialogDescription>Modifiez les informations de l'utilisateur</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {selectedUser && (
+              <div className="flex items-center gap-4">
+                <Avatar className="h-16 w-16">
+                  <AvatarImage src={selectedUser.avatarUrl || undefined} alt={`${selectedUser.firstName} ${selectedUser.lastName}`} />
+                  <AvatarFallback>
+                    {selectedUser.firstName?.[0] || ""}
+                    {selectedUser.lastName?.[0] || ""}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <Button asChild size="sm" variant="outline" disabled={isUploadingAvatar}>
+                      <label htmlFor="edit-avatar-upload" className="cursor-pointer">
+                        {isUploadingAvatar ? "Envoi en cours..." : "Changer la photo"}
+                      </label>
+                    </Button>
+                    {selectedUser.avatarUrl && (
+                      <Button size="sm" variant="outline" onClick={handleRemoveAvatar} disabled={isUploadingAvatar}>
+                        Retirer
+                      </Button>
+                    )}
+                  </div>
+                  <input
+                    id="edit-avatar-upload"
+                    type="file"
+                    accept=".png,.jpg,.jpeg,.webp"
+                    className="hidden"
+                    onChange={handleAvatarChange}
+                    disabled={isUploadingAvatar}
+                  />
+                </div>
+              </div>
+            )}
             <div>
               <Label htmlFor="edit-email">Email *</Label>
               <Input
@@ -994,6 +1219,79 @@ export default function UsersManagement() {
                 </SelectContent>
               </Select>
             </div>
+            <div>
+              <Label htmlFor="edit-password">Nouveau mot de passe (optionnel)</Label>
+              <div className="relative">
+                <Input
+                  id="edit-password"
+                  type={showEditPassword ? "text" : "password"}
+                  value={formData.password}
+                  onChange={(e) => {
+                    setFormData({ ...formData, password: e.target.value })
+                    if (formErrors.password) {
+                      setFormErrors({ ...formErrors, password: undefined })
+                    }
+                  }}
+                  className={cn("pr-10", formErrors.password && "border-red-500")}
+                  placeholder="Laisser vide pour ne pas changer le mot de passe"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowEditPassword(!showEditPassword)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  tabIndex={-1}
+                  aria-label={showEditPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                >
+                  {showEditPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <p className="text-sm text-muted-foreground mt-1">
+                Renseignez ce champ pour définir un nouveau mot de passe pour cet utilisateur.
+              </p>
+              {formErrors.password && <p className="text-sm text-red-500 mt-1">{formErrors.password}</p>}
+            </div>
+            {isSuperAdmin && selectedUser && (
+              <div className="rounded-md border p-3 space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <Label htmlFor="edit-two-factor">Type d'authentification</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Réservé au super admin. Basculer vers « Mot de passe + 2FA » invite l'utilisateur à
+                      configurer une application d'authentification à sa prochaine connexion (sauf s'il en avait déjà une).
+                    </p>
+                  </div>
+                  <Select
+                    value={editTwoFactorEnabled ? "2fa" : "password"}
+                    onValueChange={(value) => setEditTwoFactorEnabled(value === "2fa")}
+                  >
+                    <SelectTrigger id="edit-two-factor" className="w-56 shrink-0">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="password">Mot de passe seul</SelectItem>
+                      <SelectItem value="2fa">Mot de passe + 2FA</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleResetTwoFactor}
+                    disabled={isResettingTwoFactor}
+                  >
+                    {isResettingTwoFactor ? "Réinitialisation..." : "Réinitialiser la 2FA"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleSaveTwoFactorRequirement}
+                    disabled={isSavingTwoFactor || editTwoFactorEnabled === Boolean(selectedUser.twoFactorEnabled)}
+                  >
+                    {isSavingTwoFactor ? "Enregistrement..." : "Appliquer le type d'authentification"}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>

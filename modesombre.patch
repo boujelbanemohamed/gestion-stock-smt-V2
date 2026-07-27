@@ -1,0 +1,249 @@
+diff --git a/app/dashboard/layout.tsx b/app/dashboard/layout.tsx
+index c64cb1b..af5846d 100644
+--- a/app/dashboard/layout.tsx
++++ b/app/dashboard/layout.tsx
+@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils"
+ import NotificationsDropdown from "@/components/notifications"
+ import GlobalSearch from "@/components/dashboard/global-search"
+ import RealtimeBridge from "@/components/dashboard/realtime-bridge"
++import { useThemeSync } from "@/hooks/use-theme-sync"
+ 
+ type NavigationItem = {
+   name: string
+@@ -187,6 +188,7 @@ export default function DashboardLayout({
+   const { user: currentUser, hasPermission, isLoading } = usePermissions()
+   const [navigation, setNavigation] = useState<NavigationItem[]>([])
+   const pathname = usePathname()
++  useThemeSync()
+ 
+   useEffect(() => {
+     if (isLoading) return
+@@ -267,12 +269,12 @@ export default function DashboardLayout({
+   }
+ 
+   return (
+-    <div className="min-h-screen bg-slate-50">
++    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+       <RealtimeBridge />
+       {/* Sidebar flottante */}
+-      <div className="fixed left-4 top-4 bottom-4 z-20 w-64 flex flex-col rounded-2xl border border-slate-200 bg-white shadow-lg overflow-y-auto">
++      <div className="fixed left-4 top-4 bottom-4 z-20 w-64 flex flex-col rounded-2xl border border-slate-200 bg-white shadow-lg overflow-y-auto dark:border-slate-800 dark:bg-slate-900">
+         {/* Logo */}
+-        <div className="p-6 border-b border-slate-200">
++        <div className="p-6 border-b border-slate-200 dark:border-slate-800">
+           <div className="flex flex-col items-center space-y-2">
+             <Image
+               src="/images/monetique-logo.png"
+@@ -283,8 +285,8 @@ export default function DashboardLayout({
+               priority
+             />
+             <div className="text-center">
+-              <h1 className="text-base font-semibold text-slate-900">Gestion de Stocks</h1>
+-              <p className="text-xs text-slate-600">Plateforme bancaire</p>
++              <h1 className="text-base font-semibold text-slate-900 dark:text-slate-100">Gestion de Stocks</h1>
++              <p className="text-xs text-slate-600 dark:text-slate-400">Plateforme bancaire</p>
+             </div>
+           </div>
+         </div>
+@@ -302,7 +304,7 @@ export default function DashboardLayout({
+                   "flex items-center space-x-3 px-3 py-2 rounded-lg text-sm transition-colors",
+                   isActive
+                     ? "bg-[#008DA8] text-black font-bold hover:bg-[#00758C]"
+-                    : "font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900",
++                    : "font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
+                 )}
+               >
+                 {item.icon}
+@@ -316,13 +318,13 @@ export default function DashboardLayout({
+       {/* Main Content */}
+       <div className="ml-72 mr-4 flex flex-col">
+         {/* Header flottant, fixe comme la barre latérale */}
+-        <header className="fixed left-72 right-4 top-4 z-10 rounded-2xl border border-slate-200 bg-white px-6 py-4 shadow-lg">
++        <header className="fixed left-72 right-4 top-4 z-10 rounded-2xl border border-slate-200 bg-white px-6 py-4 shadow-lg dark:border-slate-800 dark:bg-slate-900">
+           <div className="flex items-center justify-between">
+             <div>
+-              <h2 className="text-xl font-semibold text-slate-900">
++              <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+                 {navigation.find((item) => item.href === pathname)?.name || "Dashboard"}
+               </h2>
+-              <p className="text-sm text-slate-600">Gérez efficacement vos stocks de cartes bancaires</p>
++              <p className="text-sm text-slate-600 dark:text-slate-400">Gérez efficacement vos stocks de cartes bancaires</p>
+             </div>
+             <div className="flex items-center gap-4">
+               <GlobalSearch />
+@@ -335,7 +337,7 @@ export default function DashboardLayout({
+                   </AvatarFallback>
+                 </Avatar>
+                 <div className="text-right">
+-                  <p className="text-sm font-medium text-slate-900">
++                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                     {currentUser?.firstName || ''} {currentUser?.lastName || ''}
+                   </p>
+                   <Badge variant={getRoleBadgeVariant(currentUser?.role || 'user')} className="text-xs">
+diff --git a/app/layout.tsx b/app/layout.tsx
+index 33b2223..626212c 100644
+--- a/app/layout.tsx
++++ b/app/layout.tsx
+@@ -1,9 +1,24 @@
+ import type React from "react"
+ import type { Metadata } from "next"
++import Script from "next/script"
+ import { Inter, JetBrains_Mono } from "next/font/google"
+ import { Toaster } from "@/components/ui/toaster"
+ import "./globals.css"
+ 
++// Applique le thème (clair/sombre/automatique) mis en cache avant l'hydratation,
++// pour éviter un flash de thème incorrect au chargement. La valeur réelle,
++// configurée dans Configuration > Affichage, est ensuite synchronisée par
++// useThemeSync (voir app/dashboard/layout.tsx).
++const THEME_INIT_SCRIPT = `
++(function () {
++  try {
++    var theme = localStorage.getItem("theme") || "auto";
++    var isDark = theme === "dark" || (theme === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
++    document.documentElement.classList.toggle("dark", isDark);
++  } catch (e) {}
++})();
++`
++
+ const geistSans = Inter({
+   variable: "--font-geist-sans",
+   subsets: ["latin"],
+@@ -26,8 +41,11 @@ export default function RootLayout({
+   children: React.ReactNode
+ }>) {
+   return (
+-    <html lang="fr" className={`${geistSans.variable} ${geistMono.variable}`}>
++    <html lang="fr" className={`${geistSans.variable} ${geistMono.variable}`} suppressHydrationWarning>
+       <body className="font-sans antialiased">
++        <Script id="theme-init" strategy="beforeInteractive">
++          {THEME_INIT_SCRIPT}
++        </Script>
+         {children}
+         <Toaster />
+       </body>
+diff --git a/components/dashboard/configuration-panel.tsx b/components/dashboard/configuration-panel.tsx
+index e514092..b1e6f25 100644
+--- a/components/dashboard/configuration-panel.tsx
++++ b/components/dashboard/configuration-panel.tsx
+@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator"
+ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+ import type { AppConfig, MovementReason } from "@/lib/types"
+ import { getAuthHeaders } from "@/lib/api-client"
++import { applyTheme, storeTheme, type Theme } from "@/lib/theme"
+ import { toast } from "@/hooks/use-toast"
+ import { Mail, Bell, Eye, Shield, Save, Building2, Tag, Trash2, Plus } from "lucide-react"
+ 
+@@ -218,6 +219,9 @@ export default function ConfigurationPanel() {
+       
+       if (data.success) {
+         setSaveMessage({ type: "success", text: "Configuration enregistrée avec succès" })
++        // Applique et mémorise immédiatement le thème choisi, sans attendre un rechargement.
++        storeTheme(config.display.theme as Theme)
++        applyTheme(config.display.theme as Theme)
+       } else {
+         setSaveMessage({ type: "error", text: data.error || "Erreur lors de l'enregistrement" })
+       }
+@@ -1076,6 +1080,28 @@ export default function ConfigurationPanel() {
+               <CardDescription>Personnalisez l'apparence de l'interface</CardDescription>
+             </CardHeader>
+             <CardContent className="space-y-4">
++              <div className="space-y-2">
++                <Label htmlFor="theme">Thème</Label>
++                <Select
++                  value={config.display.theme}
++                  onValueChange={(value: "light" | "dark" | "auto") =>
++                    setConfig({
++                      ...config,
++                      display: { ...config.display, theme: value },
++                    })
++                  }
++                >
++                  <SelectTrigger id="theme">
++                    <SelectValue />
++                  </SelectTrigger>
++                  <SelectContent>
++                    <SelectItem value="light">Clair</SelectItem>
++                    <SelectItem value="dark">Sombre</SelectItem>
++                    <SelectItem value="auto">Automatique (système)</SelectItem>
++                  </SelectContent>
++                </Select>
++              </div>
++
+               <div className="space-y-2">
+                 <Label htmlFor="dateFormat">Format de date</Label>
+                 <Select
+diff --git a/hooks/use-theme-sync.ts b/hooks/use-theme-sync.ts
+new file mode 100644
+index 0000000..14da964
+--- /dev/null
++++ b/hooks/use-theme-sync.ts
+@@ -0,0 +1,37 @@
++"use client"
++
++import { useEffect } from "react"
++import { authenticatedFetch } from "@/lib/api-client"
++import { applyTheme, getStoredTheme, storeTheme, type Theme } from "@/lib/theme"
++
++// Applique le thème déjà mis en cache (voir le script d'amorçage dans
++// app/layout.tsx, qui évite le flash au chargement), puis le synchronise avec
++// la valeur configurée dans Configuration > Affichage, et suit les
++// changements de préférence système tant que le thème choisi est "Automatique".
++export function useThemeSync() {
++  useEffect(() => {
++    let currentTheme = getStoredTheme()
++
++    const media = window.matchMedia("(prefers-color-scheme: dark)")
++    const onMediaChange = () => {
++      if (currentTheme === "auto") applyTheme("auto")
++    }
++    media.addEventListener("change", onMediaChange)
++    ;(async () => {
++      try {
++        const response = await authenticatedFetch("/api/config")
++        const data = await response.json()
++        const configuredTheme: Theme = data?.data?.display?.theme || "auto"
++        if (configuredTheme !== currentTheme) {
++          currentTheme = configuredTheme
++          storeTheme(configuredTheme)
++          applyTheme(configuredTheme)
++        }
++      } catch (error) {
++        console.error("Error loading theme config:", error)
++      }
++    })()
++
++    return () => media.removeEventListener("change", onMediaChange)
++  }, [])
++}
+diff --git a/lib/theme.ts b/lib/theme.ts
+new file mode 100644
+index 0000000..0f7252b
+--- /dev/null
++++ b/lib/theme.ts
+@@ -0,0 +1,25 @@
++"use client"
++
++// Applique et persiste le thème (clair/sombre/automatique) choisi dans
++// Configuration > Affichage. La classe .dark et ses variables CSS existent
++// déjà dans app/globals.css ; il ne restait qu'à la piloter.
++
++export type Theme = "light" | "dark" | "auto"
++
++const STORAGE_KEY = "theme"
++
++export function applyTheme(theme: Theme) {
++  if (typeof window === "undefined") return
++  const isDark = theme === "dark" || (theme === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches)
++  document.documentElement.classList.toggle("dark", isDark)
++}
++
++export function storeTheme(theme: Theme) {
++  if (typeof window === "undefined") return
++  localStorage.setItem(STORAGE_KEY, theme)
++}
++
++export function getStoredTheme(): Theme {
++  if (typeof window === "undefined") return "auto"
++  return (localStorage.getItem(STORAGE_KEY) as Theme) || "auto"
++}

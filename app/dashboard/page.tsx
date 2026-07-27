@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -10,7 +11,8 @@ import type { AuditLog } from "@/lib/types"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react"
+import { authenticatedFetch } from "@/lib/api-client"
 
 export default function DashboardPage() {
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined)
@@ -23,6 +25,7 @@ export default function DashboardPage() {
   const [topBanksWithStock, setTopBanksWithStock] = useState<Array<{ id: string; name: string; totalStock: number }>>([])
   const [bottomBanksWithStock, setBottomBanksWithStock] = useState<Array<{ id: string; name: string; totalStock: number }>>([])
   const [topBanksWithExits, setTopBanksWithExits] = useState<Array<{ id: string; name: string; numberOfBons: number; totalQuantity: number }>>([])
+  const [lowStockCardsList, setLowStockCardsList] = useState<Array<{ id: string; name: string; bankName: string; quantity: number; minThreshold: number }>>([])
   const [recentLogs, setRecentLogs] = useState<AuditLog[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -38,7 +41,7 @@ export default function DashboardPage() {
 
       // Charger les stats avec filtre de date
       const statsUrl = params.toString() ? `/api/stats?${params.toString()}` : '/api/stats'
-      const statsResponse = await fetch(statsUrl)
+      const statsResponse = await authenticatedFetch(statsUrl)
       const statsData = await statsResponse.json()
       
       if (statsData.success) {
@@ -52,6 +55,7 @@ export default function DashboardPage() {
         setTopBanksWithStock(statsData.data.topBanksWithStock || [])
         setBottomBanksWithStock(statsData.data.bottomBanksWithStock || [])
         setTopBanksWithExits(statsData.data.topBanksWithExits || [])
+        setLowStockCardsList(statsData.data.lowStockCardsList || [])
       }
 
       // Charger les logs avec filtre de date et pagination
@@ -59,7 +63,7 @@ export default function DashboardPage() {
       logsParams.append('limit', logsPerPage.toString())
       logsParams.append('offset', ((currentPage - 1) * logsPerPage).toString())
       
-      const logsResponse = await fetch(`/api/logs?${logsParams.toString()}`)
+      const logsResponse = await authenticatedFetch(`/api/logs?${logsParams.toString()}`)
       const logsData = await logsResponse.json()
       
       if (logsData.success) {
@@ -83,7 +87,9 @@ export default function DashboardPage() {
 
   // Utiliser les hooks pour la synchronisation (avec une fréquence plus raisonnable)
   useDataSync(["banks", "cards", "locations", "movements", "users"], loadData)
-  useAutoRefresh(loadData, 60000) // 1 minute au lieu de 30 secondes
+  // Les mouvements sont désormais poussés en temps réel (SSE, voir RealtimeBridge) ;
+  // ce polling ne sert plus que de filet de sécurité en cas de coupure de la connexion.
+  useAutoRefresh(loadData, 5 * 60000) // 5 minutes
 
   const getActionLabel = (action: string): string => {
     const labels: { [key: string]: string } = {
@@ -219,6 +225,46 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Alertes stock bas */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-destructive" />
+            <CardTitle>Alertes stock bas</CardTitle>
+          </div>
+          <CardDescription>Cartes dont le stock est passé sous le seuil minimum</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {lowStockCardsList.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">Aucune carte en stock bas</p>
+          ) : (
+            <div className="space-y-3">
+              {lowStockCardsList.map((card) => (
+                <div key={card.id} className="flex items-center justify-between p-3 rounded-lg border bg-muted/50">
+                  <div>
+                    <p className="font-medium">{card.name}</p>
+                    <p className="text-xs text-muted-foreground">{card.bankName}</p>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-destructive">
+                        {card.quantity} / {card.minThreshold}
+                      </p>
+                      <p className="text-xs text-muted-foreground">stock / seuil min.</p>
+                    </div>
+                    <Link href={`/dashboard/cards/${card.id}`}>
+                      <Button variant="outline" size="sm">
+                        Voir la carte
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Top 5 des banques par stock */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -10,8 +10,13 @@ import type { User } from "@/lib/types"
 import { usePermissions } from "@/hooks/use-permissions"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
+import { Menu, X } from "lucide-react"
 import NotificationsDropdown from "@/components/notifications"
+import GlobalSearch from "@/components/dashboard/global-search"
+import RealtimeBridge from "@/components/dashboard/realtime-bridge"
+import { useThemeSync } from "@/hooks/use-theme-sync"
 
 type NavigationItem = {
   name: string
@@ -183,7 +188,14 @@ export default function DashboardLayout({
 }) {
   const { user: currentUser, hasPermission, isLoading } = usePermissions()
   const [navigation, setNavigation] = useState<NavigationItem[]>([])
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const pathname = usePathname()
+  useThemeSync()
+
+  // Referme le menu mobile dès qu'on navigue vers une nouvelle page.
+  useEffect(() => {
+    setIsMobileMenuOpen(false)
+  }, [pathname])
 
   useEffect(() => {
     if (isLoading) return
@@ -264,40 +276,67 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      {/* Sidebar */}
-      <div className="w-64 bg-white border-r border-slate-200 flex flex-col">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+      <RealtimeBridge />
+
+      {/* Fond assombri derrière le menu mobile ouvert (barre latérale en tiroir) */}
+      {isMobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-20 bg-black/40 md:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar flottante : en tiroir (masquée par défaut) sur mobile, toujours visible dès md */}
+      <div
+        className={cn(
+          "fixed left-4 top-4 bottom-4 z-30 w-64 flex flex-col rounded-2xl border border-slate-200 bg-white shadow-lg overflow-y-auto transition-transform duration-200 dark:border-slate-800 dark:bg-slate-900 md:translate-x-0",
+          isMobileMenuOpen ? "translate-x-0" : "-translate-x-[120%]",
+        )}
+      >
         {/* Logo */}
-        <div className="p-6 border-b border-slate-200">
-          <div className="flex flex-col items-center space-y-2">
-            <Image
-              src="/images/monetique-logo.png"
-              alt="Monétique Tunisie"
-              width={160}
-              height={50}
-              className="object-contain h-12 w-auto"
-              priority
-            />
-            <div className="text-center">
-              <h1 className="text-base font-semibold text-slate-900">Gestion de Stocks</h1>
-              <p className="text-xs text-slate-600">Plateforme bancaire</p>
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800">
+          <div className="flex items-center justify-between md:justify-center">
+            <div className="flex flex-1 flex-col items-center space-y-2">
+              <Image
+                src="/images/monetique-logo.png"
+                alt="Monétique Tunisie"
+                width={160}
+                height={50}
+                className="object-contain h-12 w-auto"
+                priority
+              />
+              <div className="text-center">
+                <h1 className="text-base font-semibold text-slate-900 dark:text-slate-100">Gestion de Stocks</h1>
+                <p className="text-xs text-slate-600 dark:text-slate-400">Plateforme bancaire</p>
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="ml-2 rounded-lg p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 md:hidden dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+              aria-label="Fermer le menu"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
         </div>
 
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-2">
-          {navigation.map((item) => {
+          {/* "Mon Profil" est affiché dans l'en-tête, pas dans la barre latérale */}
+          {navigation.filter((item) => item.href !== "/dashboard/profile").map((item) => {
             const isActive = pathname === item.href
             return (
               <Link
                 key={item.name}
                 href={item.href}
                 className={cn(
-                  "flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                  "flex items-center space-x-3 px-3 py-2 rounded-lg text-sm transition-colors",
                   isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-slate-700 hover:bg-slate-100 hover:text-slate-900",
+                    ? "bg-[#008DA8] text-black font-bold hover:bg-[#00758C]"
+                    : "font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
                 )}
               >
                 {item.icon}
@@ -307,17 +346,20 @@ export default function DashboardLayout({
           })}
         </nav>
 
-        {/* User Info */}
-        <div className="p-4 border-t border-slate-200">
-          <div className="flex items-center space-x-3 mb-3">
-            <div className="h-8 w-8 rounded-full bg-slate-200 flex items-center justify-center">
-              <span className="text-sm font-medium text-slate-700">
-                {(currentUser?.firstName && currentUser.firstName.length > 0) ? currentUser.firstName[0] : ''}
-                {(currentUser?.lastName && currentUser.lastName.length > 0) ? currentUser.lastName[0] : ''}
-              </span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-slate-900 truncate">
+        {/* Sur mobile, le compte et la recherche vivent dans le tiroir plutôt que
+            dans l'en-tête (trop étroit pour tout afficher sur un petit écran). */}
+        <div className="space-y-3 border-t border-slate-200 p-4 md:hidden dark:border-slate-800">
+          <GlobalSearch />
+          <div className="flex items-center gap-2">
+            <Avatar className="h-8 w-8">
+              <AvatarImage src={currentUser?.avatarUrl || undefined} alt={`${currentUser?.firstName || ''} ${currentUser?.lastName || ''}`} />
+              <AvatarFallback className="text-xs">
+                {currentUser?.firstName?.[0] || ""}
+                {currentUser?.lastName?.[0] || ""}
+              </AvatarFallback>
+            </Avatar>
+            <div>
+              <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
                 {currentUser?.firstName || ''} {currentUser?.lastName || ''}
               </p>
               <Badge variant={getRoleBadgeVariant(currentUser?.role || 'user')} className="text-xs">
@@ -325,29 +367,80 @@ export default function DashboardLayout({
               </Badge>
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={handleLogout} className="w-full bg-transparent">
+          <Link href="/dashboard/profile" className="block">
+            <Button variant="outline" size="sm" className="w-full">
+              Mon Profil
+            </Button>
+          </Link>
+          <Button size="sm" onClick={handleLogout} className="w-full bg-red-600 text-white hover:bg-red-700">
             Déconnexion
           </Button>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <header className="bg-white border-b border-slate-200 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-slate-900">
-                {navigation.find((item) => item.href === pathname)?.name || "Dashboard"}
-              </h2>
-              <p className="text-sm text-slate-600">Gérez efficacement vos stocks de cartes bancaires</p>
+      <div className="ml-4 mr-4 flex flex-col md:ml-72">
+        {/* Header flottant, fixe comme la barre latérale */}
+        <header className="fixed left-4 right-4 top-4 z-10 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-lg sm:px-6 dark:border-slate-800 dark:bg-slate-900 md:left-72">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setIsMobileMenuOpen(true)}
+                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 md:hidden dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                aria-label="Ouvrir le menu"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+              <div className="min-w-0">
+                <h2 className="truncate text-lg font-semibold text-slate-900 sm:text-xl dark:text-slate-100">
+                  {navigation.find((item) => item.href === pathname)?.name || "Dashboard"}
+                </h2>
+                <p className="hidden truncate text-sm text-slate-600 sm:block dark:text-slate-400">
+                  Gérez efficacement vos stocks de cartes bancaires
+                </p>
+              </div>
             </div>
-            <NotificationsDropdown />
+            <div className="flex shrink-0 items-center gap-3">
+              {/* Toujours visible, y compris sur mobile où le reste (recherche,
+                  compte, déconnexion) se trouve dans le tiroir latéral. */}
+              <NotificationsDropdown />
+              <div className="hidden items-center gap-4 md:flex">
+                <div className="w-72">
+                  <GlobalSearch />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Avatar className="h-8 w-8">
+                    <AvatarImage src={currentUser?.avatarUrl || undefined} alt={`${currentUser?.firstName || ''} ${currentUser?.lastName || ''}`} />
+                    <AvatarFallback className="text-xs">
+                      {currentUser?.firstName?.[0] || ""}
+                      {currentUser?.lastName?.[0] || ""}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="text-right">
+                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                      {currentUser?.firstName || ''} {currentUser?.lastName || ''}
+                    </p>
+                    <Badge variant={getRoleBadgeVariant(currentUser?.role || 'user')} className="text-xs">
+                      {currentUser?.role ? (currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1)) : 'User'}
+                    </Badge>
+                  </div>
+                </div>
+                <Link href="/dashboard/profile">
+                  <Button variant="outline" size="sm">
+                    Mon Profil
+                  </Button>
+                </Link>
+                <Button size="sm" onClick={handleLogout} className="bg-red-600 text-white hover:bg-red-700">
+                  Déconnexion
+                </Button>
+              </div>
+            </div>
           </div>
         </header>
 
-        {/* Page Content */}
-        <main className="flex-1 p-6">{children}</main>
+        {/* Page Content (mt pour ne pas passer sous l'en-tête fixe) */}
+        <main className="flex-1 p-4 mt-24 sm:p-6 sm:mt-28">{children}</main>
       </div>
     </div>
   )

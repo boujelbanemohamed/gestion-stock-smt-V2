@@ -1,0 +1,654 @@
+diff --git a/app/api/movement-reasons/[id]/route.ts b/app/api/movement-reasons/[id]/route.ts
+new file mode 100644
+index 0000000..db9ed2e
+--- /dev/null
++++ b/app/api/movement-reasons/[id]/route.ts
+@@ -0,0 +1,117 @@
++import { type NextRequest, NextResponse } from "next/server"
++import { prisma } from "@/lib/db"
++import type { ApiResponse } from "@/lib/api-types"
++import type { MovementReason } from "@/lib/types"
++import { logAudit } from "@/lib/audit-logger"
++import { requireAdmin } from "@/lib/auth-middleware"
++
++// PUT /api/movement-reasons/[id] - Mettre à jour un motif (admin uniquement)
++// DELETE /api/movement-reasons/[id] - Supprimer un motif (admin uniquement, sauf "Autre")
++
++// Forcer la route à être dynamique (ne pas pré-rendre)
++export const dynamic = 'force-dynamic'
++export const runtime = 'nodejs'
++
++export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAdmin(request)
++  if (!auth.authorized) return auth.response
++
++  try {
++    const body = await request.json()
++
++    const reason = await prisma.movementReason.findUnique({ where: { id: params.id } })
++    if (!reason) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "Motif non trouvé" },
++        { status: 404 },
++      )
++    }
++
++    if (body.label !== undefined && (typeof body.label !== "string" || !body.label.trim())) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "Le libellé du motif ne peut pas être vide" },
++        { status: 400 },
++      )
++    }
++
++    const updatedReason = await prisma.movementReason.update({
++      where: { id: params.id },
++      data: {
++        ...(body.label !== undefined && { label: body.label.trim() }),
++        ...(body.isActive !== undefined && { isActive: body.isActive }),
++        // isOther n'est jamais modifiable via l'API : c'est un indicateur système.
++      },
++    })
++
++    await logAudit({
++      userId: auth.user.id,
++      userEmail: auth.user.email,
++      action: "update",
++      module: "config",
++      entityType: "movement_reason",
++      entityId: updatedReason.id,
++      entityName: updatedReason.label,
++      details: `Modification du motif "${updatedReason.label}" par ${auth.user.email}`,
++      status: "success",
++    }, request)
++
++    return NextResponse.json<ApiResponse<MovementReason>>({
++      success: true,
++      data: updatedReason as MovementReason,
++      message: "Motif mis à jour avec succès",
++    })
++  } catch (error) {
++    console.error('Error updating movement reason:', error)
++    return NextResponse.json<ApiResponse>(
++      { success: false, error: "Erreur lors de la mise à jour du motif" },
++      { status: 500 },
++    )
++  }
++}
++
++export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAdmin(request)
++  if (!auth.authorized) return auth.response
++
++  try {
++    const reason = await prisma.movementReason.findUnique({ where: { id: params.id } })
++    if (!reason) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "Motif non trouvé" },
++        { status: 404 },
++      )
++    }
++
++    if (reason.isOther) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "Le motif \"Autre\" ne peut pas être supprimé" },
++        { status: 403 },
++      )
++    }
++
++    await prisma.movementReason.delete({ where: { id: params.id } })
++
++    await logAudit({
++      userId: auth.user.id,
++      userEmail: auth.user.email,
++      action: "delete",
++      module: "config",
++      entityType: "movement_reason",
++      entityId: reason.id,
++      entityName: reason.label,
++      details: `Suppression du motif "${reason.label}" par ${auth.user.email}`,
++      status: "success",
++    }, request)
++
++    return NextResponse.json<ApiResponse>({
++      success: true,
++      message: "Motif supprimé avec succès",
++    })
++  } catch (error) {
++    console.error('Error deleting movement reason:', error)
++    return NextResponse.json<ApiResponse>(
++      { success: false, error: "Erreur lors de la suppression du motif" },
++      { status: 500 },
++    )
++  }
++}
+diff --git a/app/api/movement-reasons/route.ts b/app/api/movement-reasons/route.ts
+new file mode 100644
+index 0000000..b128bdf
+--- /dev/null
++++ b/app/api/movement-reasons/route.ts
+@@ -0,0 +1,103 @@
++import { type NextRequest, NextResponse } from "next/server"
++import { prisma } from "@/lib/db"
++import type { ApiResponse } from "@/lib/api-types"
++import type { MovementReason } from "@/lib/types"
++import { logAudit } from "@/lib/audit-logger"
++import { requireAuth, requireAdmin } from "@/lib/auth-middleware"
++
++// GET /api/movement-reasons - Récupérer la liste des motifs de mouvement
++// POST /api/movement-reasons - Créer un nouveau motif (admin uniquement)
++
++// Forcer la route à être dynamique (ne pas pré-rendre)
++export const dynamic = 'force-dynamic'
++export const runtime = 'nodejs'
++
++const DEFAULT_REASONS = [
++  "Fabrication",
++  "Expedition",
++  "Expedition Sortie",
++  "Transfert",
++  "Entrée en stock",
++]
++
++export async function GET(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
++  try {
++    let reasons = await prisma.movementReason.findMany({
++      orderBy: { createdAt: 'asc' },
++    })
++
++    // Première utilisation : créer les motifs par défaut (dont "Autre", protégé et non supprimable).
++    if (reasons.length === 0) {
++      await prisma.movementReason.createMany({
++        data: [
++          ...DEFAULT_REASONS.map((label) => ({ label })),
++          { label: "Autre", isOther: true },
++        ],
++      })
++      reasons = await prisma.movementReason.findMany({
++        orderBy: { createdAt: 'asc' },
++      })
++    }
++
++    return NextResponse.json<ApiResponse<MovementReason[]>>({
++      success: true,
++      data: reasons as MovementReason[],
++    })
++  } catch (error) {
++    console.error('Error fetching movement reasons:', error)
++    return NextResponse.json<ApiResponse>(
++      {
++        success: false,
++        error: "Erreur lors de la récupération des motifs",
++      },
++      { status: 500 },
++    )
++  }
++}
++
++export async function POST(request: NextRequest) {
++  const auth = requireAdmin(request)
++  if (!auth.authorized) return auth.response
++
++  try {
++    const body = await request.json()
++
++    if (!body.label || typeof body.label !== "string" || !body.label.trim()) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "Le libellé du motif est requis" },
++        { status: 400 },
++      )
++    }
++
++    // "Autre" est un motif système unique : on ne peut pas en créer un second via l'API publique.
++    const newReason = await prisma.movementReason.create({
++      data: { label: body.label.trim(), isOther: false },
++    })
++
++    await logAudit({
++      userId: auth.user.id,
++      userEmail: auth.user.email,
++      action: "create",
++      module: "config",
++      entityType: "movement_reason",
++      entityId: newReason.id,
++      entityName: newReason.label,
++      details: `Création du motif "${newReason.label}" par ${auth.user.email}`,
++      status: "success",
++    }, request)
++
++    return NextResponse.json<ApiResponse<MovementReason>>(
++      { success: true, data: newReason as MovementReason, message: "Motif créé avec succès" },
++      { status: 201 },
++    )
++  } catch (error) {
++    console.error('Error creating movement reason:', error)
++    return NextResponse.json<ApiResponse>(
++      { success: false, error: "Erreur lors de la création du motif" },
++      { status: 500 },
++    )
++  }
++}
+diff --git a/components/dashboard/configuration-panel.tsx b/components/dashboard/configuration-panel.tsx
+index f3e928c..b23ae7c 100644
+--- a/components/dashboard/configuration-panel.tsx
++++ b/components/dashboard/configuration-panel.tsx
+@@ -10,9 +10,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+ import { Separator } from "@/components/ui/separator"
+ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+-import type { AppConfig } from "@/lib/types"
++import type { AppConfig, MovementReason } from "@/lib/types"
+ import { getAuthHeaders } from "@/lib/api-client"
+-import { Mail, Bell, Eye, Shield, Save, Building2 } from "lucide-react"
++import { toast } from "@/hooks/use-toast"
++import { Mail, Bell, Eye, Shield, Save, Building2, Tag, Trash2, Plus } from "lucide-react"
+ 
+ export default function ConfigurationPanel() {
+   const [config, setConfig] = useState<AppConfig | null>(null)
+@@ -23,10 +24,112 @@ export default function ConfigurationPanel() {
+   const [emailPreviewOpen, setEmailPreviewOpen] = useState(false)
+   const [selectedEmailTemplate, setSelectedEmailTemplate] = useState<"welcome" | "lowStock" | "movement" | "userActivity">("welcome")
+ 
++  const [reasons, setReasons] = useState<MovementReason[]>([])
++  const [reasonLabels, setReasonLabels] = useState<Record<string, string>>({})
++  const [newReasonLabel, setNewReasonLabel] = useState("")
++  const [isAddingReason, setIsAddingReason] = useState(false)
++  const [savingReasonId, setSavingReasonId] = useState<string | null>(null)
++  const [deletingReasonId, setDeletingReasonId] = useState<string | null>(null)
++
+   useEffect(() => {
+     loadConfig()
++    loadReasons()
+   }, [])
+ 
++  const loadReasons = async () => {
++    try {
++      const response = await fetch('/api/movement-reasons', { headers: getAuthHeaders() })
++      const data = await response.json()
++      if (data.success) {
++        const list: MovementReason[] = data.data || []
++        setReasons(list)
++        setReasonLabels(Object.fromEntries(list.map((r) => [r.id, r.label])))
++      }
++    } catch (error) {
++      console.error('Error loading movement reasons:', error)
++    }
++  }
++
++  const handleSaveReasonLabel = async (reasonId: string) => {
++    const label = (reasonLabels[reasonId] || "").trim()
++    if (!label) {
++      toast({ title: "Erreur", description: "Le libellé ne peut pas être vide", variant: "destructive" })
++      return
++    }
++    setSavingReasonId(reasonId)
++    try {
++      const response = await fetch(`/api/movement-reasons/${reasonId}`, {
++        method: 'PUT',
++        headers: getAuthHeaders(),
++        body: JSON.stringify({ label }),
++      })
++      const data = await response.json()
++      if (data.success) {
++        toast({ title: "Motif mis à jour", description: `"${label}" enregistré avec succès` })
++        await loadReasons()
++      } else {
++        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
++      }
++    } catch (error) {
++      console.error('Error updating movement reason:', error)
++      toast({ title: "Erreur", description: "Erreur lors de la mise à jour du motif", variant: "destructive" })
++    } finally {
++      setSavingReasonId(null)
++    }
++  }
++
++  const handleDeleteReason = async (reason: MovementReason) => {
++    if (reason.isOther) return
++    if (!confirm(`Supprimer le motif "${reason.label}" ?`)) return
++
++    setDeletingReasonId(reason.id)
++    try {
++      const response = await fetch(`/api/movement-reasons/${reason.id}`, {
++        method: 'DELETE',
++        headers: getAuthHeaders(),
++      })
++      const data = await response.json()
++      if (data.success) {
++        toast({ title: "Motif supprimé", description: `"${reason.label}" a été supprimé` })
++        await loadReasons()
++      } else {
++        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
++      }
++    } catch (error) {
++      console.error('Error deleting movement reason:', error)
++      toast({ title: "Erreur", description: "Erreur lors de la suppression du motif", variant: "destructive" })
++    } finally {
++      setDeletingReasonId(null)
++    }
++  }
++
++  const handleAddReason = async () => {
++    const label = newReasonLabel.trim()
++    if (!label) return
++
++    setIsAddingReason(true)
++    try {
++      const response = await fetch('/api/movement-reasons', {
++        method: 'POST',
++        headers: getAuthHeaders(),
++        body: JSON.stringify({ label }),
++      })
++      const data = await response.json()
++      if (data.success) {
++        setNewReasonLabel("")
++        toast({ title: "Motif créé", description: `"${label}" a été ajouté` })
++        await loadReasons()
++      } else {
++        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
++      }
++    } catch (error) {
++      console.error('Error creating movement reason:', error)
++      toast({ title: "Erreur", description: "Erreur lors de la création du motif", variant: "destructive" })
++    } finally {
++      setIsAddingReason(false)
++    }
++  }
++
+   const loadConfig = async () => {
+     try {
+       const response = await fetch('/api/config', { headers: getAuthHeaders() })
+@@ -409,7 +512,7 @@ export default function ConfigurationPanel() {
+       )}
+ 
+       <Tabs defaultValue="general" className="space-y-6">
+-        <TabsList className="grid w-full grid-cols-5">
++        <TabsList className="grid w-full grid-cols-6">
+           <TabsTrigger value="general" className="gap-2">
+             <Building2 className="h-4 w-4" />
+             Général
+@@ -430,6 +533,10 @@ export default function ConfigurationPanel() {
+             <Shield className="h-4 w-4" />
+             Sécurité
+           </TabsTrigger>
++          <TabsTrigger value="reasons" className="gap-2">
++            <Tag className="h-4 w-4" />
++            Motifs
++          </TabsTrigger>
+         </TabsList>
+ 
+         {/* General Settings */}
+@@ -1360,6 +1467,75 @@ export default function ConfigurationPanel() {
+             </CardContent>
+           </Card>
+         </TabsContent>
++
++        {/* Motifs de mouvement */}
++        <TabsContent value="reasons">
++          <Card>
++            <CardHeader>
++              <CardTitle>Motifs de mouvement</CardTitle>
++              <CardDescription>
++                Gérez la liste des motifs proposés lors de la création d'un mouvement de stock.
++                Le motif "Autre" ne peut pas être supprimé : il permet la saisie libre d'un motif personnalisé.
++              </CardDescription>
++            </CardHeader>
++            <CardContent className="space-y-4">
++              {reasons.map((reason) => (
++                <div key={reason.id} className="flex items-center gap-2">
++                  <Input
++                    value={reasonLabels[reason.id] ?? reason.label}
++                    onChange={(e) =>
++                      setReasonLabels({ ...reasonLabels, [reason.id]: e.target.value })
++                    }
++                  />
++                  {reason.isOther && (
++                    <span className="whitespace-nowrap rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">
++                      Protégé
++                    </span>
++                  )}
++                  <Button
++                    type="button"
++                    size="sm"
++                    variant="outline"
++                    disabled={savingReasonId === reason.id || (reasonLabels[reason.id] ?? reason.label) === reason.label}
++                    onClick={() => handleSaveReasonLabel(reason.id)}
++                  >
++                    <Save className="h-4 w-4" />
++                  </Button>
++                  <Button
++                    type="button"
++                    size="sm"
++                    variant="outline"
++                    disabled={reason.isOther || deletingReasonId === reason.id}
++                    onClick={() => handleDeleteReason(reason)}
++                    title={reason.isOther ? "Le motif \"Autre\" ne peut pas être supprimé" : "Supprimer"}
++                  >
++                    <Trash2 className="h-4 w-4" />
++                  </Button>
++                </div>
++              ))}
++
++              <Separator />
++
++              <div className="flex items-center gap-2">
++                <Input
++                  placeholder="Nouveau motif"
++                  value={newReasonLabel}
++                  onChange={(e) => setNewReasonLabel(e.target.value)}
++                  onKeyDown={(e) => {
++                    if (e.key === "Enter") {
++                      e.preventDefault()
++                      handleAddReason()
++                    }
++                  }}
++                />
++                <Button type="button" onClick={handleAddReason} disabled={isAddingReason || !newReasonLabel.trim()}>
++                  <Plus className="h-4 w-4 mr-1" />
++                  Ajouter
++                </Button>
++              </div>
++            </CardContent>
++          </Card>
++        </TabsContent>
+       </Tabs>
+     </div>
+   )
+diff --git a/components/dashboard/movements-management.tsx b/components/dashboard/movements-management.tsx
+index c619d41..f6fff3c 100644
+--- a/components/dashboard/movements-management.tsx
++++ b/components/dashboard/movements-management.tsx
+@@ -22,7 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
+ import { Badge } from "@/components/ui/badge"
+ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+ import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
+-import type { Movement, Card as CardType, Location, Bank } from "@/lib/types"
++import type { Movement, Card as CardType, Location, Bank, MovementReason } from "@/lib/types"
+ import { Filter, ChevronLeft, ChevronRight, Paperclip } from "lucide-react"
+ import { getAuthHeaders, authenticatedFetch } from "@/lib/api-client"
+ import { toast } from "@/hooks/use-toast"
+@@ -67,6 +67,8 @@ export default function MovementsManagement() {
+   const [movements, setMovements] = useState<Movement[]>([])
+   const [cards, setCards] = useState<CardType[]>([])
+   const [locations, setLocations] = useState<Location[]>([])
++  const [movementReasons, setMovementReasons] = useState<MovementReason[]>([])
++  const [selectedReasonId, setSelectedReasonId] = useState<string>("")
+   const [banks, setBanks] = useState<Bank[]>([])
+   const [currentUser, setCurrentUser] = useState<any>(null)
+   const [logoPath, setLogoPath] = useState<string>('/placeholder-logo.png')
+@@ -122,6 +124,8 @@ export default function MovementsManagement() {
+     loadCardsLocationsBanks()
+     // Charger la configuration pour le logo
+     loadConfig()
++    // Charger la liste des motifs (gérée dans Configuration > Motifs)
++    loadMovementReasons()
+   }, [])
+ 
+   const loadConfig = async () => {
+@@ -136,6 +140,18 @@ export default function MovementsManagement() {
+     }
+   }
+ 
++  const loadMovementReasons = async () => {
++    try {
++      const response = await fetch('/api/movement-reasons', { headers: getAuthHeaders() })
++      const data = await response.json()
++      if (data.success) {
++        setMovementReasons((data.data || []).filter((r: MovementReason) => r.isActive))
++      }
++    } catch (error) {
++      console.error('Error loading movement reasons:', error)
++    }
++  }
++
+   // Recharger les mouvements quand les filtres ou la page changent
+   useEffect(() => {
+     loadMovements()
+@@ -1098,8 +1114,11 @@ export default function MovementsManagement() {
+     }
+ 
+     // Validate reason (motif) is required
+-    if (!formData.reason || formData.reason.trim() === "") {
+-      errors.reason = "Le motif est obligatoire"
++    const selectedReason = movementReasons.find((r) => r.id === selectedReasonId)
++    if (!selectedReason) {
++      errors.reason = "Veuillez sélectionner un motif"
++    } else if (selectedReason.isOther && (!formData.reason || formData.reason.trim() === "")) {
++      errors.reason = "Veuillez préciser le motif"
+     }
+ 
+     // Validate available stock for exit and transfer
+@@ -1518,11 +1537,25 @@ export default function MovementsManagement() {
+       movementType: "entry",
+       reason: "",
+     })
++    setSelectedReasonId("")
+     setDocumentFile(null)
+     setFormErrors({})
+     setMovementErrors([]) // Réinitialiser les erreurs de mouvement
+   }
+ 
++  // Sélection du motif : à choix unique (cocher un motif décoche les autres).
++  // Si le motif "Autre" est choisi, le champ texte devient la source du motif.
++  const handleReasonSelect = (reasonId: string) => {
++    const reason = movementReasons.find((r) => r.id === reasonId)
++    if (!reason) return
++
++    setSelectedReasonId(reasonId)
++    setFormData((prev) => ({ ...prev, reason: reason.isOther ? "" : reason.label }))
++    if (formErrors.reason) {
++      setFormErrors({ ...formErrors, reason: undefined })
++    }
++  }
++
+   // Fonction pour gérer la sélection des cartes avec quantité
+   const handleCardSelection = (cardId: string, isSelected: boolean) => {
+     setFormData(prev => {
+@@ -2039,22 +2072,48 @@ export default function MovementsManagement() {
+ 
+                   {/* 8. Motif */}
+                   <div className="grid grid-cols-4 items-start gap-4">
+-                    <Label htmlFor="reason" className="text-right mt-2 font-semibold">
++                    <Label className="text-right mt-2 font-semibold">
+                       Motif *
+                     </Label>
+-                    <div className="col-span-3">
+-                      <Textarea
+-                        id="reason"
+-                        value={formData.reason}
+-                        onChange={(e) => {
+-                          setFormData({ ...formData, reason: e.target.value })
+-                          if (formErrors.reason) {
+-                            setFormErrors({ ...formErrors, reason: undefined })
+-                          }
+-                        }}
+-                        placeholder="Motif du mouvement"
+-                        className={cn(formErrors.reason && "border-destructive ring-1 ring-destructive")}
+-                      />
++                    <div
++                      className={cn(
++                        "col-span-3 space-y-2 rounded-md p-2",
++                        formErrors.reason && "ring-1 ring-destructive",
++                      )}
++                    >
++                      {movementReasons.length === 0 ? (
++                        <p className="text-sm text-muted-foreground">Chargement des motifs...</p>
++                      ) : (
++                        movementReasons.map((movementReason) => (
++                          <div key={movementReason.id} className="flex items-center space-x-2">
++                            <input
++                              type="checkbox"
++                              id={`reason-${movementReason.id}`}
++                              checked={selectedReasonId === movementReason.id}
++                              onChange={() => handleReasonSelect(movementReason.id)}
++                              className="rounded border-gray-300"
++                            />
++                            <label htmlFor={`reason-${movementReason.id}`} className="text-sm cursor-pointer">
++                              {movementReason.label}
++                            </label>
++                          </div>
++                        ))
++                      )}
++
++                      {movementReasons.find((r) => r.id === selectedReasonId)?.isOther && (
++                        <Textarea
++                          id="reason"
++                          value={formData.reason}
++                          onChange={(e) => {
++                            setFormData({ ...formData, reason: e.target.value })
++                            if (formErrors.reason) {
++                              setFormErrors({ ...formErrors, reason: undefined })
++                            }
++                          }}
++                          placeholder="Précisez le motif"
++                          className="mt-2"
++                        />
++                      )}
+                     </div>
+                   </div>
+ 
+diff --git a/lib/types.ts b/lib/types.ts
+index 6f4f9bd..31d4077 100644
+--- a/lib/types.ts
++++ b/lib/types.ts
+@@ -263,6 +263,13 @@ export interface RolePermissions {
+   isCustom: boolean
+ }
+ 
++export interface MovementReason {
++  id: string
++  label: string
++  isOther: boolean
++  isActive: boolean
++}
++
+ export interface AuditLog {
+   id: string
+   timestamp: Date
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index bd5da80..ec7ef62 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -145,6 +145,20 @@ model RolePermission {
+   @@map("role_permissions")
+ }
+ 
++// Modèle motif de mouvement (liste modérée par l'admin dans Configuration > Motifs)
++model MovementReason {
++  id        String   @id @default(cuid())
++  label     String
++  // Motif protégé "Autre" : active la saisie libre sur le formulaire de mouvement.
++  // Renommable par l'admin, mais jamais supprimable (il n'y en a qu'un seul).
++  isOther   Boolean  @default(false)
++  isActive  Boolean  @default(true)
++  createdAt DateTime @default(now())
++  updatedAt DateTime @updatedAt
++
++  @@map("movement_reasons")
++}
++
+ // Modèle notification
+ model Notification {
+   id        String   @id @default(cuid())

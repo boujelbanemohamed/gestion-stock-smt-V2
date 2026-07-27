@@ -19,9 +19,19 @@ model User {
   lastName  String
   role      String   @default("user")
   isActive  Boolean  @default(true)
+  avatarUrl String?
   lastLogin DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Authentification à deux facteurs (TOTP)
+  twoFactorEnabled     Boolean  @default(false)
+  twoFactorSecret      String?
+  twoFactorBackupCodes String[] @default([])
+
+  // Verrouillage après échecs de connexion répétés (Configuration > Sécurité)
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
 
   // Relations
   movements Movement[]
@@ -103,6 +113,8 @@ model Movement {
   quantity       Int
   reason         String
   userId         String
+  documentUrl    String?  // Chemin du document justificatif (entrées uniquement)
+  documentName   String?  // Nom original du fichier téléversé
   createdAt      DateTime @default(now())
 
   // Relations
@@ -141,6 +153,20 @@ model RolePermission {
   updatedAt   DateTime @updatedAt
 
   @@map("role_permissions")
+}
+
+// Modèle motif de mouvement (liste modérée par l'admin dans Configuration > Motifs)
+model MovementReason {
+  id        String   @id @default(cuid())
+  label     String
+  // Motif protégé "Autre" : active la saisie libre sur le formulaire de mouvement.
+  // Renommable par l'admin, mais jamais supprimable (il n'y en a qu'un seul).
+  isOther   Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("movement_reasons")
 }
 
 // Modèle notification

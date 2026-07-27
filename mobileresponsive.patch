@@ -1,0 +1,295 @@
+diff --git a/app/dashboard/layout.tsx b/app/dashboard/layout.tsx
+index af5846d..e59ba2c 100644
+--- a/app/dashboard/layout.tsx
++++ b/app/dashboard/layout.tsx
+@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
+ import { Badge } from "@/components/ui/badge"
+ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
+ import { cn } from "@/lib/utils"
++import { Menu, X } from "lucide-react"
+ import NotificationsDropdown from "@/components/notifications"
+ import GlobalSearch from "@/components/dashboard/global-search"
+ import RealtimeBridge from "@/components/dashboard/realtime-bridge"
+@@ -187,9 +188,15 @@ export default function DashboardLayout({
+ }) {
+   const { user: currentUser, hasPermission, isLoading } = usePermissions()
+   const [navigation, setNavigation] = useState<NavigationItem[]>([])
++  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+   const pathname = usePathname()
+   useThemeSync()
+ 
++  // Referme le menu mobile dès qu'on navigue vers une nouvelle page.
++  useEffect(() => {
++    setIsMobileMenuOpen(false)
++  }, [pathname])
++
+   useEffect(() => {
+     if (isLoading) return
+     
+@@ -271,23 +278,48 @@ export default function DashboardLayout({
+   return (
+     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+       <RealtimeBridge />
+-      {/* Sidebar flottante */}
+-      <div className="fixed left-4 top-4 bottom-4 z-20 w-64 flex flex-col rounded-2xl border border-slate-200 bg-white shadow-lg overflow-y-auto dark:border-slate-800 dark:bg-slate-900">
++
++      {/* Fond assombri derrière le menu mobile ouvert (barre latérale en tiroir) */}
++      {isMobileMenuOpen && (
++        <div
++          className="fixed inset-0 z-20 bg-black/40 md:hidden"
++          onClick={() => setIsMobileMenuOpen(false)}
++          aria-hidden="true"
++        />
++      )}
++
++      {/* Sidebar flottante : en tiroir (masquée par défaut) sur mobile, toujours visible dès md */}
++      <div
++        className={cn(
++          "fixed left-4 top-4 bottom-4 z-30 w-64 flex flex-col rounded-2xl border border-slate-200 bg-white shadow-lg overflow-y-auto transition-transform duration-200 dark:border-slate-800 dark:bg-slate-900 md:translate-x-0",
++          isMobileMenuOpen ? "translate-x-0" : "-translate-x-[120%]",
++        )}
++      >
+         {/* Logo */}
+         <div className="p-6 border-b border-slate-200 dark:border-slate-800">
+-          <div className="flex flex-col items-center space-y-2">
+-            <Image
+-              src="/images/monetique-logo.png"
+-              alt="Monétique Tunisie"
+-              width={160}
+-              height={50}
+-              className="object-contain h-12 w-auto"
+-              priority
+-            />
+-            <div className="text-center">
+-              <h1 className="text-base font-semibold text-slate-900 dark:text-slate-100">Gestion de Stocks</h1>
+-              <p className="text-xs text-slate-600 dark:text-slate-400">Plateforme bancaire</p>
++          <div className="flex items-center justify-between md:justify-center">
++            <div className="flex flex-1 flex-col items-center space-y-2">
++              <Image
++                src="/images/monetique-logo.png"
++                alt="Monétique Tunisie"
++                width={160}
++                height={50}
++                className="object-contain h-12 w-auto"
++                priority
++              />
++              <div className="text-center">
++                <h1 className="text-base font-semibold text-slate-900 dark:text-slate-100">Gestion de Stocks</h1>
++                <p className="text-xs text-slate-600 dark:text-slate-400">Plateforme bancaire</p>
++              </div>
+             </div>
++            <button
++              type="button"
++              onClick={() => setIsMobileMenuOpen(false)}
++              className="ml-2 rounded-lg p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 md:hidden dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
++              aria-label="Fermer le menu"
++            >
++              <X className="h-5 w-5" />
++            </button>
+           </div>
+         </div>
+ 
+@@ -313,53 +345,102 @@ export default function DashboardLayout({
+             )
+           })}
+         </nav>
++
++        {/* Sur mobile, le compte et la recherche vivent dans le tiroir plutôt que
++            dans l'en-tête (trop étroit pour tout afficher sur un petit écran). */}
++        <div className="space-y-3 border-t border-slate-200 p-4 md:hidden dark:border-slate-800">
++          <GlobalSearch />
++          <div className="flex items-center gap-2">
++            <Avatar className="h-8 w-8">
++              <AvatarImage src={currentUser?.avatarUrl || undefined} alt={`${currentUser?.firstName || ''} ${currentUser?.lastName || ''}`} />
++              <AvatarFallback className="text-xs">
++                {currentUser?.firstName?.[0] || ""}
++                {currentUser?.lastName?.[0] || ""}
++              </AvatarFallback>
++            </Avatar>
++            <div>
++              <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
++                {currentUser?.firstName || ''} {currentUser?.lastName || ''}
++              </p>
++              <Badge variant={getRoleBadgeVariant(currentUser?.role || 'user')} className="text-xs">
++                {currentUser?.role ? (currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1)) : 'User'}
++              </Badge>
++            </div>
++          </div>
++          <Link href="/dashboard/profile" className="block">
++            <Button variant="outline" size="sm" className="w-full">
++              Mon Profil
++            </Button>
++          </Link>
++          <Button size="sm" onClick={handleLogout} className="w-full bg-red-600 text-white hover:bg-red-700">
++            Déconnexion
++          </Button>
++        </div>
+       </div>
+ 
+       {/* Main Content */}
+-      <div className="ml-72 mr-4 flex flex-col">
++      <div className="ml-4 mr-4 flex flex-col md:ml-72">
+         {/* Header flottant, fixe comme la barre latérale */}
+-        <header className="fixed left-72 right-4 top-4 z-10 rounded-2xl border border-slate-200 bg-white px-6 py-4 shadow-lg dark:border-slate-800 dark:bg-slate-900">
+-          <div className="flex items-center justify-between">
+-            <div>
+-              <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+-                {navigation.find((item) => item.href === pathname)?.name || "Dashboard"}
+-              </h2>
+-              <p className="text-sm text-slate-600 dark:text-slate-400">Gérez efficacement vos stocks de cartes bancaires</p>
++        <header className="fixed left-4 right-4 top-4 z-10 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-lg sm:px-6 dark:border-slate-800 dark:bg-slate-900 md:left-72">
++          <div className="flex items-center justify-between gap-3">
++            <div className="flex min-w-0 items-center gap-3">
++              <button
++                type="button"
++                onClick={() => setIsMobileMenuOpen(true)}
++                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 md:hidden dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
++                aria-label="Ouvrir le menu"
++              >
++                <Menu className="h-5 w-5" />
++              </button>
++              <div className="min-w-0">
++                <h2 className="truncate text-lg font-semibold text-slate-900 sm:text-xl dark:text-slate-100">
++                  {navigation.find((item) => item.href === pathname)?.name || "Dashboard"}
++                </h2>
++                <p className="hidden truncate text-sm text-slate-600 sm:block dark:text-slate-400">
++                  Gérez efficacement vos stocks de cartes bancaires
++                </p>
++              </div>
+             </div>
+-            <div className="flex items-center gap-4">
+-              <GlobalSearch />
+-              <div className="flex items-center gap-2">
+-                <Avatar className="h-8 w-8">
+-                  <AvatarImage src={currentUser?.avatarUrl || undefined} alt={`${currentUser?.firstName || ''} ${currentUser?.lastName || ''}`} />
+-                  <AvatarFallback className="text-xs">
+-                    {currentUser?.firstName?.[0] || ""}
+-                    {currentUser?.lastName?.[0] || ""}
+-                  </AvatarFallback>
+-                </Avatar>
+-                <div className="text-right">
+-                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+-                    {currentUser?.firstName || ''} {currentUser?.lastName || ''}
+-                  </p>
+-                  <Badge variant={getRoleBadgeVariant(currentUser?.role || 'user')} className="text-xs">
+-                    {currentUser?.role ? (currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1)) : 'User'}
+-                  </Badge>
++            <div className="flex shrink-0 items-center gap-3">
++              {/* Toujours visible, y compris sur mobile où le reste (recherche,
++                  compte, déconnexion) se trouve dans le tiroir latéral. */}
++              <NotificationsDropdown />
++              <div className="hidden items-center gap-4 md:flex">
++                <div className="w-72">
++                  <GlobalSearch />
+                 </div>
+-              </div>
+-              <Link href="/dashboard/profile">
+-                <Button variant="outline" size="sm">
+-                  Mon Profil
++                <div className="flex items-center gap-2">
++                  <Avatar className="h-8 w-8">
++                    <AvatarImage src={currentUser?.avatarUrl || undefined} alt={`${currentUser?.firstName || ''} ${currentUser?.lastName || ''}`} />
++                    <AvatarFallback className="text-xs">
++                      {currentUser?.firstName?.[0] || ""}
++                      {currentUser?.lastName?.[0] || ""}
++                    </AvatarFallback>
++                  </Avatar>
++                  <div className="text-right">
++                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
++                      {currentUser?.firstName || ''} {currentUser?.lastName || ''}
++                    </p>
++                    <Badge variant={getRoleBadgeVariant(currentUser?.role || 'user')} className="text-xs">
++                      {currentUser?.role ? (currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1)) : 'User'}
++                    </Badge>
++                  </div>
++                </div>
++                <Link href="/dashboard/profile">
++                  <Button variant="outline" size="sm">
++                    Mon Profil
++                  </Button>
++                </Link>
++                <Button size="sm" onClick={handleLogout} className="bg-red-600 text-white hover:bg-red-700">
++                  Déconnexion
+                 </Button>
+-              </Link>
+-              <NotificationsDropdown />
+-              <Button size="sm" onClick={handleLogout} className="bg-red-600 text-white hover:bg-red-700">
+-                Déconnexion
+-              </Button>
++              </div>
+             </div>
+           </div>
+         </header>
+ 
+         {/* Page Content (mt pour ne pas passer sous l'en-tête fixe) */}
+-        <main className="flex-1 p-6 mt-28">{children}</main>
++        <main className="flex-1 p-4 mt-24 sm:p-6 sm:mt-28">{children}</main>
+       </div>
+     </div>
+   )
+diff --git a/app/dashboard/statistics/page.tsx b/app/dashboard/statistics/page.tsx
+index c26e3ac..3e86d00 100644
+--- a/app/dashboard/statistics/page.tsx
++++ b/app/dashboard/statistics/page.tsx
+@@ -880,7 +880,7 @@ export default function StatisticsPage() {
+                           <CardContent>
+                             <div className="space-y-4">
+                               {/* Résumé de la banque */}
+-                              <div className="grid grid-cols-4 gap-4 p-3 bg-slate-50 rounded-lg">
++                              <div className="grid grid-cols-2 gap-4 p-3 bg-slate-50 rounded-lg sm:grid-cols-4">
+                                 <div>
+                                   <div className="text-xs text-slate-600">Quantité De</div>
+                                   <div className="text-lg font-bold text-blue-600">{bankStat.quantiteDe.toLocaleString()}</div>
+diff --git a/components/dashboard/configuration-panel.tsx b/components/dashboard/configuration-panel.tsx
+index b1e6f25..16cdcbb 100644
+--- a/components/dashboard/configuration-panel.tsx
++++ b/components/dashboard/configuration-panel.tsx
+@@ -516,7 +516,7 @@ export default function ConfigurationPanel() {
+       )}
+ 
+       <Tabs defaultValue="general" className="space-y-6">
+-        <TabsList className="grid w-full grid-cols-6">
++        <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-6">
+           <TabsTrigger value="general" className="gap-2">
+             <Building2 className="h-4 w-4" />
+             Général
+@@ -1021,7 +1021,7 @@ export default function ConfigurationPanel() {
+                     </DialogHeader>
+                     <div className="flex-1 min-h-0 flex flex-col space-y-4">
+                       <Tabs value={selectedEmailTemplate} onValueChange={(v) => setSelectedEmailTemplate(v as any)}>
+-                        <TabsList className="grid w-full grid-cols-4">
++                        <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-4">
+                           <TabsTrigger value="welcome">Bienvenue</TabsTrigger>
+                           <TabsTrigger value="lowStock">Stock bas</TabsTrigger>
+                           <TabsTrigger value="movement">Mouvement</TabsTrigger>
+@@ -1313,7 +1313,7 @@ export default function ConfigurationPanel() {
+                       </div>
+                     </div>
+ 
+-                    <div className="grid grid-cols-3 gap-4">
++                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                       <div className="space-y-2">
+                         <Label htmlFor="codeLength">Longueur du code</Label>
+                         <Select
+diff --git a/components/dashboard/global-search.tsx b/components/dashboard/global-search.tsx
+index 1042afb..9b2ffa6 100644
+--- a/components/dashboard/global-search.tsx
++++ b/components/dashboard/global-search.tsx
+@@ -76,7 +76,7 @@ export default function GlobalSearch() {
+       }}
+     >
+       <PopoverAnchor asChild>
+-        <div className="relative w-72">
++        <div className="relative w-full">
+           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+           <Input
+             value={query}
+@@ -92,7 +92,7 @@ export default function GlobalSearch() {
+       </PopoverAnchor>
+       <PopoverContent
+         align="start"
+-        className="w-96 p-0"
++        className="w-[calc(100vw-2rem)] p-0 sm:w-96"
+         onOpenAutoFocus={(e) => e.preventDefault()}
+         onCloseAutoFocus={(e) => e.preventDefault()}
+       >

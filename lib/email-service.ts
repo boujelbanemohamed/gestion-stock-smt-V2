@@ -4,6 +4,8 @@ import "server-only"
 import * as nodemailer from "nodemailer"
 import { prisma } from "@/lib/db"
 import { getServerApiUrl } from "@/lib/env"
+import { normalizeNotificationSettings } from "@/lib/notification-settings"
+import type { AccountEmailSettings, NotificationChannelToggle } from "@/lib/types"
 
 interface EmailConfig {
   host: string
@@ -18,9 +20,10 @@ interface EmailConfig {
 interface NotificationConfig {
   emailNotifications: boolean
   emailRecipients: string[]
-  lowStockAlerts: boolean
-  movementNotifications: boolean
-  userActivityAlerts: boolean
+  lowStockAlerts: NotificationChannelToggle
+  movementNotifications: NotificationChannelToggle
+  userActivityAlerts: NotificationChannelToggle
+  accountEmails: AccountEmailSettings
   criticalStockThreshold?: number
 }
 
@@ -69,15 +72,16 @@ async function getNotificationConfig(): Promise<NotificationConfig | null> {
     if (!config || !config.config) return null
 
     const configData = config.config as any
-    const notifications = configData?.notifications || {}
+    const notifications = normalizeNotificationSettings(configData?.notifications)
 
     return {
-      emailNotifications: notifications.emailNotifications ?? false,
-      emailRecipients: notifications.emailRecipients || [],
-      lowStockAlerts: notifications.lowStockAlerts ?? true,
-      movementNotifications: notifications.movementNotifications ?? true,
-      userActivityAlerts: notifications.userActivityAlerts ?? true,
-      criticalStockThreshold: notifications.criticalStockThreshold || 50,
+      emailNotifications: notifications.emailNotifications,
+      emailRecipients: notifications.emailRecipients,
+      lowStockAlerts: notifications.lowStockAlerts,
+      movementNotifications: notifications.movementNotifications,
+      userActivityAlerts: notifications.userActivityAlerts,
+      accountEmails: notifications.accountEmails,
+      criticalStockThreshold: notifications.criticalStockThreshold,
     }
   } catch (error) {
     console.error("Error fetching notification config:", error)
@@ -141,14 +145,6 @@ export async function sendEmail(
 }
 
 /**
- * Vérifie si les notifications email sont activées
- */
-async function isEmailNotificationsEnabled(): Promise<boolean> {
-  const config = await getNotificationConfig()
-  return config?.emailNotifications ?? false
-}
-
-/**
  * Récupère la liste des destinataires des notifications
  */
 async function getNotificationRecipients(): Promise<string[]> {
@@ -166,8 +162,9 @@ export async function sendUserWelcomeEmail(
   password: string,
   role: string
 ): Promise<boolean> {
-  if (!(await isEmailNotificationsEnabled())) {
-    console.log("Notifications email désactivées, email non envoyé")
+  const config = await getNotificationConfig()
+  if (!config?.emailNotifications || !config?.accountEmails.welcomeEmail) {
+    console.log("Email de bienvenue désactivé, email non envoyé")
     return false
   }
 
@@ -220,6 +217,164 @@ export async function sendUserWelcomeEmail(
 }
 
 /**
+ * Envoie l'email de réinitialisation de mot de passe ("mot de passe oublié").
+ * Contrôlé par son propre interrupteur (accountEmails.passwordResetEmail),
+ * mais jamais par l'interrupteur général "notifications email activées" :
+ * le désactiver ne doit pas couper silencieusement toute autre notif email.
+ */
+export async function sendPasswordResetEmail(
+  email: string,
+  firstName: string,
+  resetUrl: string
+): Promise<boolean> {
+  const config = await getNotificationConfig()
+  if (!config?.accountEmails.passwordResetEmail) {
+    return false
+  }
+
+  const subject = "Réinitialisation de votre mot de passe - Plateforme Gestion de Stocks"
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #2563eb;">Réinitialisation de mot de passe</h2>
+
+      <p>Bonjour ${firstName},</p>
+
+      <p>Une demande de réinitialisation de mot de passe a été effectuée pour votre compte sur la plateforme de gestion de stocks.</p>
+
+      <p style="margin: 30px 0;">
+        <a href="${resetUrl}"
+           style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+          Réinitialiser mon mot de passe
+        </a>
+      </p>
+
+      <p style="font-size: 13px; color: #6b7280;">
+        Ce lien est valable 30 minutes. Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet email : votre mot de passe restera inchangé.
+      </p>
+
+      <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+
+      <p style="font-size: 12px; color: #6b7280;">
+        Cet email a été envoyé automatiquement par la plateforme de gestion de stocks.
+      </p>
+
+      <p style="font-size: 12px; color: #6b7280; margin-top: 10px;">
+        Société Monétique Tunisie<br>
+        Centre urbain Nord, Sana Center, bloc C – 1082, Tunis
+      </p>
+    </div>
+  `
+
+  return sendEmail(email, subject, html)
+}
+
+/**
+ * Confirme par email qu'un mot de passe vient d'être changé (réinitialisation
+ * "mot de passe oublié", changement volontaire par l'utilisateur, ou
+ * réinitialisation par un administrateur). Permet à l'utilisateur de réagir
+ * rapidement si ce changement n'est pas de son fait. Contrôlé par son propre
+ * interrupteur (accountEmails.passwordChangedEmail), jamais par l'interrupteur
+ * général "notifications email activées".
+ */
+export async function sendPasswordChangedConfirmationEmail(
+  email: string,
+  firstName: string
+): Promise<boolean> {
+  const config = await getNotificationConfig()
+  if (!config?.accountEmails.passwordChangedEmail) {
+    return false
+  }
+
+  const subject = "Votre mot de passe a été modifié - Plateforme Gestion de Stocks"
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #059669;">Mot de passe modifié</h2>
+
+      <p>Bonjour ${firstName},</p>
+
+      <p>Le mot de passe de votre compte sur la plateforme de gestion de stocks vient d'être modifié avec succès.</p>
+
+      <div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #059669;">
+        <p style="margin: 0;"><strong>Date :</strong> ${new Date().toLocaleString("fr-FR", { timeZone: "Africa/Tunis" })}</p>
+      </div>
+
+      <div style="background-color: #fef3c7; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b;">
+        <p style="margin: 0; color: #92400e;">
+          <strong>⚠️ Vous n'êtes pas à l'origine de ce changement ?</strong> Contactez immédiatement votre administrateur.
+        </p>
+      </div>
+
+      <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+
+      <p style="font-size: 12px; color: #6b7280;">
+        Cet email a été envoyé automatiquement par la plateforme de gestion de stocks.
+      </p>
+
+      <p style="font-size: 12px; color: #6b7280; margin-top: 10px;">
+        Société Monétique Tunisie<br>
+        Centre urbain Nord, Sana Center, bloc C – 1082, Tunis
+      </p>
+    </div>
+  `
+
+  return sendEmail(email, subject, html)
+}
+
+/**
+ * Confirme par email un changement de méthode d'authentification (activation
+ * ou désactivation de la double authentification), qu'il soit à l'initiative
+ * de l'utilisateur ou d'un administrateur. Contrôlé par son propre
+ * interrupteur (accountEmails.authMethodChangedEmail), jamais par
+ * l'interrupteur général "notifications email activées".
+ */
+export async function sendAuthMethodChangedEmail(
+  email: string,
+  firstName: string,
+  newMethod: "password" | "2fa"
+): Promise<boolean> {
+  const config = await getNotificationConfig()
+  if (!config?.accountEmails.authMethodChangedEmail) {
+    return false
+  }
+
+  const subject = "Votre méthode d'authentification a changé - Plateforme Gestion de Stocks"
+  const methodLabel = newMethod === "2fa" ? "Mot de passe + double authentification (2FA)" : "Mot de passe seul"
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #2563eb;">Méthode d'authentification modifiée</h2>
+
+      <p>Bonjour ${firstName},</p>
+
+      <p>La méthode d'authentification de votre compte sur la plateforme de gestion de stocks vient d'être modifiée.</p>
+
+      <div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #2563eb;">
+        <p style="margin: 0;"><strong>Nouvelle méthode :</strong> ${methodLabel}</p>
+        <p style="margin: 10px 0 0;"><strong>Date :</strong> ${new Date().toLocaleString("fr-FR", { timeZone: "Africa/Tunis" })}</p>
+      </div>
+
+      <div style="background-color: #fef3c7; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b;">
+        <p style="margin: 0; color: #92400e;">
+          <strong>⚠️ Vous n'êtes pas à l'origine de ce changement ?</strong> Contactez immédiatement votre administrateur.
+        </p>
+      </div>
+
+      <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+
+      <p style="font-size: 12px; color: #6b7280;">
+        Cet email a été envoyé automatiquement par la plateforme de gestion de stocks.
+      </p>
+
+      <p style="font-size: 12px; color: #6b7280; margin-top: 10px;">
+        Société Monétique Tunisie<br>
+        Centre urbain Nord, Sana Center, bloc C – 1082, Tunis
+      </p>
+    </div>
+  `
+
+  return sendEmail(email, subject, html)
+}
+
+/**
  * Envoie une alerte de stock faible
  */
 export async function sendLowStockAlert(
@@ -230,7 +385,7 @@ export async function sendLowStockAlert(
   bank?: string
 ): Promise<boolean> {
   const config = await getNotificationConfig()
-  if (!config?.emailNotifications || !config?.lowStockAlerts) {
+  if (!config?.emailNotifications || !config?.lowStockAlerts.email) {
     return false
   }
 
@@ -305,7 +460,7 @@ export async function sendMovementNotification(
   reason?: string
 ): Promise<boolean> {
   const config = await getNotificationConfig()
-  if (!config?.emailNotifications || !config?.movementNotifications) {
+  if (!config?.emailNotifications || !config?.movementNotifications.email) {
     return false
   }
 
@@ -381,7 +536,7 @@ export async function sendUserActivityAlert(
   details: string
 ): Promise<boolean> {
   const config = await getNotificationConfig()
-  if (!config?.emailNotifications || !config?.userActivityAlerts) {
+  if (!config?.emailNotifications || !config?.userActivityAlerts.email) {
     return false
   }
 

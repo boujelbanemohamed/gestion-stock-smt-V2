@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { AppConfig } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
+import { requireAuth, requireAdmin, isAdminRole } from "@/lib/auth-middleware"
+import { normalizeNotificationSettings } from "@/lib/notification-settings"
 
 // GET /api/config - Récupérer la configuration de l'application
 
@@ -10,7 +12,38 @@ import { logAudit } from "@/lib/audit-logger"
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+// Retire les identifiants SMTP de la config renvoyée aux utilisateurs non-admin :
+// de nombreuses pages appellent GET /api/config juste pour le logo/nom de société,
+// mais le mot de passe SMTP en clair ne doit jamais être exposé à un compte non-admin.
+function redactForNonAdmin(config: any): any {
+  if (!config || typeof config !== "object") return config
+  if (!config.smtp) return config
+  return {
+    ...config,
+    smtp: {
+      ...config.smtp,
+      username: config.smtp.username ? "••••••••" : config.smtp.username,
+      password: config.smtp.password ? "••••••••" : config.smtp.password,
+    },
+  }
+}
+
+// Ramène les réglages de notifications au format actuel (interrupteurs
+// indépendants in-app/email par type) : nécessaire pour les configurations
+// enregistrées avant l'introduction de ce format (simples booléens).
+function withNormalizedNotifications(config: any): any {
+  if (!config || typeof config !== "object") return config
+  return {
+    ...config,
+    notifications: normalizeNotificationSettings(config.notifications),
+  }
+}
+
 export async function GET(request: NextRequest) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+  const canSeeSecrets = isAdminRole(auth.user.role)
+
   try {
     const config = await prisma.appConfig.findUnique({
       where: { id: 'singleton' }
@@ -40,9 +73,15 @@ export async function GET(request: NextRequest) {
             },
             notifications: {
               enabled: true,
-              lowStockAlerts: true,
-              movementNotifications: true,
-              userActivityAlerts: true,
+              lowStockAlerts: { inApp: true, email: true },
+              movementNotifications: { inApp: true, email: true },
+              userActivityAlerts: { inApp: true, email: true },
+              accountEmails: {
+                welcomeEmail: true,
+                passwordResetEmail: true,
+                passwordChangedEmail: true,
+                authMethodChangedEmail: true
+              },
               lowStockThreshold: 100,
               criticalStockThreshold: 50,
               emailNotifications: true,
@@ -80,13 +119,17 @@ export async function GET(request: NextRequest) {
       
       return NextResponse.json<ApiResponse<AppConfig>>({
         success: true,
-        data: defaultConfig.config as unknown as AppConfig,
+        data: (canSeeSecrets
+          ? withNormalizedNotifications(defaultConfig.config)
+          : redactForNonAdmin(withNormalizedNotifications(defaultConfig.config))) as unknown as AppConfig,
       })
     }
 
     return NextResponse.json<ApiResponse<AppConfig>>({
       success: true,
-      data: config.config as unknown as AppConfig,
+      data: (canSeeSecrets
+        ? withNormalizedNotifications(config.config)
+        : redactForNonAdmin(withNormalizedNotifications(config.config))) as unknown as AppConfig,
     })
   } catch (error) {
     console.error('Error fetching config:', error)
@@ -102,19 +145,12 @@ export async function GET(request: NextRequest) {
 
 // PUT /api/config - Mettre à jour la configuration
 export async function PUT(request: NextRequest) {
+  const auth = requireAdmin(request)
+  if (!auth.authorized) return auth.response
+  const userData = auth.user
+
   try {
     const body = await request.json()
-
-    // Récupérer l'utilisateur depuis le header
-    const userHeader = request.headers.get("x-user-data")
-    let userData = null
-    try {
-      if (userHeader) {
-        userData = JSON.parse(userHeader)
-      }
-    } catch (error) {
-      console.error('Error parsing user header:', error)
-    }
 
     const updatedConfig = await prisma.appConfig.upsert({
       where: { id: 'singleton' },

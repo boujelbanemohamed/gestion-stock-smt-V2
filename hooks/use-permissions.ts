@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import type { User, Permission, Module, Action } from "@/lib/types"
 import { authenticatedFetch, clearAuthTokens } from "@/lib/api-client"
+import { eventBus } from "@/lib/event-bus"
 
 interface UserPermissions {
   user: User | null
@@ -211,6 +212,20 @@ export function usePermissions(): UserPermissions {
     }
 
     loadUserAndPermissions()
+  }, [])
+
+  // Répercute immédiatement les changements de profil (avatar, nom...) faits par
+  // l'utilisateur courant, sans attendre un rechargement complet de la page.
+  useEffect(() => {
+    const unsubscribe = eventBus.on("user:updated", (updatedUser: User) => {
+      setUser((prev) => {
+        if (!prev || prev.id !== updatedUser.id) return prev
+        const merged = { ...prev, ...updatedUser }
+        localStorage.setItem('currentUser', JSON.stringify(merged))
+        return merged
+      })
+    })
+    return unsubscribe
   }, [])
 
   const hasPermission = useCallback((module: Module, action: Action): boolean => {

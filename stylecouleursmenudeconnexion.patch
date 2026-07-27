@@ -1,0 +1,27 @@
+diff --git a/app/dashboard/layout.tsx b/app/dashboard/layout.tsx
+index 73cbfcc..1e3a186 100644
+--- a/app/dashboard/layout.tsx
++++ b/app/dashboard/layout.tsx
+@@ -296,10 +296,10 @@ export default function DashboardLayout({
+                 key={item.name}
+                 href={item.href}
+                 className={cn(
+-                  "flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
++                  "flex items-center space-x-3 px-3 py-2 rounded-lg text-sm transition-colors",
+                   isActive
+-                    ? "bg-primary text-primary-foreground"
+-                    : "text-slate-700 hover:bg-slate-100 hover:text-slate-900",
++                    ? "bg-[#008DA8] text-black font-bold hover:bg-[#00758C]"
++                    : "font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900",
+                 )}
+               >
+                 {item.icon}
+@@ -345,7 +345,7 @@ export default function DashboardLayout({
+                 </Button>
+               </Link>
+               <NotificationsDropdown />
+-              <Button variant="outline" size="sm" onClick={handleLogout}>
++              <Button size="sm" onClick={handleLogout} className="bg-red-600 text-white hover:bg-red-700">
+                 Déconnexion
+               </Button>
+             </div>

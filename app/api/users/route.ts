@@ -4,6 +4,8 @@ import * as bcrypt from "bcryptjs"
 import type { ApiResponse } from "@/lib/api-types"
 import type { User } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
+import { requireAuth, requireAdmin } from "@/lib/auth-middleware"
+import { sanitizeUser } from "@/lib/sanitize-user"
 
 // GET /api/users - Récupérer tous les utilisateurs avec filtres optionnels
 
@@ -12,6 +14,9 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const searchParams = request.nextUrl.searchParams
     const role = searchParams.get("role")
@@ -37,8 +42,7 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' }
     })
 
-    // Retirer les mots de passe
-    const usersWithoutPasswords = users.map(({ password, ...user }) => user)
+    const usersWithoutPasswords = users.map(sanitizeUser)
 
     return NextResponse.json<ApiResponse<User[]>>({
       success: true,
@@ -58,6 +62,9 @@ export async function GET(request: NextRequest) {
 
 // POST /api/users - Créer un nouvel utilisateur
 export async function POST(request: NextRequest) {
+  const auth = requireAdmin(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const body = await request.json()
 
@@ -99,16 +106,8 @@ export async function POST(request: NextRequest) {
     // Hash du mot de passe
     const hashedPassword = await bcrypt.hash(plainPassword, 10)
 
-    // Récupérer l'utilisateur depuis le header
-    const userHeader = request.headers.get("x-user-data")
-    let userData = null
-    try {
-      if (userHeader) {
-        userData = JSON.parse(userHeader)
-      }
-    } catch (error) {
-      console.error('Error parsing user header:', error)
-    }
+    // Identité de l'appelant (issue du JWT vérifié par requireAdmin, jamais d'un header client)
+    const userData = auth.user
 
     const newUser = await prisma.user.create({
       data: {
@@ -151,8 +150,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Ne pas retourner le mot de passe
-    const { password: _, ...userWithoutPassword } = newUser
+    const userWithoutPassword = sanitizeUser(newUser)
 
     return NextResponse.json<ApiResponse<User>>(
       {

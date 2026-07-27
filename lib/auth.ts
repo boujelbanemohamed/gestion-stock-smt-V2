@@ -4,6 +4,7 @@
  */
 
 import jwt from "jsonwebtoken"
+import { createHash } from "crypto"
 import { env } from "./env"
 
 // Secret pour signer les JWT (utilise les valeurs validées depuis lib/env.ts)
@@ -33,27 +34,20 @@ export interface JWTPayload {
  * Génère un token JWT d'accès
  */
 export function signAccessToken(payload: Omit<JWTPayload, "iat" | "exp">): string {
-  console.log(`[JWT] Génération du token d'accès pour: ${payload.email}`)
-  console.log(`[JWT] JWT_SECRET défini: ${!!JWT_SECRET}`)
-  console.log(`[JWT] Longueur JWT_SECRET: ${JWT_SECRET ? JWT_SECRET.length : 0}`)
-
   // Vérifier au runtime (pas au build)
   if (process.env.NODE_ENV === "production") {
     if (!JWT_SECRET || JWT_SECRET.length < 32) {
-      const errorMsg = `JWT_SECRET invalide ou manquant lors de la signature (longueur: ${JWT_SECRET ? JWT_SECRET.length : 0})`
+      const errorMsg = "JWT_SECRET invalide ou manquant lors de la signature"
       console.error(`[JWT] ERREUR: ${errorMsg}`)
       throw new Error(errorMsg)
     }
   }
 
-  const token = jwt.sign(payload, JWT_SECRET, {
+  return jwt.sign(payload, JWT_SECRET, {
     expiresIn: ACCESS_TOKEN_EXPIRES_IN,
     issuer: "gestion-stock-smt",
     audience: "gestion-stock-smt-users",
   })
-
-  console.log(`[JWT] ✓ Token d'accès généré avec succès`)
-  return token
 }
 
 /**
@@ -89,16 +83,10 @@ export function signRefreshToken(payload: Omit<JWTPayload, "iat" | "exp">): stri
  */
 export function verifyAccessToken(token: string): JWTPayload {
   try {
-    // Logs de diagnostic
-    console.log(`[JWT] Vérification du token...`)
-    console.log(`[JWT] JWT_SECRET défini: ${!!JWT_SECRET}`)
-    console.log(`[JWT] Longueur JWT_SECRET: ${JWT_SECRET ? JWT_SECRET.length : 0}`)
-    console.log(`[JWT] Token (premiers 30 chars): ${token.substring(0, 30)}...`)
-
     // Vérifier au runtime (pas au build)
     if (process.env.NODE_ENV === "production") {
       if (!JWT_SECRET || JWT_SECRET.length < 32) {
-        const errorMsg = `JWT_SECRET invalide ou manquant (longueur: ${JWT_SECRET ? JWT_SECRET.length : 0})`
+        const errorMsg = "JWT_SECRET invalide ou manquant"
         console.error(`[JWT] ERREUR: ${errorMsg}`)
         throw new Error(errorMsg)
       }
@@ -109,7 +97,6 @@ export function verifyAccessToken(token: string): JWTPayload {
       audience: "gestion-stock-smt-users",
     }) as JWTPayload
 
-    console.log(`[JWT] ✓ Token vérifié avec succès pour: ${decoded.email}`)
     return decoded
   } catch (error) {
     if (error instanceof jwt.TokenExpiredError) {
@@ -143,6 +130,108 @@ export function verifyRefreshToken(token: string): { userId: string; email: stri
     }
     if (error instanceof jwt.JsonWebTokenError) {
       throw new Error("Token de rafraîchissement invalide")
+    }
+    throw error
+  }
+}
+
+// Jeton intermédiaire émis après un mot de passe valide lorsque la double
+// authentification est activée, en attendant la vérification du code TOTP.
+// Une audience distincte de celle des tokens d'accès garantit qu'il ne peut
+// jamais être accepté par erreur par requireAuth/verifyAccessToken sur une
+// route protégée : jwt.verify rejette immédiatement une audience différente.
+const TWO_FACTOR_PENDING_EXPIRES_IN = 5 * 60 // 5 minutes
+const TWO_FACTOR_PENDING_AUDIENCE = "gestion-stock-smt-2fa-pending"
+
+export interface TwoFactorPendingPayload {
+  userId: string
+  purpose: "2fa_pending"
+}
+
+/**
+ * Signe un jeton temporaire identifiant l'utilisateur dont le mot de passe
+ * vient d'être validé, en attente de la vérification de son code 2FA.
+ */
+export function signTwoFactorPendingToken(userId: string): string {
+  const payload: TwoFactorPendingPayload = { userId, purpose: "2fa_pending" }
+  return jwt.sign(payload, JWT_SECRET, {
+    expiresIn: TWO_FACTOR_PENDING_EXPIRES_IN,
+    issuer: "gestion-stock-smt",
+    audience: TWO_FACTOR_PENDING_AUDIENCE,
+  })
+}
+
+/**
+ * Vérifie un jeton temporaire de double authentification
+ * @throws {Error} Si le jeton est invalide, expiré, ou n'est pas un jeton 2FA
+ */
+export function verifyTwoFactorPendingToken(token: string): TwoFactorPendingPayload {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET, {
+      issuer: "gestion-stock-smt",
+      audience: TWO_FACTOR_PENDING_AUDIENCE,
+    }) as TwoFactorPendingPayload
+
+    return decoded
+  } catch (error) {
+    if (error instanceof jwt.TokenExpiredError) {
+      throw new Error("Session de connexion expirée, veuillez vous reconnecter")
+    }
+    if (error instanceof jwt.JsonWebTokenError) {
+      throw new Error("Jeton de connexion invalide")
+    }
+    throw error
+  }
+}
+
+// Jeton de réinitialisation de mot de passe ("mot de passe oublié"), envoyé
+// par email. Aucune table dédiée n'est nécessaire : le jeton embarque une
+// empreinte du hash du mot de passe actuel, donc dès que le mot de passe
+// change (via ce flux ou un autre), l'empreinte ne correspond plus et le
+// jeton est automatiquement invalidé — y compris pour un usage unique.
+const PASSWORD_RESET_EXPIRES_IN = 30 * 60 // 30 minutes
+const PASSWORD_RESET_AUDIENCE = "gestion-stock-smt-password-reset"
+
+export interface PasswordResetPayload {
+  userId: string
+  passwordFingerprint: string
+}
+
+export function fingerprintPassword(passwordHash: string): string {
+  return createHash("sha256").update(passwordHash).digest("hex").slice(0, 16)
+}
+
+/**
+ * Signe un jeton de réinitialisation de mot de passe pour un utilisateur.
+ */
+export function signPasswordResetToken(userId: string, currentPasswordHash: string): string {
+  const payload: PasswordResetPayload = {
+    userId,
+    passwordFingerprint: fingerprintPassword(currentPasswordHash),
+  }
+  return jwt.sign(payload, JWT_SECRET, {
+    expiresIn: PASSWORD_RESET_EXPIRES_IN,
+    issuer: "gestion-stock-smt",
+    audience: PASSWORD_RESET_AUDIENCE,
+  })
+}
+
+/**
+ * Vérifie un jeton de réinitialisation de mot de passe.
+ * @throws {Error} Si le jeton est invalide, expiré, ou n'est pas un jeton de réinitialisation
+ */
+export function verifyPasswordResetToken(token: string): PasswordResetPayload {
+  try {
+    return jwt.verify(token, JWT_SECRET, {
+      issuer: "gestion-stock-smt",
+      audience: PASSWORD_RESET_AUDIENCE,
+    }) as PasswordResetPayload
+  } catch (error) {
+    if (error instanceof jwt.TokenExpiredError) {
+      throw new Error("Ce lien de réinitialisation a expiré, veuillez en redemander un nouveau")
+    }
+    if (error instanceof jwt.JsonWebTokenError) {
+      throw new Error("Lien de réinitialisation invalide")
     }
     throw error
   }

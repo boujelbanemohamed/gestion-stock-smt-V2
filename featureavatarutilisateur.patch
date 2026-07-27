@@ -1,0 +1,519 @@
+diff --git a/app/api/users/[id]/avatar/route.ts b/app/api/users/[id]/avatar/route.ts
+new file mode 100644
+index 0000000..906935f
+--- /dev/null
++++ b/app/api/users/[id]/avatar/route.ts
+@@ -0,0 +1,160 @@
++import { type NextRequest, NextResponse } from "next/server"
++import { mkdir, writeFile } from "fs/promises"
++import path from "path"
++import { randomUUID } from "crypto"
++import { prisma } from "@/lib/db"
++import type { ApiResponse } from "@/lib/api-types"
++import type { User } from "@/lib/types"
++import { logAudit } from "@/lib/audit-logger"
++import { requireAuth, isAdminRole } from "@/lib/auth-middleware"
++
++// POST /api/users/[id]/avatar - Téléverse l'avatar d'un utilisateur (soi-même ou un admin)
++// DELETE /api/users/[id]/avatar - Retire l'avatar d'un utilisateur (soi-même ou un admin)
++
++// Forcer la route à être dynamique (ne pas pré-rendre)
++export const dynamic = 'force-dynamic'
++export const runtime = 'nodejs'
++
++const MAX_SIZE_BYTES = 2 * 1024 * 1024 // 2 Mo
++
++const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
++  "image/png": ".png",
++  "image/jpeg": ".jpg",
++  "image/webp": ".webp",
++}
++
++function canManageAvatar(auth: { id: string; role: string }, targetUserId: string): boolean {
++  return auth.id === targetUserId || isAdminRole(auth.role)
++}
++
++export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
++  if (!canManageAvatar(auth.user, params.id)) {
++    return NextResponse.json<ApiResponse>(
++      { success: false, error: "Accès refusé. Vous ne pouvez modifier que votre propre avatar." },
++      { status: 403 },
++    )
++  }
++
++  try {
++    const targetUser = await prisma.user.findUnique({ where: { id: params.id } })
++    if (!targetUser) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "Utilisateur non trouvé" },
++        { status: 404 },
++      )
++    }
++
++    const formData = await request.formData()
++    const file = formData.get("file")
++
++    if (!file || !(file instanceof File)) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "Aucun fichier fourni" },
++        { status: 400 },
++      )
++    }
++
++    if (file.size > MAX_SIZE_BYTES) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "L'image dépasse la taille maximale autorisée (2 Mo)" },
++        { status: 400 },
++      )
++    }
++
++    const extension = EXTENSION_BY_MIME_TYPE[file.type]
++    if (!extension) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "Type d'image non autorisé. Formats acceptés : PNG, JPG, WEBP." },
++        { status: 400 },
++      )
++    }
++
++    const uploadDir = path.join(process.cwd(), "public", "uploads", "avatars")
++    await mkdir(uploadDir, { recursive: true })
++
++    const storedFileName = `${randomUUID()}${extension}`
++    const buffer = Buffer.from(await file.arrayBuffer())
++    await writeFile(path.join(uploadDir, storedFileName), buffer)
++
++    const avatarUrl = `/uploads/avatars/${storedFileName}`
++
++    const updatedUser = await prisma.user.update({
++      where: { id: params.id },
++      data: { avatarUrl },
++    })
++
++    await logAudit({
++      userId: auth.user.id,
++      userEmail: auth.user.email,
++      action: "update",
++      module: "users",
++      entityType: "user",
++      entityId: updatedUser.id,
++      entityName: `${updatedUser.firstName} ${updatedUser.lastName}`,
++      details: `Mise à jour de l'avatar de ${updatedUser.firstName} ${updatedUser.lastName} (${updatedUser.email}) par ${auth.user.email}`,
++      status: "success",
++    }, request)
++
++    const { password: _, ...userWithoutPassword } = updatedUser
++
++    return NextResponse.json<ApiResponse<User>>({
++      success: true,
++      data: userWithoutPassword as User,
++      message: "Avatar mis à jour avec succès",
++    })
++  } catch (error) {
++    console.error('Error uploading avatar:', error)
++    return NextResponse.json<ApiResponse>(
++      { success: false, error: "Erreur lors du téléversement de l'avatar" },
++      { status: 500 },
++    )
++  }
++}
++
++export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
++  if (!canManageAvatar(auth.user, params.id)) {
++    return NextResponse.json<ApiResponse>(
++      { success: false, error: "Accès refusé. Vous ne pouvez modifier que votre propre avatar." },
++      { status: 403 },
++    )
++  }
++
++  try {
++    const updatedUser = await prisma.user.update({
++      where: { id: params.id },
++      data: { avatarUrl: null },
++    })
++
++    await logAudit({
++      userId: auth.user.id,
++      userEmail: auth.user.email,
++      action: "update",
++      module: "users",
++      entityType: "user",
++      entityId: updatedUser.id,
++      entityName: `${updatedUser.firstName} ${updatedUser.lastName}`,
++      details: `Suppression de l'avatar de ${updatedUser.firstName} ${updatedUser.lastName} (${updatedUser.email}) par ${auth.user.email}`,
++      status: "success",
++    }, request)
++
++    const { password: _, ...userWithoutPassword } = updatedUser
++
++    return NextResponse.json<ApiResponse<User>>({
++      success: true,
++      data: userWithoutPassword as User,
++      message: "Avatar supprimé avec succès",
++    })
++  } catch (error) {
++    console.error('Error deleting avatar:', error)
++    return NextResponse.json<ApiResponse>(
++      { success: false, error: "Erreur lors de la suppression de l'avatar" },
++      { status: 500 },
++    )
++  }
++}
+diff --git a/app/dashboard/layout.tsx b/app/dashboard/layout.tsx
+index 63e78c6..73cbfcc 100644
+--- a/app/dashboard/layout.tsx
++++ b/app/dashboard/layout.tsx
+@@ -10,6 +10,7 @@ import type { User } from "@/lib/types"
+ import { usePermissions } from "@/hooks/use-permissions"
+ import { Button } from "@/components/ui/button"
+ import { Badge } from "@/components/ui/badge"
++import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
+ import { cn } from "@/lib/utils"
+ import NotificationsDropdown from "@/components/notifications"
+ 
+@@ -321,13 +322,22 @@ export default function DashboardLayout({
+               <p className="text-sm text-slate-600">Gérez efficacement vos stocks de cartes bancaires</p>
+             </div>
+             <div className="flex items-center gap-4">
+-              <div className="text-right">
+-                <p className="text-sm font-medium text-slate-900">
+-                  {currentUser?.firstName || ''} {currentUser?.lastName || ''}
+-                </p>
+-                <Badge variant={getRoleBadgeVariant(currentUser?.role || 'user')} className="text-xs">
+-                  {currentUser?.role ? (currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1)) : 'User'}
+-                </Badge>
++              <div className="flex items-center gap-2">
++                <Avatar className="h-8 w-8">
++                  <AvatarImage src={currentUser?.avatarUrl || undefined} alt={`${currentUser?.firstName || ''} ${currentUser?.lastName || ''}`} />
++                  <AvatarFallback className="text-xs">
++                    {currentUser?.firstName?.[0] || ""}
++                    {currentUser?.lastName?.[0] || ""}
++                  </AvatarFallback>
++                </Avatar>
++                <div className="text-right">
++                  <p className="text-sm font-medium text-slate-900">
++                    {currentUser?.firstName || ''} {currentUser?.lastName || ''}
++                  </p>
++                  <Badge variant={getRoleBadgeVariant(currentUser?.role || 'user')} className="text-xs">
++                    {currentUser?.role ? (currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1)) : 'User'}
++                  </Badge>
++                </div>
+               </div>
+               <Link href="/dashboard/profile">
+                 <Button variant="outline" size="sm">
+diff --git a/app/dashboard/profile/page.tsx b/app/dashboard/profile/page.tsx
+index a8e09be..02d5553 100644
+--- a/app/dashboard/profile/page.tsx
++++ b/app/dashboard/profile/page.tsx
+@@ -1,5 +1,6 @@
+ "use client"
+ 
++import type React from "react"
+ import { useState, useEffect } from "react"
+ import type { User } from "@/lib/types"
+ import { Button } from "@/components/ui/button"
+@@ -7,13 +8,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
+ import { Input } from "@/components/ui/input"
+ import { Label } from "@/components/ui/label"
+ import { Separator } from "@/components/ui/separator"
++import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
+ import { toast } from "@/hooks/use-toast"
+-import { getAuthHeaders } from "@/lib/api-client"
++import { getAuthHeaders, authenticatedFetch } from "@/lib/api-client"
+ 
+ export default function ProfilePage() {
+   const [currentUser, setCurrentUser] = useState<User | null>(null)
+   const [isEditing, setIsEditing] = useState(false)
+   const [isChangingPassword, setIsChangingPassword] = useState(false)
++  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
+   const [formData, setFormData] = useState({
+     firstName: "",
+     lastName: "",
+@@ -46,6 +49,64 @@ export default function ProfilePage() {
+     }
+   }, [])
+ 
++  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
++    const file = e.target.files?.[0]
++    e.target.value = ""
++    if (!file || !currentUser) return
++
++    setIsUploadingAvatar(true)
++    try {
++      const body = new FormData()
++      body.append("file", file)
++
++      const response = await authenticatedFetch(`/api/users/${currentUser.id}/avatar`, {
++        method: 'POST',
++        body,
++      })
++      const data = await response.json()
++
++      if (data.success) {
++        const updatedUser = { ...currentUser, avatarUrl: data.data.avatarUrl }
++        localStorage.setItem('currentUser', JSON.stringify(updatedUser))
++        setCurrentUser(updatedUser)
++        toast({ title: "Avatar mis à jour", description: "Votre photo de profil a été mise à jour avec succès." })
++      } else {
++        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
++      }
++    } catch (error) {
++      console.error('Error uploading avatar:', error)
++      toast({ title: "Erreur", description: "Erreur lors du téléversement de l'avatar", variant: "destructive" })
++    } finally {
++      setIsUploadingAvatar(false)
++    }
++  }
++
++  const handleRemoveAvatar = async () => {
++    if (!currentUser) return
++
++    setIsUploadingAvatar(true)
++    try {
++      const response = await authenticatedFetch(`/api/users/${currentUser.id}/avatar`, {
++        method: 'DELETE',
++      })
++      const data = await response.json()
++
++      if (data.success) {
++        const updatedUser = { ...currentUser, avatarUrl: null }
++        localStorage.setItem('currentUser', JSON.stringify(updatedUser))
++        setCurrentUser(updatedUser)
++        toast({ title: "Avatar supprimé", description: "Votre photo de profil a été retirée." })
++      } else {
++        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
++      }
++    } catch (error) {
++      console.error('Error removing avatar:', error)
++      toast({ title: "Erreur", description: "Erreur lors de la suppression de l'avatar", variant: "destructive" })
++    } finally {
++      setIsUploadingAvatar(false)
++    }
++  }
++
+   const handleSaveProfile = async () => {
+     if (!currentUser) return
+ 
+@@ -148,6 +209,46 @@ export default function ProfilePage() {
+ 
+   return (
+     <div className="space-y-6">
++      {/* Avatar */}
++      <Card>
++        <CardHeader>
++          <CardTitle>Photo de profil</CardTitle>
++          <CardDescription>Ajoutez une photo pour personnaliser votre compte.</CardDescription>
++        </CardHeader>
++        <CardContent className="flex items-center gap-6">
++          <Avatar className="h-20 w-20">
++            <AvatarImage src={currentUser.avatarUrl || undefined} alt={`${currentUser.firstName} ${currentUser.lastName}`} />
++            <AvatarFallback className="text-xl">
++              {currentUser.firstName?.[0] || ""}
++              {currentUser.lastName?.[0] || ""}
++            </AvatarFallback>
++          </Avatar>
++          <div className="flex flex-col gap-2">
++            <div className="flex gap-2">
++              <Button asChild size="sm" disabled={isUploadingAvatar}>
++                <label htmlFor="avatar-upload" className="cursor-pointer">
++                  {isUploadingAvatar ? "Envoi en cours..." : "Changer la photo"}
++                </label>
++              </Button>
++              {currentUser.avatarUrl && (
++                <Button size="sm" variant="outline" onClick={handleRemoveAvatar} disabled={isUploadingAvatar}>
++                  Retirer
++                </Button>
++              )}
++            </div>
++            <input
++              id="avatar-upload"
++              type="file"
++              accept=".png,.jpg,.jpeg,.webp"
++              className="hidden"
++              onChange={handleAvatarChange}
++              disabled={isUploadingAvatar}
++            />
++            <p className="text-xs text-muted-foreground">PNG, JPG ou WEBP, 2 Mo maximum.</p>
++          </div>
++        </CardContent>
++      </Card>
++
+       {/* Profile Information */}
+       <Card>
+         <CardHeader>
+diff --git a/components/dashboard/users-management.tsx b/components/dashboard/users-management.tsx
+index ae1ee17..4d17d5c 100644
+--- a/components/dashboard/users-management.tsx
++++ b/components/dashboard/users-management.tsx
+@@ -1,10 +1,12 @@
+ "use client"
+ 
++import type React from "react"
+ import { useState, useEffect } from "react"
+ import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
+ import { usePermissions } from "@/hooks/use-permissions"
+ import type { User, RolePermissions, UserFilters, Permission, Module, Action } from "@/lib/types"
+-import { getAuthHeaders } from "@/lib/api-client"
++import { getAuthHeaders, authenticatedFetch } from "@/lib/api-client"
++import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
+ import { toast } from "@/hooks/use-toast"
+ import { cn } from "@/lib/utils"
+ import { Eye, EyeOff } from "lucide-react"
+@@ -75,6 +77,7 @@ export default function UsersManagement() {
+ 
+   const [showAddPassword, setShowAddPassword] = useState(false)
+   const [showEditPassword, setShowEditPassword] = useState(false)
++  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
+ 
+   const [roleFormData, setRoleFormData] = useState({
+     role: "",
+@@ -192,6 +195,62 @@ export default function UsersManagement() {
+     }
+   }
+ 
++  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
++    const file = e.target.files?.[0]
++    e.target.value = ""
++    if (!file || !selectedUser) return
++
++    setIsUploadingAvatar(true)
++    try {
++      const body = new FormData()
++      body.append("file", file)
++
++      const response = await authenticatedFetch(`/api/users/${selectedUser.id}/avatar`, {
++        method: 'POST',
++        body,
++      })
++      const data = await response.json()
++
++      if (data.success) {
++        setSelectedUser({ ...selectedUser, avatarUrl: data.data.avatarUrl })
++        toast({ title: "Avatar mis à jour", description: `Photo de ${selectedUser.firstName} ${selectedUser.lastName} mise à jour.` })
++        await loadData()
++      } else {
++        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
++      }
++    } catch (error) {
++      console.error('Error uploading avatar:', error)
++      toast({ title: "Erreur", description: "Erreur lors du téléversement de l'avatar", variant: "destructive" })
++    } finally {
++      setIsUploadingAvatar(false)
++    }
++  }
++
++  const handleRemoveAvatar = async () => {
++    if (!selectedUser) return
++
++    setIsUploadingAvatar(true)
++    try {
++      const response = await authenticatedFetch(`/api/users/${selectedUser.id}/avatar`, {
++        method: 'DELETE',
++      })
++      const data = await response.json()
++
++      if (data.success) {
++        setSelectedUser({ ...selectedUser, avatarUrl: null })
++        toast({ title: "Avatar supprimé", description: `Photo de ${selectedUser.firstName} ${selectedUser.lastName} retirée.` })
++        await loadData()
++      } else {
++        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
++      }
++    } catch (error) {
++      console.error('Error removing avatar:', error)
++      toast({ title: "Erreur", description: "Erreur lors de la suppression de l'avatar", variant: "destructive" })
++    } finally {
++      setIsUploadingAvatar(false)
++    }
++  }
++
+   const handleEditUser = async () => {
+     if (!selectedUser) return
+ 
+@@ -709,7 +768,16 @@ export default function UsersManagement() {
+                   {users.map((user) => (
+                     <TableRow key={user.id}>
+                       <TableCell className="font-medium">
+-                        {user.firstName} {user.lastName}
++                        <div className="flex items-center gap-2">
++                          <Avatar className="h-7 w-7">
++                            <AvatarImage src={user.avatarUrl || undefined} alt={`${user.firstName} ${user.lastName}`} />
++                            <AvatarFallback className="text-xs">
++                              {user.firstName?.[0] || ""}
++                              {user.lastName?.[0] || ""}
++                            </AvatarFallback>
++                          </Avatar>
++                          {user.firstName} {user.lastName}
++                        </div>
+                       </TableCell>
+                       <TableCell>{user.email}</TableCell>
+                       <TableCell>
+@@ -965,6 +1033,39 @@ export default function UsersManagement() {
+             <DialogDescription>Modifiez les informations de l'utilisateur</DialogDescription>
+           </DialogHeader>
+           <div className="space-y-4">
++            {selectedUser && (
++              <div className="flex items-center gap-4">
++                <Avatar className="h-16 w-16">
++                  <AvatarImage src={selectedUser.avatarUrl || undefined} alt={`${selectedUser.firstName} ${selectedUser.lastName}`} />
++                  <AvatarFallback>
++                    {selectedUser.firstName?.[0] || ""}
++                    {selectedUser.lastName?.[0] || ""}
++                  </AvatarFallback>
++                </Avatar>
++                <div className="flex flex-col gap-2">
++                  <div className="flex gap-2">
++                    <Button asChild size="sm" variant="outline" disabled={isUploadingAvatar}>
++                      <label htmlFor="edit-avatar-upload" className="cursor-pointer">
++                        {isUploadingAvatar ? "Envoi en cours..." : "Changer la photo"}
++                      </label>
++                    </Button>
++                    {selectedUser.avatarUrl && (
++                      <Button size="sm" variant="outline" onClick={handleRemoveAvatar} disabled={isUploadingAvatar}>
++                        Retirer
++                      </Button>
++                    )}
++                  </div>
++                  <input
++                    id="edit-avatar-upload"
++                    type="file"
++                    accept=".png,.jpg,.jpeg,.webp"
++                    className="hidden"
++                    onChange={handleAvatarChange}
++                    disabled={isUploadingAvatar}
++                  />
++                </div>
++              </div>
++            )}
+             <div>
+               <Label htmlFor="edit-email">Email *</Label>
+               <Input
+diff --git a/lib/types.ts b/lib/types.ts
+index 31d4077..334818c 100644
+--- a/lib/types.ts
++++ b/lib/types.ts
+@@ -7,6 +7,7 @@ export interface User {
+   lastName: string
+   role: string
+   isActive: boolean
++  avatarUrl?: string | null
+   lastLogin?: Date | null
+   createdAt: Date
+   updatedAt: Date
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index ec7ef62..2c836ad 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -19,6 +19,7 @@ model User {
+   lastName  String
+   role      String   @default("user")
+   isActive  Boolean  @default(true)
++  avatarUrl String?
+   lastLogin DateTime?
+   createdAt DateTime @default(now())
+   updatedAt DateTime @updatedAt

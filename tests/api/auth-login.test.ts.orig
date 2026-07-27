@@ -1,0 +1,102 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { NextRequest } from "next/server"
+import * as bcrypt from "bcryptjs"
+import { verifyTwoFactorPendingToken } from "@/lib/auth"
+
+vi.mock("@/lib/db", () => ({
+  prisma: {
+    user: {
+      findUnique: vi.fn(),
+    },
+  },
+}))
+
+const { prisma } = await import("@/lib/db")
+const { POST: login } = await import("@/app/api/auth/login/route")
+
+const hashedPassword = bcrypt.hashSync("correct-password", 4)
+
+const baseUser = {
+  id: "user-1",
+  email: "jane@example.com",
+  firstName: "Jane",
+  lastName: "Doe",
+  role: "user",
+  isActive: true,
+  password: hashedPassword,
+  twoFactorEnabled: false,
+  twoFactorSecret: null as string | null,
+}
+
+// Chaque test utilise une IP distincte : le rate limiter de connexion (5
+// tentatives / 15 min) partage sinon la même clé ("login:unknown") entre tous
+// les tests de ce fichier et finirait par renvoyer 429 au lieu du code attendu.
+let requestCounter = 0
+
+function loginRequest(email: string, password: string) {
+  requestCounter += 1
+  return new NextRequest("http://localhost/api/auth/login", {
+    method: "POST",
+    headers: new Headers({ "content-type": "application/json", "x-forwarded-for": `10.1.0.${requestCounter}` }),
+    body: JSON.stringify({ email, password }),
+  })
+}
+
+describe("POST /api/auth/login", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("délivre directement les tokens si la 2FA n'est pas activée", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser } as any)
+
+    const response = await login(loginRequest(baseUser.email, "correct-password"))
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json.data.accessToken).toBeTruthy()
+    expect(json.data.refreshToken).toBeTruthy()
+    expect(json.data.user.email).toBe(baseUser.email)
+    expect(json.data.requiresTwoFactor).toBeUndefined()
+  })
+
+  it("ne délivre pas de tokens et renvoie un jeton temporaire si la 2FA est activée et déjà configurée", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser, twoFactorEnabled: true, twoFactorSecret: "JBSWY3DPEHPK3PXP" } as any)
+
+    const response = await login(loginRequest(baseUser.email, "correct-password"))
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json.data.requiresTwoFactor).toBe(true)
+    expect(json.data.requiresTwoFactorSetup).toBeUndefined()
+    expect(json.data.accessToken).toBeUndefined()
+    expect(json.data.refreshToken).toBeUndefined()
+    expect(json.data.user).toBeUndefined()
+
+    // Le jeton temporaire doit bien identifier cet utilisateur et rien de plus.
+    const decoded = verifyTwoFactorPendingToken(json.data.tempToken)
+    expect(decoded.userId).toBe(baseUser.id)
+  })
+
+  it("force la configuration de la 2FA si elle est exigée mais jamais configurée (secret absent)", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser, twoFactorEnabled: true, twoFactorSecret: null } as any)
+
+    const response = await login(loginRequest(baseUser.email, "correct-password"))
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json.data.requiresTwoFactorSetup).toBe(true)
+    expect(json.data.requiresTwoFactor).toBeUndefined()
+    expect(json.data.accessToken).toBeUndefined()
+
+    const decoded = verifyTwoFactorPendingToken(json.data.tempToken)
+    expect(decoded.userId).toBe(baseUser.id)
+  })
+
+  it("refuse un mauvais mot de passe avant même de considérer la 2FA (401)", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser, twoFactorEnabled: true } as any)
+
+    const response = await login(loginRequest(baseUser.email, "wrong-password"))
+    expect(response.status).toBe(401)
+  })
+})

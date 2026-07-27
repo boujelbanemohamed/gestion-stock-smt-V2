@@ -2,7 +2,8 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
+import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -19,12 +20,57 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
-import type { Movement, Card as CardType, Location, Bank } from "@/lib/types"
-import { Filter, ChevronLeft, ChevronRight } from "lucide-react"
+import type { Movement, Card as CardType, Location, Bank, MovementReason } from "@/lib/types"
+import { Filter, ChevronLeft, ChevronRight, Paperclip, Download, Trash2 } from "lucide-react"
 import { getAuthHeaders, authenticatedFetch } from "@/lib/api-client"
+import { toast } from "@/hooks/use-toast"
+import { cn } from "@/lib/utils"
+import { exportToCsv, exportToExcel } from "@/lib/export"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+
+const FIELD_LABELS: Record<string, string> = {
+  bankId: "Banque",
+  cardQuantities: "Cartes",
+  fromLocationId: "Emplacement source",
+  toLocationId: "Emplacement destination",
+  reason: "Motif",
+  quantity: "Quantité",
+}
+
+function showValidationErrorsToast(errors: Record<string, string | undefined>) {
+  const entries = Object.entries(errors).filter((entry): entry is [string, string] => Boolean(entry[1]))
+  toast({
+    title: "Erreurs de validation",
+    description: (
+      <ul className="list-disc space-y-0.5 pl-4">
+        {entries.map(([key, message]) => (
+          <li key={key}>
+            <strong>{FIELD_LABELS[key] || key} :</strong> {message}
+          </li>
+        ))}
+      </ul>
+    ),
+    variant: "destructive",
+  })
+}
 import {
   Pagination,
   PaginationContent,
@@ -36,9 +82,14 @@ import {
 } from "@/components/ui/pagination"
 
 export default function MovementsManagement() {
+  const searchParams = useSearchParams()
+  const prefillCardId = searchParams.get("cardId")
+  const hasPrefilledRef = useRef(false)
   const [movements, setMovements] = useState<Movement[]>([])
   const [cards, setCards] = useState<CardType[]>([])
   const [locations, setLocations] = useState<Location[]>([])
+  const [movementReasons, setMovementReasons] = useState<MovementReason[]>([])
+  const [selectedReasonId, setSelectedReasonId] = useState<string>("")
   const [banks, setBanks] = useState<Bank[]>([])
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [logoPath, setLogoPath] = useState<string>('/placeholder-logo.png')
@@ -52,6 +103,11 @@ export default function MovementsManagement() {
     reason: "",
   })
 
+  // Document justificatif optionnel, uniquement pour les mouvements d'entrée.
+  // Géré à part de formData car un objet File ne doit pas transiter par le JSON
+  // envoyé pour chaque mouvement créé en masse.
+  const [documentFile, setDocumentFile] = useState<File | null>(null)
+
   const [movementErrors, setMovementErrors] = useState<Array<{
     cardName: string
     error: string
@@ -64,6 +120,10 @@ export default function MovementsManagement() {
     reason?: string
   }>({})
   const [isGeneratingBulk, setIsGeneratingBulk] = useState(false)
+
+  // Suppression d'un mouvement : le mouvement visé par la confirmation en cours.
+  const [movementToDelete, setMovementToDelete] = useState<Movement | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   // États pour les filtres
   const [filters, setFilters] = useState({
@@ -89,11 +149,13 @@ export default function MovementsManagement() {
     loadCardsLocationsBanks()
     // Charger la configuration pour le logo
     loadConfig()
+    // Charger la liste des motifs (gérée dans Configuration > Motifs)
+    loadMovementReasons()
   }, [])
 
   const loadConfig = async () => {
     try {
-      const configResponse = await fetch('/api/config')
+      const configResponse = await fetch('/api/config', { headers: getAuthHeaders() })
       const configData = await configResponse.json()
       if (configData.success && configData.data?.general?.logo) {
         setLogoPath(configData.data.general.logo)
@@ -103,29 +165,57 @@ export default function MovementsManagement() {
     }
   }
 
+  const loadMovementReasons = async () => {
+    try {
+      const response = await fetch('/api/movement-reasons', { headers: getAuthHeaders() })
+      const data = await response.json()
+      if (data.success) {
+        setMovementReasons((data.data || []).filter((r: MovementReason) => r.isActive))
+      }
+    } catch (error) {
+      console.error('Error loading movement reasons:', error)
+    }
+  }
+
   // Recharger les mouvements quand les filtres ou la page changent
   useEffect(() => {
     loadMovements()
   }, [filters, currentPage])
 
+  // Pré-remplir et ouvrir le formulaire "Nouveau mouvement" quand on arrive depuis
+  // la fiche détaillée d'une carte (lien "Nouveau mouvement" avec ?cardId=...)
+  useEffect(() => {
+    if (!prefillCardId || hasPrefilledRef.current || cards.length === 0) return
+    const card = cards.find((c) => c.id === prefillCardId)
+    if (!card) return
+
+    hasPrefilledRef.current = true
+    setFormData((prev) => ({
+      ...prev,
+      bankId: card.bankId,
+      cardQuantities: [{ cardId: card.id, quantity: 1 }],
+    }))
+    setIsDialogOpen(true)
+  }, [prefillCardId, cards])
+
   const loadCardsLocationsBanks = async () => {
     try {
       // Charger les cartes
-      const cardsResponse = await fetch('/api/cards')
+      const cardsResponse = await fetch('/api/cards', { headers: getAuthHeaders() })
       const cardsData = await cardsResponse.json()
       if (cardsData.success) {
         setCards(cardsData.data || [])
       }
 
       // Charger les emplacements
-      const locationsResponse = await fetch('/api/locations')
+      const locationsResponse = await fetch('/api/locations', { headers: getAuthHeaders() })
       const locationsData = await locationsResponse.json()
       if (locationsData.success) {
         setLocations(locationsData.data.filter((l: any) => l.isActive) || [])
       }
 
       // Charger les banques
-      const banksResponse = await fetch('/api/banks?status=active')
+      const banksResponse = await fetch('/api/banks?status=active', { headers: getAuthHeaders() })
       const banksData = await banksResponse.json()
       if (banksData.success) {
         setBanks(banksData.data || [])
@@ -171,7 +261,7 @@ export default function MovementsManagement() {
       params.append('limit', movementsPerPage.toString())
 
       // Charger les mouvements avec filtres et pagination
-      const movementsResponse = await fetch(`/api/movements?${params.toString()}`)
+      const movementsResponse = await fetch(`/api/movements?${params.toString()}`, { headers: getAuthHeaders() })
       const movementsData = await movementsResponse.json()
       if (movementsData.success && movementsData.data) {
         // S'assurer que movements est toujours un tableau
@@ -209,7 +299,9 @@ export default function MovementsManagement() {
 
   // Synchronisation automatique des mouvements
   useDataSync(["movements"], loadMovements)
-  useAutoRefresh(loadMovements, 120000) // 2 minutes
+  // Les mouvements sont désormais poussés en temps réel (SSE, voir RealtimeBridge) ;
+  // ce polling ne sert plus que de filet de sécurité en cas de coupure de la connexion.
+  useAutoRefresh(loadMovements, 5 * 60000) // 5 minutes
 
   const getCardName = (cardId: string) => {
     const card = cards.find((c) => c.id === cardId)
@@ -303,9 +395,9 @@ export default function MovementsManagement() {
       params.append('limit', '10000')
       params.append('page', '1')
 
-      const movementsResponse = await fetch(`/api/movements?${params.toString()}`)
+      const movementsResponse = await fetch(`/api/movements?${params.toString()}`, { headers: getAuthHeaders() })
       const movementsData = await movementsResponse.json()
-      
+
       let movementsToPrint: Movement[] = []
       if (movementsData.success && movementsData.data) {
         movementsToPrint = Array.isArray(movementsData.data.movements) 
@@ -757,6 +849,69 @@ export default function MovementsManagement() {
     }
   }
 
+  // Récupère TOUS les mouvements correspondant aux filtres actuels (sans pagination),
+  // pour l'export CSV/Excel — mêmes filtres que ceux utilisés pour l'impression.
+  const fetchAllFilteredMovements = async (): Promise<Movement[]> => {
+    const params = new URLSearchParams()
+    if (filters.bankId && filters.bankId !== "all") params.append('bankId', filters.bankId)
+    if (filters.cardId && filters.cardId !== "all") params.append('cardId', filters.cardId)
+    if (filters.movementType && filters.movementType !== "all") params.append('type', filters.movementType)
+    if (filters.fromLocationId && filters.fromLocationId !== "all") params.append('fromLocationId', filters.fromLocationId)
+    if (filters.toLocationId && filters.toLocationId !== "all") params.append('toLocationId', filters.toLocationId)
+    if (filters.dateFrom) params.append('dateFrom', filters.dateFrom)
+    if (filters.dateTo) params.append('dateTo', filters.dateTo)
+    if (filters.searchTerm) params.append('searchTerm', filters.searchTerm)
+    params.append('limit', '10000')
+    params.append('page', '1')
+
+    const response = await fetch(`/api/movements?${params.toString()}`, { headers: getAuthHeaders() })
+    const data = await response.json()
+    return data.success && Array.isArray(data.data?.movements) ? data.data.movements : []
+  }
+
+  const buildMovementsExportTable = (movementsToExport: Movement[]) => {
+    const headers = ["Date et Heure", "Banque", "Carte", "Type", "De", "Vers", "Quantité", "Motif", "Document", "Utilisateur"]
+    const rows = movementsToExport.map((movement) => {
+      const card = cards.find((c) => c.id === movement.cardId)
+      return [
+        formatDateTime(movement.createdAt),
+        card ? getBankName(card.bankId) : "N/A",
+        getCardName(movement.cardId),
+        getMovementTypeLabel(movement.movementType),
+        movement.fromLocationId ? getLocationName(movement.fromLocationId) : "-",
+        movement.toLocationId ? getLocationName(movement.toLocationId) : "-",
+        movement.quantity,
+        movement.reason,
+        movement.documentUrl ? "Oui" : "Non",
+        getUserName(movement.userId),
+      ]
+    })
+    return { headers, rows }
+  }
+
+  const handleExportMovements = async (format: "csv" | "excel") => {
+    try {
+      const movementsToExport = await fetchAllFilteredMovements()
+      if (movementsToExport.length === 0) {
+        toast({ title: "Aucune donnée à exporter", description: "Aucun mouvement ne correspond aux filtres actuels.", variant: "destructive" })
+        return
+      }
+
+      const { headers, rows } = buildMovementsExportTable(movementsToExport)
+      const filename = `mouvements_${new Date().toISOString().slice(0, 10)}`
+
+      if (format === "csv") {
+        exportToCsv(filename, headers, rows)
+      } else {
+        await exportToExcel(filename, [{ name: "Mouvements", headers, rows }])
+      }
+      toast({ title: "Export réussi", description: `${movementsToExport.length} mouvement(s) exporté(s).` })
+    } catch (error) {
+      console.error('Error exporting movements:', error)
+      toast({ title: "Erreur", description: "Erreur lors de l'export des mouvements", variant: "destructive" })
+    }
+  }
+
   const printSingleMovement = (movement: Movement) => {
     if (!currentUser) return
     const printWindow = window.open("", "_blank")
@@ -973,6 +1128,49 @@ export default function MovementsManagement() {
     printWindow.document.close()
   }
 
+  // Supprime un mouvement après confirmation explicite. Le serveur annule
+  // l'effet du mouvement sur le stock ; il refuse (409) si cette annulation
+  // rendait le stock négatif, auquel cas on remonte son message tel quel.
+  const handleConfirmDelete = async () => {
+    if (!movementToDelete) return
+
+    setIsDeleting(true)
+    try {
+      const response = await authenticatedFetch(`/api/movements/${movementToDelete.id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      })
+      const data = await response.json()
+
+      if (!data.success) {
+        toast({
+          title: "Suppression impossible",
+          description: data.error || "Erreur inconnue",
+          variant: "destructive",
+        })
+        return
+      }
+
+      setMovementToDelete(null)
+      await loadMovements()
+      // Recharge les stocks par emplacement, mis à jour par l'annulation.
+      await loadCardsLocationsBanks()
+      toast({
+        title: "Mouvement supprimé",
+        description: "Le stock a été réajusté en conséquence.",
+      })
+    } catch (error) {
+      console.error('Error deleting movement:', error)
+      toast({
+        title: "Erreur",
+        description: "Erreur lors de la suppression du mouvement",
+        variant: "destructive",
+      })
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   const getAvailableStock = (cardId: string, locationId: string): number => {
     if (!cardId || !locationId) return 0
     const card: any = cards.find((c: any) => c.id === cardId)
@@ -1007,7 +1205,7 @@ export default function MovementsManagement() {
 
     // Validate bankId
     if (!formData.bankId) {
-      alert("Veuillez sélectionner une banque")
+      showValidationErrorsToast({ bankId: "Veuillez sélectionner une banque" })
       return
     }
 
@@ -1015,20 +1213,30 @@ export default function MovementsManagement() {
 
     // Validate cards belong to selected bank
     if (formData.cardQuantities.length === 0) {
-      alert("Veuillez sélectionner au moins une carte")
+      showValidationErrorsToast({ cardQuantities: "Veuillez sélectionner au moins une carte" })
       return
     }
 
     for (const cardQuantity of formData.cardQuantities) {
       const card = cards.find(c => c.id === cardQuantity.cardId)
       if (card && card.bankId !== formData.bankId) {
-        alert("Une des cartes sélectionnées n'appartient pas à la banque choisie")
+        showValidationErrorsToast({ cardQuantities: "Une des cartes sélectionnées n'appartient pas à la banque choisie" })
         return
       }
       if (cardQuantity.quantity <= 0) {
-        alert(`La quantité pour la carte ${card?.name} doit être supérieure à 0`)
+        showValidationErrorsToast({ cardQuantities: `La quantité pour la carte ${card?.name} doit être supérieure à 0` })
         return
       }
+    }
+
+    // Valider la présence des emplacements requis selon le type de mouvement
+    // (le serveur les exige aussi ; sans ce contrôle côté client, la requête
+    // partait avec un champ vide et échouait en 400 sans message clair dans le formulaire).
+    if ((formData.movementType === "entry" || formData.movementType === "transfer") && !formData.toLocationId) {
+      errors.toLocationId = "L'emplacement destination est obligatoire"
+    }
+    if ((formData.movementType === "exit" || formData.movementType === "transfer") && !formData.fromLocationId) {
+      errors.fromLocationId = "L'emplacement source est obligatoire"
     }
 
     // Validate locations belong to selected bank
@@ -1055,8 +1263,11 @@ export default function MovementsManagement() {
     }
 
     // Validate reason (motif) is required
-    if (!formData.reason || formData.reason.trim() === "") {
-      errors.reason = "Le motif est obligatoire"
+    const selectedReason = movementReasons.find((r) => r.id === selectedReasonId)
+    if (!selectedReason) {
+      errors.reason = "Veuillez sélectionner un motif"
+    } else if (selectedReason.isOther && (!formData.reason || formData.reason.trim() === "")) {
+      errors.reason = "Veuillez préciser le motif"
     }
 
     // Validate available stock for exit and transfer
@@ -1079,13 +1290,19 @@ export default function MovementsManagement() {
         }
         
         if (insufficientCards.length > 0) {
-          const message = `❌ Le mouvement ne peut pas être effectué à cause de quantités insuffisantes:\n\n` +
-            insufficientCards.map(card => 
-              `• ${card.cardName}: ${card.available} disponible (demandé: ${card.requested}, manque: ${card.missing})`
-            ).join('\n') +
-            `\n\nVeuillez ajuster les quantités ou choisir un autre emplacement source.`
-          
-          alert(message)
+          toast({
+            title: "Erreurs de validation",
+            description: (
+              <ul className="list-disc space-y-0.5 pl-4">
+                {insufficientCards.map((card) => (
+                  <li key={card.cardName}>
+                    <strong>{card.cardName} :</strong> {card.available} disponible (demandé : {card.requested}, manque : {card.missing})
+                  </li>
+                ))}
+              </ul>
+            ),
+            variant: "destructive",
+          })
           return
         }
       }
@@ -1093,6 +1310,7 @@ export default function MovementsManagement() {
 
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors)
+      showValidationErrorsToast(errors)
       return
     }
 
@@ -1117,6 +1335,32 @@ export default function MovementsManagement() {
       // Réinitialiser les erreurs avant de commencer
       setMovementErrors([])
 
+      // Téléverser le document justificatif une seule fois (le cas échéant) et
+      // l'associer à chaque mouvement créé dans ce lot.
+      let uploadedDocument: { url: string; name: string } | null = null
+      if (formData.movementType === "entry" && documentFile) {
+        const uploadBody = new FormData()
+        uploadBody.append("file", documentFile)
+
+        // authenticatedFetch détecte le corps FormData et n'impose pas
+        // Content-Type: application/json dans ce cas (le navigateur fixe
+        // lui-même le Content-Type avec sa boundary multipart).
+        const uploadResponse = await authenticatedFetch('/api/movements/upload', {
+          method: 'POST',
+          body: uploadBody,
+        })
+        const uploadResult = await uploadResponse.json()
+        if (!uploadResult.success) {
+          toast({
+            title: "Échec du téléversement",
+            description: uploadResult.error || "Erreur inconnue",
+            variant: "destructive",
+          })
+          return
+        }
+        uploadedDocument = uploadResult.data
+      }
+
       for (const cardQuantity of formData.cardQuantities) {
         const movementData = {
           ...formData,
@@ -1125,6 +1369,9 @@ export default function MovementsManagement() {
           // userId sera récupéré depuis l'en-tête x-user-data
           fromLocationId: formData.movementType === "entry" ? null : formData.fromLocationId || null,
           toLocationId: formData.movementType === "exit" ? null : formData.toLocationId || null,
+          ...(uploadedDocument
+            ? { documentUrl: uploadedDocument.url, documentName: uploadedDocument.name }
+            : {}),
         }
 
         const response = await authenticatedFetch('/api/movements', {
@@ -1153,7 +1400,11 @@ export default function MovementsManagement() {
       }
 
       await loadMovements()
-      
+      // Recharger les cartes (et leurs stockLevels par emplacement) : sans cela, le stock
+      // disponible affiché/validé pour un mouvement suivant reste celui d'avant ce mouvement
+      // tant que la page n'est pas rechargée manuellement.
+      await loadCardsLocationsBanks()
+
       // Impression d'un bon consolidé si plusieurs cartes (génération en masse) et que tous sont réussis
       if (bulkContext.cardQuantities.length > 1 && successCount > 0 && errorCount === 0) {
         printBulkSlip(bulkContext, createdMovements)
@@ -1164,20 +1415,35 @@ export default function MovementsManagement() {
         resetForm()
         setIsDialogOpen(false)
         if (successCount > 0) {
-          alert(`${successCount} mouvement(s) créé(s) avec succès`)
+          toast({
+            title: "Mouvement créé",
+            description: `${successCount} mouvement(s) créé(s) avec succès`,
+          })
         }
       } else {
         // Garder le modal ouvert pour afficher les erreurs
         // Afficher un message récapitulatif
         if (successCount > 0) {
-          alert(`${successCount} mouvement(s) créé(s), ${errorCount} erreur(s). Veuillez corriger les erreurs ci-dessous.`)
+          toast({
+            title: "Création partiellement réussie",
+            description: `${successCount} mouvement(s) créé(s), ${errorCount} erreur(s). Voir le détail ci-dessous.`,
+            variant: "destructive",
+          })
         } else {
-          alert(`${errorCount} erreur(s) lors de la création. Veuillez corriger les erreurs ci-dessous.`)
+          toast({
+            title: "Échec de la création",
+            description: `${errorCount} erreur(s) lors de la création. Voir le détail ci-dessous.`,
+            variant: "destructive",
+          })
         }
       }
     } catch (error) {
       console.error('Error creating movements:', error)
-      alert('Erreur lors de la création des mouvements')
+      toast({
+        title: "Erreur",
+        description: "Erreur lors de la création des mouvements",
+        variant: "destructive",
+      })
     }
   }
 
@@ -1420,8 +1686,23 @@ export default function MovementsManagement() {
       movementType: "entry",
       reason: "",
     })
+    setSelectedReasonId("")
+    setDocumentFile(null)
     setFormErrors({})
     setMovementErrors([]) // Réinitialiser les erreurs de mouvement
+  }
+
+  // Sélection du motif : à choix unique (cocher un motif décoche les autres).
+  // Si le motif "Autre" est choisi, le champ texte devient la source du motif.
+  const handleReasonSelect = (reasonId: string) => {
+    const reason = movementReasons.find((r) => r.id === reasonId)
+    if (!reason) return
+
+    setSelectedReasonId(reasonId)
+    setFormData((prev) => ({ ...prev, reason: reason.isOther ? "" : reason.label }))
+    if (formErrors.reason) {
+      setFormErrors({ ...formErrors, reason: undefined })
+    }
   }
 
   // Fonction pour gérer la sélection des cartes avec quantité
@@ -1589,7 +1870,7 @@ export default function MovementsManagement() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold text-slate-900">Gestion des Mouvements</h2>
-          <p className="text-sm text-slate-600 mt-1">Suivez les mouvements de stock</p>
+          <p className="text-xs text-[#008DA8] mt-1">Suivez les mouvements de stock</p>
         </div>
         <div className="flex items-center gap-3">
           {/* Les boutons ont été déplacés dans l'en-tête du tableau ci-dessous */}
@@ -1695,7 +1976,7 @@ export default function MovementsManagement() {
                             }}
                             disabled={!formData.bankId}
                           >
-                            <SelectTrigger>
+                            <SelectTrigger className={cn(formErrors.fromLocationId && "border-destructive ring-1 ring-destructive")}>
                               <SelectValue placeholder={formData.bankId ? "Emplacement source" : "Sélectionnez d'abord une banque"} />
                             </SelectTrigger>
                             <SelectContent>
@@ -1760,7 +2041,7 @@ export default function MovementsManagement() {
                           }}
                           disabled={!formData.bankId}
                         >
-                          <SelectTrigger>
+                          <SelectTrigger className={cn(formErrors.toLocationId && "border-destructive ring-1 ring-destructive")}>
                             <SelectValue placeholder={formData.bankId ? "Emplacement destination" : "Sélectionnez d'abord une banque"} />
                           </SelectTrigger>
                           <SelectContent>
@@ -1940,24 +2221,73 @@ export default function MovementsManagement() {
 
                   {/* 8. Motif */}
                   <div className="grid grid-cols-4 items-start gap-4">
-                    <Label htmlFor="reason" className="text-right mt-2 font-semibold">
+                    <Label className="text-right mt-2 font-semibold">
                       Motif *
                     </Label>
-                    <div className="col-span-3">
-                      <Textarea
-                        id="reason"
-                        value={formData.reason}
-                        onChange={(e) => {
-                          setFormData({ ...formData, reason: e.target.value })
-                          if (formErrors.reason) {
-                            setFormErrors({ ...formErrors, reason: undefined })
-                          }
-                        }}
-                        placeholder="Motif du mouvement"
-                        required
-                      />
+                    <div
+                      className={cn(
+                        "col-span-3 space-y-2 rounded-md p-2",
+                        formErrors.reason && "ring-1 ring-destructive",
+                      )}
+                    >
+                      {movementReasons.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Chargement des motifs...</p>
+                      ) : (
+                        movementReasons.map((movementReason) => (
+                          <div key={movementReason.id} className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              id={`reason-${movementReason.id}`}
+                              checked={selectedReasonId === movementReason.id}
+                              onChange={() => handleReasonSelect(movementReason.id)}
+                              className="rounded border-gray-300"
+                            />
+                            <label htmlFor={`reason-${movementReason.id}`} className="text-sm cursor-pointer">
+                              {movementReason.label}
+                            </label>
+                          </div>
+                        ))
+                      )}
+
+                      {movementReasons.find((r) => r.id === selectedReasonId)?.isOther && (
+                        <Textarea
+                          id="reason"
+                          value={formData.reason}
+                          onChange={(e) => {
+                            setFormData({ ...formData, reason: e.target.value })
+                            if (formErrors.reason) {
+                              setFormErrors({ ...formErrors, reason: undefined })
+                            }
+                          }}
+                          placeholder="Précisez le motif"
+                          className="mt-2"
+                        />
+                      )}
                     </div>
                   </div>
+
+                  {/* 9. Document justificatif (optionnel, entrées uniquement) */}
+                  {formData.movementType === "entry" && (
+                    <div className="grid grid-cols-4 items-start gap-4">
+                      <Label htmlFor="document" className="text-right mt-2 font-semibold">
+                        Document
+                      </Label>
+                      <div className="col-span-3 space-y-1">
+                        <Input
+                          id="document"
+                          type="file"
+                          accept=".pdf,.png,.jpg,.jpeg,.webp"
+                          onChange={(e) => setDocumentFile(e.target.files?.[0] || null)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Optionnel. PDF ou image, 5 Mo maximum.
+                        </p>
+                        {documentFile && (
+                          <p className="text-xs text-muted-foreground">Fichier sélectionné : {documentFile.name}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Section centralisée pour tous les messages d'erreur */}
                   {(Object.keys(formErrors).length > 0 || movementErrors.length > 0) && (
@@ -2023,6 +2353,22 @@ export default function MovementsManagement() {
                 Imprimer le bordereau
               </Button>
             )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="default" className="font-medium">
+                  <Download className="h-4 w-4 mr-2" />
+                  Exporter
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleExportMovements("csv")}>
+                  Exporter en CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportMovements("excel")}>
+                  Exporter en Excel
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
           
           <CardTitle>Historique des Mouvements</CardTitle>
@@ -2250,6 +2596,7 @@ export default function MovementsManagement() {
                       <TableHead>Vers</TableHead>
                       <TableHead>Quantité</TableHead>
                       <TableHead>Motif</TableHead>
+                      <TableHead>Document</TableHead>
                       <TableHead>Utilisateur</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -2271,6 +2618,16 @@ export default function MovementsManagement() {
                                 d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
                               />
                             </svg>
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setMovementToDelete(movement)}
+                            title="Supprimer ce mouvement"
+                            aria-label={`Supprimer le mouvement ${getCardName(movement.cardId)}`}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </TableCell>
                         <TableCell className="text-sm whitespace-nowrap">
@@ -2294,6 +2651,21 @@ export default function MovementsManagement() {
                         <TableCell>{movement.toLocationId ? getLocationName(movement.toLocationId) : "-"}</TableCell>
                         <TableCell>{movement.quantity}</TableCell>
                         <TableCell className="max-w-xs truncate">{movement.reason}</TableCell>
+                        <TableCell>
+                          {movement.documentUrl ? (
+                            <a
+                              href={movement.documentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+                              title={movement.documentName || "Voir le document"}
+                            >
+                              <Paperclip className="h-3.5 w-3.5" />
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-sm">{getUserName(movement.userId)}</TableCell>
                       </TableRow>
                     )) : null}
@@ -2356,6 +2728,63 @@ export default function MovementsManagement() {
           )}
         </CardContent>
       </Card>
+
+      {/* Confirmation de suppression : l'action est définitive et modifie le stock,
+          elle doit donc être explicitement confirmée. */}
+      <AlertDialog
+        open={movementToDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !isDeleting) setMovementToDelete(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer ce mouvement ?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p className="font-medium text-destructive">
+                  ⚠️ Cette action est irréversible et modifie le stock.
+                </p>
+                {movementToDelete && (
+                  <div className="rounded-md border bg-muted/50 p-3 text-sm">
+                    <div>
+                      <strong>Carte :</strong> {getCardName(movementToDelete.cardId)}
+                    </div>
+                    <div>
+                      <strong>Type :</strong> {getMovementTypeLabel(movementToDelete.movementType)}
+                    </div>
+                    <div>
+                      <strong>Quantité :</strong> {movementToDelete.quantity}
+                    </div>
+                    <div>
+                      <strong>Date :</strong> {formatDateTime(movementToDelete.createdAt)}
+                    </div>
+                  </div>
+                )}
+                <p>
+                  Le stock des emplacements concernés sera réajusté pour annuler ce mouvement. Si
+                  cette annulation devait rendre un stock négatif, la suppression sera refusée.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                // Empêche la fermeture automatique : on ferme nous-mêmes une fois
+                // la réponse du serveur connue (succès comme refus).
+                e.preventDefault()
+                handleConfirmDelete()
+              }}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? "Suppression..." : "Supprimer définitivement"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

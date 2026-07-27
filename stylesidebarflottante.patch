@@ -1,0 +1,26 @@
+diff --git a/app/dashboard/layout.tsx b/app/dashboard/layout.tsx
+index 1436b39..63e78c6 100644
+--- a/app/dashboard/layout.tsx
++++ b/app/dashboard/layout.tsx
+@@ -264,9 +264,9 @@ export default function DashboardLayout({
+   }
+ 
+   return (
+-    <div className="min-h-screen bg-slate-50 flex">
+-      {/* Sidebar */}
+-      <div className="w-64 bg-white border-r border-slate-200 flex flex-col">
++    <div className="min-h-screen bg-slate-50">
++      {/* Sidebar flottante */}
++      <div className="fixed left-4 top-4 bottom-4 z-20 w-64 flex flex-col rounded-2xl border border-slate-200 bg-white shadow-lg overflow-y-auto">
+         {/* Logo */}
+         <div className="p-6 border-b border-slate-200">
+           <div className="flex flex-col items-center space-y-2">
+@@ -310,7 +310,7 @@ export default function DashboardLayout({
+       </div>
+ 
+       {/* Main Content */}
+-      <div className="flex-1 flex flex-col">
++      <div className="ml-72 flex min-h-screen flex-col">
+         {/* Header */}
+         <header className="bg-white border-b border-slate-200 px-6 py-4">
+           <div className="flex items-center justify-between">

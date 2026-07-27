@@ -12,6 +12,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { getAuthHeaders } from "@/lib/api-client"
+import { useServerEvent } from "@/hooks/use-server-event"
 
 export default function NotificationsDropdown() {
   const [notifications, setNotifications] = useState<Notification[]>([])
@@ -19,8 +21,9 @@ export default function NotificationsDropdown() {
 
   useEffect(() => {
     loadNotifications()
-    // Refresh notifications every 30 seconds
-    const interval = setInterval(loadNotifications, 30000)
+    // Filet de sécurité si la connexion SSE (temps réel) venait à se couper :
+    // la mise à jour en direct passe désormais par useServerEvent ci-dessous.
+    const interval = setInterval(loadNotifications, 5 * 60 * 1000)
     return () => clearInterval(interval)
   }, [])
 
@@ -30,7 +33,7 @@ export default function NotificationsDropdown() {
       const currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null')
       if (currentUser) {
         // Récupérer toutes les notifications
-        const response = await fetch(`/api/notifications?userId=${currentUser.id}`)
+        const response = await fetch(`/api/notifications?userId=${currentUser.id}`, { headers: getAuthHeaders() })
         const data = await response.json()
         if (data.success) {
           const allNotifications = data.data.slice(0, 10) // Show last 10 notifications
@@ -46,14 +49,20 @@ export default function NotificationsDropdown() {
     }
   }
 
+  // Une notification créée par n'importe quelle action (alerte de stock bas,
+  // etc.) est poussée en temps réel via SSE : on recharge la liste dès réception.
+  useServerEvent("notification", () => {
+    loadNotifications()
+  })
+
   const handleMarkAsRead = async (id: string) => {
     try {
       const response = await fetch(`/api/notifications/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ isRead: true })
       })
-      
+
       if (response.ok) {
         await loadNotifications()
       }
@@ -81,7 +90,7 @@ export default function NotificationsDropdown() {
         const promises = unreadNotifications.map(notification => 
           fetch(`/api/notifications/${notification.id}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders(),
             body: JSON.stringify({ isRead: true })
           })
         )
@@ -102,7 +111,8 @@ export default function NotificationsDropdown() {
   const handleDeleteNotification = async (id: string) => {
     try {
       const response = await fetch(`/api/notifications/${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: getAuthHeaders(),
       })
       
       if (response.ok) {

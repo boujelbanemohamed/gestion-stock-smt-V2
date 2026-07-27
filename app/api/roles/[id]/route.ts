@@ -4,6 +4,7 @@ import type { ApiResponse } from "@/lib/api-types"
 import type { RolePermissions } from "@/lib/types"
 import { eventBus } from "@/lib/event-bus"
 import { logAudit } from "@/lib/audit-logger"
+import { requireAdmin } from "@/lib/auth-middleware"
 
 // PUT /api/roles/[id] - Mettre à jour un rôle
 
@@ -12,19 +13,12 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = requireAdmin(request)
+  if (!auth.authorized) return auth.response
+  const userData = auth.user
+
   try {
     const body = await request.json()
-
-    // Récupérer l'utilisateur depuis le header
-    const userHeader = request.headers.get("x-user-data")
-    let userData = null
-    try {
-      if (userHeader) {
-        userData = JSON.parse(userHeader)
-      }
-    } catch (error) {
-      console.error('Error parsing user header:', error)
-    }
 
     const role = await prisma.rolePermission.findUnique({
       where: { id: params.id }
@@ -96,18 +90,11 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
 // DELETE /api/roles/[id] - Supprimer un rôle
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
-  try {
-    // Récupérer l'utilisateur depuis le header
-    const userHeader = request.headers.get("x-user-data")
-    let userData = null
-    try {
-      if (userHeader) {
-        userData = JSON.parse(userHeader)
-      }
-    } catch (error) {
-      console.error('Error parsing user header:', error)
-    }
+  const auth = requireAdmin(request)
+  if (!auth.authorized) return auth.response
+  const userData = auth.user
 
+  try {
     const role = await prisma.rolePermission.findUnique({
       where: { id: params.id }
     })

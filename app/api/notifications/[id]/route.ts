@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
+import { requireAuth } from "@/lib/auth-middleware"
 
 // PUT /api/notifications/[id] - Marquer comme lue
 
@@ -9,6 +10,9 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const body = await request.json()
 
@@ -38,6 +42,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
 // DELETE /api/notifications/[id] - Supprimer une notification
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     await prisma.notification.delete({
       where: { id: params.id }

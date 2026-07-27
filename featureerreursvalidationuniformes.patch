@@ -1,0 +1,131 @@
+diff --git a/components/dashboard/movements-management.tsx b/components/dashboard/movements-management.tsx
+index f30e6b1..c619d41 100644
+--- a/components/dashboard/movements-management.tsx
++++ b/components/dashboard/movements-management.tsx
+@@ -26,6 +26,33 @@ import type { Movement, Card as CardType, Location, Bank } from "@/lib/types"
+ import { Filter, ChevronLeft, ChevronRight, Paperclip } from "lucide-react"
+ import { getAuthHeaders, authenticatedFetch } from "@/lib/api-client"
+ import { toast } from "@/hooks/use-toast"
++import { cn } from "@/lib/utils"
++
++const FIELD_LABELS: Record<string, string> = {
++  bankId: "Banque",
++  cardQuantities: "Cartes",
++  fromLocationId: "Emplacement source",
++  toLocationId: "Emplacement destination",
++  reason: "Motif",
++  quantity: "Quantité",
++}
++
++function showValidationErrorsToast(errors: Record<string, string | undefined>) {
++  const entries = Object.entries(errors).filter((entry): entry is [string, string] => Boolean(entry[1]))
++  toast({
++    title: "Erreurs de validation",
++    description: (
++      <ul className="list-disc space-y-0.5 pl-4">
++        {entries.map(([key, message]) => (
++          <li key={key}>
++            <strong>{FIELD_LABELS[key] || key} :</strong> {message}
++          </li>
++        ))}
++      </ul>
++    ),
++    variant: "destructive",
++  })
++}
+ import {
+   Pagination,
+   PaginationContent,
+@@ -1013,7 +1040,7 @@ export default function MovementsManagement() {
+ 
+     // Validate bankId
+     if (!formData.bankId) {
+-      alert("Veuillez sélectionner une banque")
++      showValidationErrorsToast({ bankId: "Veuillez sélectionner une banque" })
+       return
+     }
+ 
+@@ -1021,18 +1048,18 @@ export default function MovementsManagement() {
+ 
+     // Validate cards belong to selected bank
+     if (formData.cardQuantities.length === 0) {
+-      alert("Veuillez sélectionner au moins une carte")
++      showValidationErrorsToast({ cardQuantities: "Veuillez sélectionner au moins une carte" })
+       return
+     }
+ 
+     for (const cardQuantity of formData.cardQuantities) {
+       const card = cards.find(c => c.id === cardQuantity.cardId)
+       if (card && card.bankId !== formData.bankId) {
+-        alert("Une des cartes sélectionnées n'appartient pas à la banque choisie")
++        showValidationErrorsToast({ cardQuantities: "Une des cartes sélectionnées n'appartient pas à la banque choisie" })
+         return
+       }
+       if (cardQuantity.quantity <= 0) {
+-        alert(`La quantité pour la carte ${card?.name} doit être supérieure à 0`)
++        showValidationErrorsToast({ cardQuantities: `La quantité pour la carte ${card?.name} doit être supérieure à 0` })
+         return
+       }
+     }
+@@ -1095,13 +1122,19 @@ export default function MovementsManagement() {
+         }
+         
+         if (insufficientCards.length > 0) {
+-          const message = `❌ Le mouvement ne peut pas être effectué à cause de quantités insuffisantes:\n\n` +
+-            insufficientCards.map(card => 
+-              `• ${card.cardName}: ${card.available} disponible (demandé: ${card.requested}, manque: ${card.missing})`
+-            ).join('\n') +
+-            `\n\nVeuillez ajuster les quantités ou choisir un autre emplacement source.`
+-          
+-          alert(message)
++          toast({
++            title: "Erreurs de validation",
++            description: (
++              <ul className="list-disc space-y-0.5 pl-4">
++                {insufficientCards.map((card) => (
++                  <li key={card.cardName}>
++                    <strong>{card.cardName} :</strong> {card.available} disponible (demandé : {card.requested}, manque : {card.missing})
++                  </li>
++                ))}
++              </ul>
++            ),
++            variant: "destructive",
++          })
+           return
+         }
+       }
+@@ -1109,6 +1142,7 @@ export default function MovementsManagement() {
+ 
+     if (Object.keys(errors).length > 0) {
+       setFormErrors(errors)
++      showValidationErrorsToast(errors)
+       return
+     }
+ 
+@@ -1760,7 +1794,7 @@ export default function MovementsManagement() {
+                             }}
+                             disabled={!formData.bankId}
+                           >
+-                            <SelectTrigger>
++                            <SelectTrigger className={cn(formErrors.fromLocationId && "border-destructive ring-1 ring-destructive")}>
+                               <SelectValue placeholder={formData.bankId ? "Emplacement source" : "Sélectionnez d'abord une banque"} />
+                             </SelectTrigger>
+                             <SelectContent>
+@@ -1825,7 +1859,7 @@ export default function MovementsManagement() {
+                           }}
+                           disabled={!formData.bankId}
+                         >
+-                          <SelectTrigger>
++                          <SelectTrigger className={cn(formErrors.toLocationId && "border-destructive ring-1 ring-destructive")}>
+                             <SelectValue placeholder={formData.bankId ? "Emplacement destination" : "Sélectionnez d'abord une banque"} />
+                           </SelectTrigger>
+                           <SelectContent>
+@@ -2019,7 +2053,7 @@ export default function MovementsManagement() {
+                           }
+                         }}
+                         placeholder="Motif du mouvement"
+-                        required
++                        className={cn(formErrors.reason && "border-destructive ring-1 ring-destructive")}
+                       />
+                     </div>
+                   </div>

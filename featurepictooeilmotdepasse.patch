@@ -1,0 +1,127 @@
+diff --git a/components/dashboard/users-management.tsx b/components/dashboard/users-management.tsx
+index 586d680..ae1ee17 100644
+--- a/components/dashboard/users-management.tsx
++++ b/components/dashboard/users-management.tsx
+@@ -6,6 +6,8 @@ import { usePermissions } from "@/hooks/use-permissions"
+ import type { User, RolePermissions, UserFilters, Permission, Module, Action } from "@/lib/types"
+ import { getAuthHeaders } from "@/lib/api-client"
+ import { toast } from "@/hooks/use-toast"
++import { cn } from "@/lib/utils"
++import { Eye, EyeOff } from "lucide-react"
+ import { Button } from "@/components/ui/button"
+ import { Input } from "@/components/ui/input"
+ import { Label } from "@/components/ui/label"
+@@ -71,6 +73,9 @@ export default function UsersManagement() {
+     password?: string
+   }>({})
+ 
++  const [showAddPassword, setShowAddPassword] = useState(false)
++  const [showEditPassword, setShowEditPassword] = useState(false)
++
+   const [roleFormData, setRoleFormData] = useState({
+     role: "",
+     description: "",
+@@ -314,6 +319,7 @@ export default function UsersManagement() {
+       sendEmail: false,
+     })
+     setFormErrors({})
++    setShowEditPassword(false)
+     setIsEditDialogOpen(true)
+   }
+ 
+@@ -327,6 +333,7 @@ export default function UsersManagement() {
+       sendEmail: false,
+     })
+     setFormErrors({})
++    setShowAddPassword(false)
+   }
+ 
+   const handleAddRole = async () => {
+@@ -903,19 +910,30 @@ export default function UsersManagement() {
+             
+             <div>
+               <Label htmlFor="password">Mot de passe (optionnel)</Label>
+-              <Input
+-                id="password"
+-                type="password"
+-                value={formData.password}
+-                onChange={(e) => {
+-                  setFormData({ ...formData, password: e.target.value })
+-                  if (formErrors.password) {
+-                    setFormErrors({ ...formErrors, password: undefined })
+-                  }
+-                }}
+-                className={formErrors.password ? "border-red-500" : ""}
+-                placeholder="Laissez vide pour générer automatiquement"
+-              />
++              <div className="relative">
++                <Input
++                  id="password"
++                  type={showAddPassword ? "text" : "password"}
++                  value={formData.password}
++                  onChange={(e) => {
++                    setFormData({ ...formData, password: e.target.value })
++                    if (formErrors.password) {
++                      setFormErrors({ ...formErrors, password: undefined })
++                    }
++                  }}
++                  className={cn("pr-10", formErrors.password && "border-red-500")}
++                  placeholder="Laissez vide pour générer automatiquement"
++                />
++                <button
++                  type="button"
++                  onClick={() => setShowAddPassword(!showAddPassword)}
++                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
++                  tabIndex={-1}
++                  aria-label={showAddPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
++                >
++                  {showAddPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
++                </button>
++              </div>
+               <p className="text-sm text-muted-foreground mt-1">
+                 Si vide, un mot de passe temporaire sera généré automatiquement
+               </p>
+@@ -1012,19 +1030,30 @@ export default function UsersManagement() {
+             </div>
+             <div>
+               <Label htmlFor="edit-password">Nouveau mot de passe (optionnel)</Label>
+-              <Input
+-                id="edit-password"
+-                type="password"
+-                value={formData.password}
+-                onChange={(e) => {
+-                  setFormData({ ...formData, password: e.target.value })
+-                  if (formErrors.password) {
+-                    setFormErrors({ ...formErrors, password: undefined })
+-                  }
+-                }}
+-                className={formErrors.password ? "border-red-500" : ""}
+-                placeholder="Laisser vide pour ne pas changer le mot de passe"
+-              />
++              <div className="relative">
++                <Input
++                  id="edit-password"
++                  type={showEditPassword ? "text" : "password"}
++                  value={formData.password}
++                  onChange={(e) => {
++                    setFormData({ ...formData, password: e.target.value })
++                    if (formErrors.password) {
++                      setFormErrors({ ...formErrors, password: undefined })
++                    }
++                  }}
++                  className={cn("pr-10", formErrors.password && "border-red-500")}
++                  placeholder="Laisser vide pour ne pas changer le mot de passe"
++                />
++                <button
++                  type="button"
++                  onClick={() => setShowEditPassword(!showEditPassword)}
++                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
++                  tabIndex={-1}
++                  aria-label={showEditPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
++                >
++                  {showEditPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
++                </button>
++              </div>
+               <p className="text-sm text-muted-foreground mt-1">
+                 Renseignez ce champ pour définir un nouveau mot de passe pour cet utilisateur.
+               </p>

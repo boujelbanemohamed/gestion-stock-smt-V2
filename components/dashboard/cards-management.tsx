@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useState, useEffect, useRef } from "react"
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -47,7 +48,7 @@ export default function CardsManagement() {
     setIsLoading(true)
     try {
       // Charger TOUTES les cartes pour extraire les types/sous-types (sans filtres)
-      const allCardsResponse = await fetch('/api/cards')
+      const allCardsResponse = await fetch('/api/cards', { headers: getAuthHeaders() })
       const allCardsData = await allCardsResponse.json()
       if (allCardsData.success) {
         // Extraire les types uniques de TOUTES les cartes
@@ -68,14 +69,14 @@ export default function CardsManagement() {
       if (filters.lowStock) params.append('lowStock', 'true')
       if (filters.searchTerm) params.append('search', filters.searchTerm)
 
-      const cardsResponse = await fetch(`/api/cards?${params.toString()}`)
+      const cardsResponse = await fetch(`/api/cards?${params.toString()}`, { headers: getAuthHeaders() })
       const cardsData = await cardsResponse.json()
       if (cardsData.success) {
         setCards(cardsData.data || [])
       }
 
       // Charger les banques actives
-      const banksResponse = await fetch('/api/banks?status=active')
+      const banksResponse = await fetch('/api/banks?status=active', { headers: getAuthHeaders() })
       const banksData = await banksResponse.json()
       if (banksData.success) {
         setBanks(banksData.data || [])
@@ -240,7 +241,8 @@ export default function CardsManagement() {
     if (confirm("Êtes-vous sûr de vouloir supprimer cette carte ?")) {
       try {
         const response = await fetch(`/api/cards/${id}`, {
-          method: 'DELETE'
+          method: 'DELETE',
+          headers: getAuthHeaders(),
         })
         const data = await response.json()
         if (data.success) {
@@ -961,7 +963,7 @@ export default function CardsManagement() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Gestion des Cartes</h2>
-          <p className="text-slate-600">
+          <p className="text-xs text-[#008DA8]">
             Gérez votre inventaire de cartes avec hiérarchie Type → Sous-type → Sous-sous-type
           </p>
           {isRefreshing && <p className="text-sm text-blue-600">Actualisation en cours...</p>}
@@ -1377,7 +1379,12 @@ export default function CardsManagement() {
                                 className="flex items-center justify-between p-3 bg-slate-50 rounded border"
                               >
                                 <div className="flex-1">
-                                  <div className="font-medium">{card.name}</div>
+                                  <Link
+                                    href={`/dashboard/cards/${card.id}`}
+                                    className="font-medium text-[#008DA8] hover:underline"
+                                  >
+                                    {card.name}
+                                  </Link>
                               <div className="text-sm text-slate-600">
                                 ID: {card.id} • {card.type} – {card.subType} – {card.subSubType}
                               </div>

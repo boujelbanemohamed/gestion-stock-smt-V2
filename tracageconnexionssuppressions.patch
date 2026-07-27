@@ -1,0 +1,553 @@
+diff --git a/app/api/auth/2fa/verify-login/route.ts b/app/api/auth/2fa/verify-login/route.ts
+index 3788934..e8d3142 100644
+--- a/app/api/auth/2fa/verify-login/route.ts
++++ b/app/api/auth/2fa/verify-login/route.ts
+@@ -9,6 +9,7 @@ import { getTwoFactorSettings } from "@/lib/two-factor-config"
+ import { sanitizeUser } from "@/lib/sanitize-user"
+ import { twoFactorRateLimiter } from "@/lib/rate-limiter"
+ import { logger } from "@/lib/logger"
++import { logAudit } from "@/lib/audit-logger"
+ 
+ // POST /api/auth/2fa/verify-login - Deuxième étape de connexion : vérifie le
+ // code TOTP (ou un code de secours) associé au jeton temporaire émis par
+@@ -74,6 +75,18 @@ export async function POST(request: NextRequest) {
+ 
+     if (!isValid) {
+       logger.warn('Invalid 2FA code', { email: user.email })
++      await logAudit({
++        userId: user.id,
++        userEmail: user.email,
++        action: "login_failed",
++        module: "auth",
++        entityType: "user",
++        entityId: user.id,
++        entityName: `${user.firstName} ${user.lastName}`,
++        details: `Tentative de connexion échouée pour ${user.email} (code de vérification 2FA incorrect)`,
++        status: "failure",
++        errorMessage: "Code de vérification incorrect",
++      }, request)
+       return NextResponse.json<ApiResponse>({ success: false, error: "Code de vérification incorrect" }, { status: 401 })
+     }
+ 
+@@ -100,6 +113,17 @@ export async function POST(request: NextRequest) {
+     })
+ 
+     logger.info('2FA login successful', { email: user.email })
++    await logAudit({
++      userId: user.id,
++      userEmail: user.email,
++      action: "login",
++      module: "auth",
++      entityType: "user",
++      entityId: user.id,
++      entityName: `${user.firstName} ${user.lastName}`,
++      details: `Connexion réussie de ${user.email} (avec double authentification)`,
++      status: "success",
++    }, request)
+ 
+     return NextResponse.json<ApiResponse<{ user: User; accessToken: string; refreshToken: string }>>({
+       success: true,
+diff --git a/app/api/auth/login/route.ts b/app/api/auth/login/route.ts
+index 0b2a0b0..9720f8d 100644
+--- a/app/api/auth/login/route.ts
++++ b/app/api/auth/login/route.ts
+@@ -7,6 +7,7 @@ import { signAccessToken, signRefreshToken, signTwoFactorPendingToken } from "@/
+ import { loginRateLimiter } from "@/lib/rate-limiter"
+ import { logger } from "@/lib/logger"
+ import { sanitizeUser } from "@/lib/sanitize-user"
++import { logAudit } from "@/lib/audit-logger"
+ 
+ // Forcer la route à être dynamique (ne pas pré-rendre)
+ export const dynamic = 'force-dynamic'
+@@ -46,6 +47,17 @@ export async function POST(request: NextRequest) {
+ 
+     if (!user) {
+       logger.warn('User not found', { email })
++      await logAudit({
++        userId: "unknown",
++        userEmail: email,
++        action: "login_failed",
++        module: "auth",
++        entityType: "user",
++        entityName: email,
++        details: `Tentative de connexion échouée pour ${email} (compte inexistant)`,
++        status: "failure",
++        errorMessage: "Utilisateur non trouvé",
++      }, request)
+       return NextResponse.json<ApiResponse>(
+         {
+           success: false,
+@@ -60,6 +72,18 @@ export async function POST(request: NextRequest) {
+     // Vérifier que l'utilisateur est actif
+     if (!user.isActive) {
+       logger.warn('User account is inactive', { email })
++      await logAudit({
++        userId: user.id,
++        userEmail: user.email,
++        action: "login_failed",
++        module: "auth",
++        entityType: "user",
++        entityId: user.id,
++        entityName: `${user.firstName} ${user.lastName}`,
++        details: `Tentative de connexion refusée pour ${user.email} (compte désactivé)`,
++        status: "failure",
++        errorMessage: "Compte désactivé",
++      }, request)
+       return NextResponse.json<ApiResponse>(
+         {
+           success: false,
+@@ -75,6 +99,18 @@ export async function POST(request: NextRequest) {
+ 
+     if (!isValidPassword) {
+       logger.warn('Invalid password', { email })
++      await logAudit({
++        userId: user.id,
++        userEmail: user.email,
++        action: "login_failed",
++        module: "auth",
++        entityType: "user",
++        entityId: user.id,
++        entityName: `${user.firstName} ${user.lastName}`,
++        details: `Tentative de connexion échouée pour ${user.email} (mot de passe incorrect)`,
++        status: "failure",
++        errorMessage: "Mot de passe incorrect",
++      }, request)
+       return NextResponse.json<ApiResponse>(
+         {
+           success: false,
+@@ -140,6 +176,18 @@ export async function POST(request: NextRequest) {
+     }
+ 
+     console.log(`[Login API] ✓ Retour des tokens et données utilisateur`)
++    await logAudit({
++      userId: user.id,
++      userEmail: user.email,
++      action: "login",
++      module: "auth",
++      entityType: "user",
++      entityId: user.id,
++      entityName: `${user.firstName} ${user.lastName}`,
++      details: `Connexion réussie de ${user.email}`,
++      status: "success",
++    }, request)
++
+     // Retourner les tokens et les données utilisateur
+     return NextResponse.json<ApiResponse<{ user: User; accessToken: string; refreshToken: string }>>({
+       success: true,
+diff --git a/app/api/auth/logout/route.ts b/app/api/auth/logout/route.ts
+index 23e6508..3f1de97 100644
+--- a/app/api/auth/logout/route.ts
++++ b/app/api/auth/logout/route.ts
+@@ -1,5 +1,7 @@
+ import { type NextRequest, NextResponse } from "next/server"
+ import type { ApiResponse } from "@/lib/api-types"
++import { verifyAuth } from "@/lib/auth-middleware"
++import { logAudit } from "@/lib/audit-logger"
+ 
+ // POST /api/auth/logout - Déconnexion
+ 
+@@ -9,8 +11,26 @@ export const runtime = 'nodejs'
+ 
+ export async function POST(request: NextRequest) {
+   try {
+-    // Dans une vraie app, on supprimerait le token/session ici
+-    // Pour l'instant, on retourne juste success
++    // Le jeton peut être expiré au moment de la déconnexion : on essaie de
++    // journaliser qui se déconnecte, mais ça ne doit jamais empêcher la
++    // déconnexion elle-même de réussir côté client.
++    try {
++      const user = verifyAuth(request)
++      await logAudit({
++        userId: user.id,
++        userEmail: user.email,
++        action: "logout",
++        module: "auth",
++        entityType: "user",
++        entityId: user.id,
++        entityName: `${user.firstName} ${user.lastName}`,
++        details: `Déconnexion de ${user.email}`,
++        status: "success",
++      }, request)
++    } catch {
++      // Pas de token valide : rien à journaliser.
++    }
++
+     return NextResponse.json<ApiResponse>({
+       success: true,
+       message: "Déconnexion réussie",
+diff --git a/app/api/movements/[id]/route.ts b/app/api/movements/[id]/route.ts
+index e286f84..82c7cb6 100644
+--- a/app/api/movements/[id]/route.ts
++++ b/app/api/movements/[id]/route.ts
+@@ -4,6 +4,7 @@ import type { ApiResponse } from "@/lib/api-types"
+ import type { Movement } from "@/lib/types"
+ import { requireAuth, requireAdmin } from "@/lib/auth-middleware"
+ import { serverEvents } from "@/lib/server-events"
++import { logAudit } from "@/lib/audit-logger"
+ 
+ // GET /api/movements/[id] - Récupérer un mouvement par ID
+ 
+@@ -69,6 +70,21 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
+   if (!auth.authorized) return auth.response
+ 
+   try {
++    const movement = await prisma.movement.findUnique({
++      where: { id: params.id },
++      include: { card: true },
++    })
++
++    if (!movement) {
++      return NextResponse.json<ApiResponse>(
++        {
++          success: false,
++          error: "Mouvement non trouvé",
++        },
++        { status: 404 },
++      )
++    }
++
+     await prisma.movement.delete({
+       where: { id: params.id }
+     })
+@@ -76,6 +92,20 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
+     // Pousse la suppression en temps réel (SSE) aux clients connectés.
+     serverEvents.emit("movement", { action: "deleted", movementId: params.id })
+ 
++    const movementTypeLabels: Record<string, string> = { entry: "Entrée", exit: "Sortie", transfer: "Transfert" }
++    const movementTypeLabel = movementTypeLabels[movement.movementType] || movement.movementType
++    await logAudit({
++      userId: auth.user.id,
++      userEmail: auth.user.email,
++      action: "delete",
++      module: "movements",
++      entityType: "movement",
++      entityId: movement.id,
++      entityName: `${movementTypeLabel} - ${movement.card.name}`,
++      details: `Suppression du mouvement ${movementTypeLabel}: ${movement.quantity} x ${movement.card.name} par ${auth.user.email}`,
++      status: "success",
++    }, request)
++
+     return NextResponse.json<ApiResponse>({
+       success: true,
+       message: "Mouvement supprimé avec succès",
+diff --git a/app/dashboard/layout.tsx b/app/dashboard/layout.tsx
+index e59ba2c..437670e 100644
+--- a/app/dashboard/layout.tsx
++++ b/app/dashboard/layout.tsx
+@@ -17,6 +17,7 @@ import NotificationsDropdown from "@/components/notifications"
+ import GlobalSearch from "@/components/dashboard/global-search"
+ import RealtimeBridge from "@/components/dashboard/realtime-bridge"
+ import { useThemeSync } from "@/hooks/use-theme-sync"
++import { getAuthHeaders } from "@/lib/api-client"
+ 
+ type NavigationItem = {
+   name: string
+@@ -240,8 +241,8 @@ export default function DashboardLayout({
+ 
+   const handleLogout = async () => {
+     try {
+-      // Appeler l'API de logout
+-      await fetch('/api/auth/logout', { method: 'POST' })
++      // Appeler l'API de logout (avec le token, pour que la déconnexion soit journalisée)
++      await fetch('/api/auth/logout', { method: 'POST', headers: getAuthHeaders() })
+     } catch (error) {
+       console.error('Logout error:', error)
+     }
+diff --git a/app/dashboard/page.tsx b/app/dashboard/page.tsx
+index 4632030..0ea58b7 100644
+--- a/app/dashboard/page.tsx
++++ b/app/dashboard/page.tsx
+@@ -97,6 +97,7 @@ export default function DashboardPage() {
+       update: "Modification",
+       delete: "Suppression",
+       login: "Connexion",
++      login_failed: "Échec connexion",
+       logout: "Déconnexion",
+     }
+     return labels[action] || action
+diff --git a/lib/audit-logger.ts b/lib/audit-logger.ts
+index a5ef4a2..2f6debf 100644
+--- a/lib/audit-logger.ts
++++ b/lib/audit-logger.ts
+@@ -4,7 +4,7 @@ import { type NextRequest } from "next/server"
+ export interface LogEntry {
+   userId: string
+   userEmail: string
+-  action: "create" | "update" | "delete" | "login" | "logout" | "view"
++  action: "create" | "update" | "delete" | "login" | "login_failed" | "logout" | "view"
+   module: "banks" | "cards" | "locations" | "movements" | "users" | "config" | "roles" | "auth"
+   entityType: string
+   entityId?: string
+diff --git a/tests/api/auth-login.test.ts b/tests/api/auth-login.test.ts
+index ac3a00e..b0010c1 100644
+--- a/tests/api/auth-login.test.ts
++++ b/tests/api/auth-login.test.ts
+@@ -8,9 +8,16 @@ vi.mock("@/lib/db", () => ({
+     user: {
+       findUnique: vi.fn(),
+     },
++    auditLog: {
++      create: vi.fn(),
++    },
+   },
+ }))
+ 
++vi.mock("@/lib/email-service", () => ({
++  sendUserActivityAlert: vi.fn().mockResolvedValue(undefined),
++}))
++
+ const { prisma } = await import("@/lib/db")
+ const { POST: login } = await import("@/app/api/auth/login/route")
+ 
+@@ -40,7 +47,7 @@ describe("POST /api/auth/login", () => {
+     vi.clearAllMocks()
+   })
+ 
+-  it("délivre directement les tokens si la 2FA n'est pas activée", async () => {
++  it("délivre directement les tokens si la 2FA n'est pas activée, et journalise la connexion", async () => {
+     vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser } as any)
+ 
+     const response = await login(loginRequest(baseUser.email, "correct-password"))
+@@ -51,6 +58,38 @@ describe("POST /api/auth/login", () => {
+     expect(json.data.refreshToken).toBeTruthy()
+     expect(json.data.user.email).toBe(baseUser.email)
+     expect(json.data.requiresTwoFactor).toBeUndefined()
++
++    expect(prisma.auditLog.create).toHaveBeenCalledWith(
++      expect.objectContaining({
++        data: expect.objectContaining({ userId: baseUser.id, action: "login", status: "success" }),
++      }),
++    )
++  })
++
++  it("journalise un échec de connexion (login_failed) si l'utilisateur n'existe pas", async () => {
++    vi.mocked(prisma.user.findUnique).mockResolvedValue(null)
++
++    const response = await login(loginRequest("inconnu@example.com", "whatever"))
++    expect(response.status).toBe(401)
++
++    expect(prisma.auditLog.create).toHaveBeenCalledWith(
++      expect.objectContaining({
++        data: expect.objectContaining({ userEmail: "inconnu@example.com", action: "login_failed", status: "failure" }),
++      }),
++    )
++  })
++
++  it("journalise un échec de connexion si le compte est désactivé", async () => {
++    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser, isActive: false } as any)
++
++    const response = await login(loginRequest(baseUser.email, "correct-password"))
++    expect(response.status).toBe(403)
++
++    expect(prisma.auditLog.create).toHaveBeenCalledWith(
++      expect.objectContaining({
++        data: expect.objectContaining({ userId: baseUser.id, action: "login_failed", status: "failure" }),
++      }),
++    )
+   })
+ 
+   it("ne délivre pas de tokens et renvoie un jeton temporaire si la 2FA est activée", async () => {
+@@ -70,10 +109,16 @@ describe("POST /api/auth/login", () => {
+     expect(decoded.userId).toBe(baseUser.id)
+   })
+ 
+-  it("refuse un mauvais mot de passe avant même de considérer la 2FA (401)", async () => {
++  it("refuse un mauvais mot de passe avant même de considérer la 2FA (401), et journalise l'échec", async () => {
+     vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser, twoFactorEnabled: true } as any)
+ 
+     const response = await login(loginRequest(baseUser.email, "wrong-password"))
+     expect(response.status).toBe(401)
++
++    expect(prisma.auditLog.create).toHaveBeenCalledWith(
++      expect.objectContaining({
++        data: expect.objectContaining({ userId: baseUser.id, action: "login_failed", status: "failure" }),
++      }),
++    )
+   })
+ })
+diff --git a/tests/api/auth-logout.test.ts b/tests/api/auth-logout.test.ts
+new file mode 100644
+index 0000000..dfba341
+--- /dev/null
++++ b/tests/api/auth-logout.test.ts
+@@ -0,0 +1,61 @@
++import { beforeEach, describe, expect, it, vi } from "vitest"
++import { NextRequest } from "next/server"
++import { signAccessToken } from "@/lib/auth"
++
++vi.mock("@/lib/db", () => ({
++  prisma: {
++    auditLog: {
++      create: vi.fn(),
++    },
++  },
++}))
++
++vi.mock("@/lib/email-service", () => ({
++  sendUserActivityAlert: vi.fn().mockResolvedValue(undefined),
++}))
++
++const { prisma } = await import("@/lib/db")
++const { POST: logout } = await import("@/app/api/auth/logout/route")
++
++const userPayload = {
++  userId: "user-1",
++  email: "jane@example.com",
++  firstName: "Jane",
++  lastName: "Doe",
++  role: "user",
++}
++
++function logoutRequest(token?: string) {
++  const headers = new Headers()
++  if (token) headers.set("authorization", `Bearer ${token}`)
++  return new NextRequest("http://localhost/api/auth/logout", { method: "POST", headers })
++}
++
++describe("POST /api/auth/logout", () => {
++  beforeEach(() => {
++    vi.clearAllMocks()
++  })
++
++  it("journalise la déconnexion quand un token valide est fourni", async () => {
++    const token = signAccessToken(userPayload)
++    const response = await logout(logoutRequest(token))
++    const json = await response.json()
++
++    expect(response.status).toBe(200)
++    expect(json.success).toBe(true)
++    expect(prisma.auditLog.create).toHaveBeenCalledWith(
++      expect.objectContaining({
++        data: expect.objectContaining({ userId: userPayload.userId, action: "logout", status: "success" }),
++      }),
++    )
++  })
++
++  it("réussit quand même sans token valide, sans rien journaliser", async () => {
++    const response = await logout(logoutRequest())
++    const json = await response.json()
++
++    expect(response.status).toBe(200)
++    expect(json.success).toBe(true)
++    expect(prisma.auditLog.create).not.toHaveBeenCalled()
++  })
++})
+diff --git a/tests/api/movement-delete.test.ts b/tests/api/movement-delete.test.ts
+new file mode 100644
+index 0000000..04df46c
+--- /dev/null
++++ b/tests/api/movement-delete.test.ts
+@@ -0,0 +1,81 @@
++import { beforeEach, describe, expect, it, vi } from "vitest"
++import { NextRequest } from "next/server"
++import { signAccessToken } from "@/lib/auth"
++
++vi.mock("@/lib/db", () => ({
++  prisma: {
++    movement: {
++      findUnique: vi.fn(),
++      delete: vi.fn(),
++    },
++    auditLog: {
++      create: vi.fn(),
++    },
++  },
++}))
++
++vi.mock("@/lib/email-service", () => ({
++  sendUserActivityAlert: vi.fn().mockResolvedValue(undefined),
++}))
++
++vi.mock("@/lib/server-events", () => ({
++  serverEvents: { emit: vi.fn() },
++}))
++
++const { prisma } = await import("@/lib/db")
++const { DELETE: deleteMovement } = await import("@/app/api/movements/[id]/route")
++
++const adminToken = signAccessToken({
++  userId: "admin-1",
++  email: "admin@example.com",
++  firstName: "Admin",
++  lastName: "Istrator",
++  role: "admin",
++})
++
++function deleteRequest(token: string) {
++  const headers = new Headers({ authorization: `Bearer ${token}` })
++  return new NextRequest("http://localhost/api/movements/mv-1", { method: "DELETE", headers })
++}
++
++describe("DELETE /api/movements/[id]", () => {
++  beforeEach(() => {
++    vi.clearAllMocks()
++  })
++
++  it("supprime le mouvement et journalise l'action avec le détail de la carte", async () => {
++    vi.mocked(prisma.movement.findUnique).mockResolvedValue({
++      id: "mv-1",
++      movementType: "exit",
++      quantity: 10,
++      card: { id: "card-1", name: "Visa Classique" },
++    } as any)
++    vi.mocked(prisma.movement.delete).mockResolvedValue({} as any)
++
++    const response = await deleteMovement(deleteRequest(adminToken), { params: { id: "mv-1" } })
++    const json = await response.json()
++
++    expect(response.status).toBe(200)
++    expect(json.success).toBe(true)
++    expect(prisma.movement.delete).toHaveBeenCalledWith({ where: { id: "mv-1" } })
++    expect(prisma.auditLog.create).toHaveBeenCalledWith(
++      expect.objectContaining({
++        data: expect.objectContaining({
++          userId: "admin-1",
++          action: "delete",
++          entityType: "movement",
++          entityName: "Sortie - Visa Classique",
++        }),
++      }),
++    )
++  })
++
++  it("renvoie 404 sans rien journaliser si le mouvement n'existe pas", async () => {
++    vi.mocked(prisma.movement.findUnique).mockResolvedValue(null)
++
++    const response = await deleteMovement(deleteRequest(adminToken), { params: { id: "mv-404" } })
++    expect(response.status).toBe(404)
++    expect(prisma.movement.delete).not.toHaveBeenCalled()
++    expect(prisma.auditLog.create).not.toHaveBeenCalled()
++  })
++})
+diff --git a/tests/api/two-factor.test.ts b/tests/api/two-factor.test.ts
+index 0c4929f..1027543 100644
+--- a/tests/api/two-factor.test.ts
++++ b/tests/api/two-factor.test.ts
+@@ -232,9 +232,14 @@ describe("POST /api/auth/2fa/verify-login", () => {
+     expect(json.data.refreshToken).toBeTruthy()
+     expect(json.data.user.email).toBe(baseUser.email)
+     expect(json.data.user).not.toHaveProperty("twoFactorSecret")
++    expect(prisma.auditLog.create).toHaveBeenCalledWith(
++      expect.objectContaining({
++        data: expect.objectContaining({ userId: baseUser.id, action: "login", status: "success" }),
++      }),
++    )
+   })
+ 
+-  it("refuse un code TOTP incorrect (401)", async () => {
++  it("refuse un code TOTP incorrect (401) et journalise l'échec", async () => {
+     vi.mocked(prisma.user.findUnique).mockResolvedValue({
+       ...baseUser,
+       twoFactorEnabled: true,
+@@ -244,6 +249,11 @@ describe("POST /api/auth/2fa/verify-login", () => {
+     const tempToken = signTwoFactorPendingToken(baseUser.id)
+     const response = await verifyLogin(publicRequest({ tempToken, code: "000000" }))
+     expect(response.status).toBe(401)
++    expect(prisma.auditLog.create).toHaveBeenCalledWith(
++      expect.objectContaining({
++        data: expect.objectContaining({ userId: baseUser.id, action: "login_failed", status: "failure" }),
++      }),
++    )
+   })
+ 
+   it("refuse un jeton temporaire invalide", async () => {

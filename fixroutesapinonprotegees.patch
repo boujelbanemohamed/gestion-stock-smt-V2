@@ -1,0 +1,735 @@
+diff --git a/.gitignore b/.gitignore
+index a66f405..2fcfbbe 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -56,8 +56,8 @@ next-env.d.ts
+ .DS_Store
+ Thumbs.db
+ 
+-# Logs
+-logs
++# Logs (uniquement le dossier de logs à la racine, PAS app/api/logs/ qui est du code)
++/logs
+ *.log
+ 
+ # Database
+diff --git a/app/api/banks/[id]/route.ts b/app/api/banks/[id]/route.ts
+index ae077b3..359e3b2 100644
+--- a/app/api/banks/[id]/route.ts
++++ b/app/api/banks/[id]/route.ts
+@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
+ import type { ApiResponse } from "@/lib/api-types"
+ import type { Bank } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
++import { requireAuth } from "@/lib/auth-middleware"
+ 
+ // GET /api/banks/[id] - Récupérer une banque spécifique
+ // PUT /api/banks/[id] - Mettre à jour une banque
+@@ -16,6 +17,9 @@ export async function GET(
+   request: NextRequest,
+   { params }: { params: { id: string } }
+ ) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const { id } = params
+ 
+@@ -69,20 +73,14 @@ export async function PUT(
+   request: NextRequest,
+   { params }: { params: { id: string } }
+ ) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const body = await request.json()
+     const { id } = params
+ 
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    let userData = null
+-    try {
+-      if (userHeader) {
+-        userData = JSON.parse(userHeader)
+-      }
+-    } catch (error) {
+-      console.error('Error parsing user header:', error)
+-    }
++    const userData = auth.user
+ 
+     const updatedBank = await prisma.bank.update({
+       where: { id },
+@@ -133,19 +131,13 @@ export async function DELETE(
+   request: NextRequest,
+   { params }: { params: { id: string } }
+ ) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const { id } = params
+ 
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    let userData = null
+-    try {
+-      if (userHeader) {
+-        userData = JSON.parse(userHeader)
+-      }
+-    } catch (error) {
+-      console.error('Error parsing user header:', error)
+-    }
++    const userData = auth.user
+ 
+     // Récupérer les infos de la banque avant suppression
+     const bank = await prisma.bank.findUnique({
+diff --git a/app/api/banks/import/route.ts b/app/api/banks/import/route.ts
+index bd84d1a..5320742 100644
+--- a/app/api/banks/import/route.ts
++++ b/app/api/banks/import/route.ts
+@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
+ import type { ImportResponse } from "@/lib/api-types"
+ import type { BankImportRow } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
++import { requireAuth } from "@/lib/auth-middleware"
+ 
+ // POST /api/banks/import - Importer des banques depuis CSV
+ 
+@@ -11,12 +12,13 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function POST(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const body = await request.json()
+ 
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    const userData = userHeader ? JSON.parse(userHeader) : null
++    const userData = auth.user
+ 
+     if (!body.data || !Array.isArray(body.data)) {
+       return NextResponse.json<ImportResponse>(
+diff --git a/app/api/banks/route.ts b/app/api/banks/route.ts
+index 5dee8c5..1eea89c 100644
+--- a/app/api/banks/route.ts
++++ b/app/api/banks/route.ts
+@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
+ import type { ApiResponse } from "@/lib/api-types"
+ import type { Bank } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
++import { requireAuth } from "@/lib/auth-middleware"
+ 
+ // GET /api/banks - Récupérer toutes les banques avec filtres optionnels
+ 
+@@ -11,6 +12,9 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function GET(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const searchParams = request.nextUrl.searchParams
+     const country = searchParams.get("country")
+@@ -63,19 +67,13 @@ export async function GET(request: NextRequest) {
+ 
+ // POST /api/banks - Créer une nouvelle banque
+ export async function POST(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const body: CreateBankRequest = await request.json()
+ 
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    let userData = null
+-    try {
+-      if (userHeader) {
+-        userData = JSON.parse(userHeader)
+-      }
+-    } catch (error) {
+-      console.error('Error parsing user header:', error)
+-    }
++    const userData = auth.user
+ 
+     // Validation des champs requis
+     if (!body.name || !body.code || !body.country || !body.swiftCode) {
+diff --git a/app/api/cards/[id]/route.ts b/app/api/cards/[id]/route.ts
+index f555523..5442402 100644
+--- a/app/api/cards/[id]/route.ts
++++ b/app/api/cards/[id]/route.ts
+@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
+ import type { ApiResponse } from "@/lib/api-types"
+ import type { Card } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
++import { requireAuth } from "@/lib/auth-middleware"
+ 
+ // GET /api/cards/[id] - Récupérer une carte par ID
+ 
+@@ -11,6 +12,9 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const card = await prisma.card.findUnique({
+       where: { id: params.id },
+@@ -47,19 +51,13 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
+ 
+ // PUT /api/cards/[id] - Mettre à jour une carte
+ export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const body = await request.json()
+ 
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    let userData = null
+-    try {
+-      if (userHeader) {
+-        userData = JSON.parse(userHeader)
+-      }
+-    } catch (error) {
+-      console.error('Error parsing user header:', error)
+-    }
++    const userData = auth.user
+ 
+     const updatedCard = await prisma.card.update({
+       where: { id: params.id },
+@@ -108,17 +106,11 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
+ 
+ // DELETE /api/cards/[id] - Supprimer (désactiver) une carte
+ export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    let userData = null
+-    try {
+-      if (userHeader) {
+-        userData = JSON.parse(userHeader)
+-      }
+-    } catch (error) {
+-      console.error('Error parsing user header:', error)
+-    }
++    const userData = auth.user
+ 
+     // Vérifier si la carte existe
+     const card = await prisma.card.findUnique({
+diff --git a/app/api/cards/import/route.ts b/app/api/cards/import/route.ts
+index a3337c2..358200e 100644
+--- a/app/api/cards/import/route.ts
++++ b/app/api/cards/import/route.ts
+@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
+ import type { ImportResponse } from "@/lib/api-types"
+ import type { CardImportRow } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
++import { requireAuth } from "@/lib/auth-middleware"
+ 
+ // POST /api/cards/import - Importer des cartes depuis CSV
+ 
+@@ -11,12 +12,13 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function POST(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const body = await request.json()
+ 
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    const userData = userHeader ? JSON.parse(userHeader) : null
++    const userData = auth.user
+ 
+     if (!body.data || !Array.isArray(body.data)) {
+       return NextResponse.json<ImportResponse>(
+diff --git a/app/api/cards/route.ts b/app/api/cards/route.ts
+index 44ea64e..6adc0e1 100644
+--- a/app/api/cards/route.ts
++++ b/app/api/cards/route.ts
+@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
+ import type { ApiResponse } from "@/lib/api-types"
+ import type { Card } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
++import { requireAuth } from "@/lib/auth-middleware"
+ 
+ // GET /api/cards - Récupérer toutes les cartes avec filtres optionnels
+ 
+@@ -11,6 +12,9 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function GET(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const searchParams = request.nextUrl.searchParams
+     const bankId = searchParams.get("bankId")
+@@ -81,19 +85,13 @@ export async function GET(request: NextRequest) {
+ 
+ // POST /api/cards - Créer une nouvelle carte
+ export async function POST(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const body: CreateCardRequest = await request.json()
+ 
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    let userData = null
+-    try {
+-      if (userHeader) {
+-        userData = JSON.parse(userHeader)
+-      }
+-    } catch (error) {
+-      console.error('Error parsing user header:', error)
+-    }
++    const userData = auth.user
+ 
+     // Validation des champs requis
+     if (!body.name || !body.type || !body.subType || !body.subSubType || !body.bankId) {
+diff --git a/app/api/locations/[id]/route.ts b/app/api/locations/[id]/route.ts
+index 1775403..0dad4f2 100644
+--- a/app/api/locations/[id]/route.ts
++++ b/app/api/locations/[id]/route.ts
+@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
+ import type { ApiResponse } from "@/lib/api-types"
+ import type { Location } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
++import { requireAuth } from "@/lib/auth-middleware"
+ 
+ // GET /api/locations/[id] - Récupérer un emplacement par ID
+ 
+@@ -11,6 +12,9 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const location = await prisma.location.findUnique({
+       where: { id: params.id },
+@@ -47,19 +51,13 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
+ 
+ // PUT /api/locations/[id] - Mettre à jour un emplacement
+ export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const body = await request.json()
+ 
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    let userData = null
+-    try {
+-      if (userHeader) {
+-        userData = JSON.parse(userHeader)
+-      }
+-    } catch (error) {
+-      console.error('Error parsing user header:', error)
+-    }
++    const userData = auth.user
+ 
+     const updatedLocation = await prisma.location.update({
+       where: { id: params.id },
+@@ -103,17 +101,11 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
+ 
+ // DELETE /api/locations/[id] - Supprimer définitivement un emplacement
+ export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    let userData = null
+-    try {
+-      if (userHeader) {
+-        userData = JSON.parse(userHeader)
+-      }
+-    } catch (error) {
+-      console.error('Error parsing user header:', error)
+-    }
++    const userData = auth.user
+ 
+     // Récupérer les infos avant suppression
+     const location = await prisma.location.findUnique({
+diff --git a/app/api/locations/import/route.ts b/app/api/locations/import/route.ts
+index c979d85..29d9f72 100644
+--- a/app/api/locations/import/route.ts
++++ b/app/api/locations/import/route.ts
+@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
+ import type { ImportResponse } from "@/lib/api-types"
+ import type { LocationImportRow } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
++import { requireAuth } from "@/lib/auth-middleware"
+ 
+ // POST /api/locations/import - Importer des emplacements depuis CSV
+ 
+@@ -11,12 +12,13 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function POST(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const body = await request.json()
+ 
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    const userData = userHeader ? JSON.parse(userHeader) : null
++    const userData = auth.user
+ 
+     if (!body.data || !Array.isArray(body.data)) {
+       return NextResponse.json<ImportResponse>(
+diff --git a/app/api/locations/route.ts b/app/api/locations/route.ts
+index e49dfe2..f64ec45 100644
+--- a/app/api/locations/route.ts
++++ b/app/api/locations/route.ts
+@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
+ import type { ApiResponse } from "@/lib/api-types"
+ import type { Location } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
++import { requireAuth } from "@/lib/auth-middleware"
+ 
+ // GET /api/locations - Récupérer tous les emplacements avec filtres optionnels
+ 
+@@ -11,6 +12,9 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function GET(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const searchParams = request.nextUrl.searchParams
+     const bankId = searchParams.get("bankId")
+@@ -60,19 +64,13 @@ export async function GET(request: NextRequest) {
+ 
+ // POST /api/locations - Créer un nouvel emplacement
+ export async function POST(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const body = await request.json()
+ 
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    let userData = null
+-    try {
+-      if (userHeader) {
+-        userData = JSON.parse(userHeader)
+-      }
+-    } catch (error) {
+-      console.error('Error parsing user header:', error)
+-    }
++    const userData = auth.user
+ 
+     // Validation des champs requis
+     if (!body.name || !body.bankId) {
+diff --git a/app/api/movements/[id]/route.ts b/app/api/movements/[id]/route.ts
+index d4b6fc2..a0a17b4 100644
+--- a/app/api/movements/[id]/route.ts
++++ b/app/api/movements/[id]/route.ts
+@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
+ import { prisma } from "@/lib/db"
+ import type { ApiResponse } from "@/lib/api-types"
+ import type { Movement } from "@/lib/types"
++import { requireAuth, requireAdmin } from "@/lib/auth-middleware"
+ 
+ // GET /api/movements/[id] - Récupérer un mouvement par ID
+ 
+@@ -10,6 +11,9 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const movement = await prisma.movement.findUnique({
+       where: { id: params.id },
+@@ -60,6 +64,9 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
+ 
+ // DELETE /api/movements/[id] - Supprimer un mouvement
+ export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAdmin(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     await prisma.movement.delete({
+       where: { id: params.id }
+diff --git a/app/api/movements/route.ts b/app/api/movements/route.ts
+index b9c95ea..3c5ccbc 100644
+--- a/app/api/movements/route.ts
++++ b/app/api/movements/route.ts
+@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db"
+ import type { ApiResponse } from "@/lib/api-types"
+ import type { Movement } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
+-import { verifyAuth } from "@/lib/auth-middleware"
++import { verifyAuth, requireAuth } from "@/lib/auth-middleware"
+ 
+ // GET /api/movements - Récupérer tous les mouvements
+ 
+@@ -12,6 +12,9 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function GET(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const searchParams = request.nextUrl.searchParams
+     const cardId = searchParams.get("cardId")
+diff --git a/app/api/notifications/[id]/route.ts b/app/api/notifications/[id]/route.ts
+index 78649ad..af1c523 100644
+--- a/app/api/notifications/[id]/route.ts
++++ b/app/api/notifications/[id]/route.ts
+@@ -1,6 +1,7 @@
+ import { type NextRequest, NextResponse } from "next/server"
+ import { prisma } from "@/lib/db"
+ import type { ApiResponse } from "@/lib/api-types"
++import { requireAuth } from "@/lib/auth-middleware"
+ 
+ // PUT /api/notifications/[id] - Marquer comme lue
+ 
+@@ -9,6 +10,9 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const body = await request.json()
+ 
+@@ -38,6 +42,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
+ 
+ // DELETE /api/notifications/[id] - Supprimer une notification
+ export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     await prisma.notification.delete({
+       where: { id: params.id }
+diff --git a/app/api/notifications/route.ts b/app/api/notifications/route.ts
+index c3e585a..5393fa0 100644
+--- a/app/api/notifications/route.ts
++++ b/app/api/notifications/route.ts
+@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
+ import { prisma } from "@/lib/db"
+ import type { ApiResponse } from "@/lib/api-types"
+ import type { Notification } from "@/lib/types"
++import { requireAuth } from "@/lib/auth-middleware"
+ 
+ // GET /api/notifications - Récupérer les notifications
+ 
+@@ -10,6 +11,9 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function GET(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const searchParams = request.nextUrl.searchParams
+     const userId = searchParams.get("userId")
+@@ -59,6 +63,9 @@ export async function GET(request: NextRequest) {
+ 
+ // POST /api/notifications - Créer une notification
+ export async function POST(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const body = await request.json()
+     
+diff --git a/app/api/statistics/calculate/route.ts b/app/api/statistics/calculate/route.ts
+index e2496e6..5b6155e 100644
+--- a/app/api/statistics/calculate/route.ts
++++ b/app/api/statistics/calculate/route.ts
+@@ -1,12 +1,16 @@
+ import { type NextRequest, NextResponse } from "next/server"
+ import { prisma } from "@/lib/db"
+ import type { ApiResponse } from "@/lib/api-types"
++import { requireAuth } from "@/lib/auth-middleware"
+ 
+ // POST /api/statistics/calculate - Calculer les statistiques personnalisées
+ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function POST(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const body = await request.json()
+     
+diff --git a/app/api/stats/route.ts b/app/api/stats/route.ts
+index a952c67..a741950 100644
+--- a/app/api/stats/route.ts
++++ b/app/api/stats/route.ts
+@@ -1,6 +1,7 @@
+ import { type NextRequest, NextResponse } from "next/server"
+ import { prisma } from "@/lib/db"
+ import type { ApiResponse } from "@/lib/api-types"
++import { requireAuth } from "@/lib/auth-middleware"
+ 
+ // GET /api/stats - Récupérer les statistiques
+ 
+@@ -9,6 +10,9 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function GET(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const searchParams = request.nextUrl.searchParams
+     const dateFrom = searchParams.get("dateFrom")
+diff --git a/app/middleware.ts b/app/middleware.ts
+deleted file mode 100644
+index 1392e7d..0000000
+--- a/app/middleware.ts
++++ /dev/null
+@@ -1,120 +0,0 @@
+-/**
+- * Middleware Next.js pour l'authentification et la protection des routes
+- * Vérifie les tokens JWT sur toutes les routes protégées
+- */
+-
+-import { NextRequest, NextResponse } from "next/server"
+-import { verifyAccessToken, extractTokenFromHeader } from "@/lib/auth"
+-import { logger } from "@/lib/logger"
+-
+-// Routes publiques (ne nécessitent pas d'authentification)
+-const publicRoutes = [
+-  "/",
+-  "/login",
+-  "/api/auth/login",
+-  "/api/auth/refresh",
+-  "/api/auth/logout",
+-]
+-
+-// Routes API qui nécessitent une authentification
+-const protectedApiRoutes = ["/api"]
+-
+-export function middleware(request: NextRequest) {
+-  const { pathname } = request.nextUrl
+-
+-  // Ignorer les routes publiques
+-  // IMPORTANT: comparaison EXACTE uniquement. Ne jamais utiliser
+-  // `pathname.startsWith(route)` ici : comme tout pathname commence par "/",
+-  // la route "/" matcherait alors n'importe quel chemin (y compris /api/*)
+-  // et désactiverait silencieusement toute vérification d'authentification.
+-  const isPublicRoute = publicRoutes.includes(pathname)
+-
+-  if (isPublicRoute) {
+-    return NextResponse.next()
+-  }
+-
+-  // Vérifier si c'est une route API protégée
+-  const isProtectedApiRoute = protectedApiRoutes.some((route) => pathname.startsWith(route))
+-
+-  if (isProtectedApiRoute) {
+-    // Extraire le token du header Authorization
+-    const authHeader = request.headers.get("authorization")
+-    const token = extractTokenFromHeader(authHeader)
+-
+-    if (!token) {
+-      logger.warn("Unauthorized API request - No token provided", { pathname })
+-      return NextResponse.json(
+-        {
+-          success: false,
+-          error: "Authentification requise. Token manquant.",
+-        },
+-        { status: 401 }
+-      )
+-    }
+-
+-    try {
+-      // Vérifier le token
+-      const payload = verifyAccessToken(token)
+-
+-      // Ajouter les données de l'utilisateur (issues du token vérifié) dans les
+-      // headers pour les routes API. On repart d'un objet Headers propre plutôt
+-      // que de copier request.headers, pour empêcher un client d'injecter lui-même
+-      // un en-tête x-user-data forgé qui survivrait jusqu'à la route.
+-      const requestHeaders = new Headers(request.headers)
+-      requestHeaders.delete("x-user-data")
+-      requestHeaders.set(
+-        "x-user-data",
+-        JSON.stringify({
+-          id: payload.userId,
+-          email: payload.email,
+-          firstName: payload.firstName,
+-          lastName: payload.lastName,
+-          role: payload.role,
+-        })
+-      )
+-
+-      return NextResponse.next({
+-        request: {
+-          headers: requestHeaders,
+-        },
+-      })
+-    } catch (error) {
+-      const errorMessage = error instanceof Error ? error.message : String(error)
+-      logger.warn("Unauthorized API request - Invalid token", { pathname, error: errorMessage })
+-      return NextResponse.json(
+-        {
+-          success: false,
+-          error: `Token invalide ou expiré. Veuillez vous reconnecter. (${errorMessage})`,
+-        },
+-        { status: 401 }
+-      )
+-    }
+-  }
+-
+-  // Pour les routes dashboard, on ne peut pas vérifier le token côté serveur
+-  // car les tokens sont dans localStorage côté client.
+-  // La vérification sera faite côté client dans les composants.
+-  // Les API appelées depuis ces pages sont protégées par le bloc ci-dessus.
+-
+-  // Par défaut, autoriser l'accès
+-  return NextResponse.next()
+-}
+-
+-// Configurer les matchers pour optimiser les performances
+-export const config = {
+-  matcher: [
+-    /*
+-     * Match toutes les requêtes sauf:
+-     * - _next/static (fichiers statiques)
+-     * - _next/image (optimisation d'images)
+-     * - favicon.ico (favicon)
+-     * - fichiers images
+-     * 
+-     * IMPORTANT: Le pattern doit matcher les routes API
+-     */
+-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+-    // Inclure explicitement toutes les routes API (syntaxe Next.js)
+-    "/api/(.*)",
+-  ],
+-}
+-

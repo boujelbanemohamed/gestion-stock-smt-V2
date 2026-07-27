@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { Bank } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
+import { requireAuth } from "@/lib/auth-middleware"
 
 // GET /api/banks - Récupérer toutes les banques avec filtres optionnels
 
@@ -11,6 +12,9 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const searchParams = request.nextUrl.searchParams
     const country = searchParams.get("country")
@@ -63,19 +67,13 @@ export async function GET(request: NextRequest) {
 
 // POST /api/banks - Créer une nouvelle banque
 export async function POST(request: NextRequest) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const body: CreateBankRequest = await request.json()
 
-    // Récupérer l'utilisateur depuis le header
-    const userHeader = request.headers.get("x-user-data")
-    let userData = null
-    try {
-      if (userHeader) {
-        userData = JSON.parse(userHeader)
-      }
-    } catch (error) {
-      console.error('Error parsing user header:', error)
-    }
+    const userData = auth.user
 
     // Validation des champs requis
     if (!body.name || !body.code || !body.country || !body.swiftCode) {

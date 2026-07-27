@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { Location } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
+import { requireAuth } from "@/lib/auth-middleware"
 
 // GET /api/locations/[id] - Récupérer un emplacement par ID
 
@@ -11,6 +12,9 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const location = await prisma.location.findUnique({
       where: { id: params.id },
@@ -47,19 +51,13 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
 // PUT /api/locations/[id] - Mettre à jour un emplacement
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const body = await request.json()
 
-    // Récupérer l'utilisateur depuis le header
-    const userHeader = request.headers.get("x-user-data")
-    let userData = null
-    try {
-      if (userHeader) {
-        userData = JSON.parse(userHeader)
-      }
-    } catch (error) {
-      console.error('Error parsing user header:', error)
-    }
+    const userData = auth.user
 
     const updatedLocation = await prisma.location.update({
       where: { id: params.id },
@@ -103,17 +101,11 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
 // DELETE /api/locations/[id] - Supprimer définitivement un emplacement
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
-    // Récupérer l'utilisateur depuis le header
-    const userHeader = request.headers.get("x-user-data")
-    let userData = null
-    try {
-      if (userHeader) {
-        userData = JSON.parse(userHeader)
-      }
-    } catch (error) {
-      console.error('Error parsing user header:', error)
-    }
+    const userData = auth.user
 
     // Récupérer les infos avant suppression
     const location = await prisma.location.findUnique({

@@ -1,0 +1,47 @@
+diff --git a/components/dashboard/movements-management.tsx b/components/dashboard/movements-management.tsx
+index 795d185..ae160e5 100644
+--- a/components/dashboard/movements-management.tsx
++++ b/components/dashboard/movements-management.tsx
+@@ -1129,15 +1129,11 @@ export default function MovementsManagement() {
+         const uploadBody = new FormData()
+         uploadBody.append("file", documentFile)
+ 
+-        // Ne pas utiliser getAuthHeaders() tel quel : il force
+-        // Content-Type: application/json, ce qui casse le multipart/form-data
+-        // (le navigateur doit fixer lui-même le Content-Type avec sa boundary).
+-        const uploadHeaders = getAuthHeaders() as Record<string, string>
+-        delete uploadHeaders["Content-Type"]
+-
++        // authenticatedFetch détecte le corps FormData et n'impose pas
++        // Content-Type: application/json dans ce cas (le navigateur fixe
++        // lui-même le Content-Type avec sa boundary multipart).
+         const uploadResponse = await authenticatedFetch('/api/movements/upload', {
+           method: 'POST',
+-          headers: uploadHeaders,
+           body: uploadBody,
+         })
+         const uploadResult = await uploadResponse.json()
+diff --git a/lib/api-client.ts b/lib/api-client.ts
+index 663d8f3..7cfaaa2 100644
+--- a/lib/api-client.ts
++++ b/lib/api-client.ts
+@@ -96,8 +96,18 @@ export async function authenticatedFetch(
+   options: RequestInit = {}
+ ): Promise<Response> {
+   let accessToken = getAccessToken()
++
++  // Pour un envoi de FormData (upload de fichier), le navigateur doit fixer
++  // lui-même le Content-Type avec sa boundary multipart. On ne doit surtout
++  // pas forcer 'Content-Type: application/json' par-dessus dans ce cas.
++  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
++  const baseHeaders = getAuthHeaders() as Record<string, string>
++  if (isFormData) {
++    delete baseHeaders['Content-Type']
++  }
++
+   let headers: Record<string, string> = {
+-    ...(getAuthHeaders() as Record<string, string>),
++    ...baseHeaders,
+     ...(options.headers as Record<string, string> || {}),
+   }
+ 

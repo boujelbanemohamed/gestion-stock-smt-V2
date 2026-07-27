@@ -1,0 +1,410 @@
+diff --git a/app/api/events/route.ts b/app/api/events/route.ts
+new file mode 100644
+index 0000000..5d016ef
+--- /dev/null
++++ b/app/api/events/route.ts
+@@ -0,0 +1,80 @@
++import type { NextRequest } from "next/server"
++import { verifyAccessToken } from "@/lib/auth"
++import { serverEvents } from "@/lib/server-events"
++
++// GET /api/events - Flux SSE (Server-Sent Events) : pousse en temps réel les
++// notifications et les mouvements aux clients connectés, en remplacement du
++// polling utilisé jusqu'ici.
++
++export const dynamic = "force-dynamic"
++export const runtime = "nodejs"
++
++const encoder = new TextEncoder()
++const HEARTBEAT_INTERVAL_MS = 25000
++
++export async function GET(request: NextRequest) {
++  // EventSource (API navigateur) ne permet pas d'ajouter un header Authorization :
++  // le token est donc transmis en paramètre de requête, uniquement pour ce endpoint.
++  const token = request.nextUrl.searchParams.get("token")
++  if (!token) {
++    return new Response("Authentification requise", { status: 401 })
++  }
++
++  let userId: string
++  try {
++    userId = verifyAccessToken(token).userId
++  } catch {
++    return new Response("Token invalide ou expiré", { status: 401 })
++  }
++
++  const stream = new ReadableStream({
++    start(controller) {
++      const send = (event: string, data: unknown) => {
++        try {
++          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
++        } catch {
++          // Le flux est déjà fermé (client déconnecté) : rien à faire.
++        }
++      }
++
++      const onNotification = (notification: any) => {
++        // Une notification ciblée (userId défini) n'est envoyée qu'à son destinataire ;
++        // une notification globale (userId absent) est diffusée à tous les clients connectés.
++        if (!notification.userId || notification.userId === userId) {
++          send("notification", notification)
++        }
++      }
++
++      const onMovement = (payload: any) => send("movement", payload)
++
++      serverEvents.on("notification", onNotification)
++      serverEvents.on("movement", onMovement)
++
++      const heartbeat = setInterval(() => send("ping", { t: Date.now() }), HEARTBEAT_INTERVAL_MS)
++
++      const cleanup = () => {
++        clearInterval(heartbeat)
++        serverEvents.off("notification", onNotification)
++        serverEvents.off("movement", onMovement)
++      }
++
++      request.signal.addEventListener("abort", () => {
++        cleanup()
++        try {
++          controller.close()
++        } catch {
++          // déjà fermé
++        }
++      })
++    },
++  })
++
++  return new Response(stream, {
++    headers: {
++      "Content-Type": "text/event-stream",
++      "Cache-Control": "no-cache, no-transform",
++      Connection: "keep-alive",
++      "X-Accel-Buffering": "no",
++    },
++  })
++}
+diff --git a/app/api/movements/[id]/route.ts b/app/api/movements/[id]/route.ts
+index a0a17b4..e286f84 100644
+--- a/app/api/movements/[id]/route.ts
++++ b/app/api/movements/[id]/route.ts
+@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
+ import type { ApiResponse } from "@/lib/api-types"
+ import type { Movement } from "@/lib/types"
+ import { requireAuth, requireAdmin } from "@/lib/auth-middleware"
++import { serverEvents } from "@/lib/server-events"
+ 
+ // GET /api/movements/[id] - Récupérer un mouvement par ID
+ 
+@@ -72,6 +73,9 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
+       where: { id: params.id }
+     })
+ 
++    // Pousse la suppression en temps réel (SSE) aux clients connectés.
++    serverEvents.emit("movement", { action: "deleted", movementId: params.id })
++
+     return NextResponse.json<ApiResponse>({
+       success: true,
+       message: "Mouvement supprimé avec succès",
+diff --git a/app/api/movements/route.ts b/app/api/movements/route.ts
+index 3c5ccbc..cc220ff 100644
+--- a/app/api/movements/route.ts
++++ b/app/api/movements/route.ts
+@@ -4,6 +4,8 @@ import type { ApiResponse } from "@/lib/api-types"
+ import type { Movement } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
+ import { verifyAuth, requireAuth } from "@/lib/auth-middleware"
++import { serverEvents } from "@/lib/server-events"
++import { createLowStockNotification } from "@/lib/notification-helper"
+ 
+ // GET /api/movements - Récupérer tous les mouvements
+ 
+@@ -373,6 +375,10 @@ export async function POST(request: NextRequest) {
+       status: "success"
+     }, request)
+ 
++    // Pousse le mouvement en temps réel (SSE) aux clients connectés : les pages
++    // Mouvements et Tableau de bord se rafraîchissent instantanément, sans polling.
++    serverEvents.emit("movement", { action: "created", movementId: newMovement.id })
++
+     // Envoyer notification email pour le mouvement
+     try {
+       const { sendMovementNotification } = await import("@/lib/email-service")
+@@ -417,6 +423,11 @@ export async function POST(request: NextRequest) {
+               stockLevel.location?.name,
+               cardWithStock.bank?.name
+             )
++            await createLowStockNotification(
++              `${cardWithStock.name} (${stockLevel.location?.name || "emplacement inconnu"})`,
++              stockLevel.quantity,
++              cardWithStock.minThreshold
++            )
+           }
+         }
+       }
+diff --git a/app/api/notifications/route.ts b/app/api/notifications/route.ts
+index 5393fa0..7f98f93 100644
+--- a/app/api/notifications/route.ts
++++ b/app/api/notifications/route.ts
+@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
+ import type { ApiResponse } from "@/lib/api-types"
+ import type { Notification } from "@/lib/types"
+ import { requireAuth } from "@/lib/auth-middleware"
++import { serverEvents } from "@/lib/server-events"
+ 
+ // GET /api/notifications - Récupérer les notifications
+ 
+@@ -79,6 +80,9 @@ export async function POST(request: NextRequest) {
+       },
+     })
+ 
++    // Pousse la notification en temps réel (SSE) aux clients connectés.
++    serverEvents.emit("notification", notification)
++
+     return NextResponse.json<ApiResponse<Notification>>({
+       success: true,
+       data: notification as Notification,
+diff --git a/app/dashboard/layout.tsx b/app/dashboard/layout.tsx
+index 189486a..c64cb1b 100644
+--- a/app/dashboard/layout.tsx
++++ b/app/dashboard/layout.tsx
+@@ -14,6 +14,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
+ import { cn } from "@/lib/utils"
+ import NotificationsDropdown from "@/components/notifications"
+ import GlobalSearch from "@/components/dashboard/global-search"
++import RealtimeBridge from "@/components/dashboard/realtime-bridge"
+ 
+ type NavigationItem = {
+   name: string
+@@ -267,6 +268,7 @@ export default function DashboardLayout({
+ 
+   return (
+     <div className="min-h-screen bg-slate-50">
++      <RealtimeBridge />
+       {/* Sidebar flottante */}
+       <div className="fixed left-4 top-4 bottom-4 z-20 w-64 flex flex-col rounded-2xl border border-slate-200 bg-white shadow-lg overflow-y-auto">
+         {/* Logo */}
+diff --git a/app/dashboard/page.tsx b/app/dashboard/page.tsx
+index d63cf51..4632030 100644
+--- a/app/dashboard/page.tsx
++++ b/app/dashboard/page.tsx
+@@ -87,7 +87,9 @@ export default function DashboardPage() {
+ 
+   // Utiliser les hooks pour la synchronisation (avec une fréquence plus raisonnable)
+   useDataSync(["banks", "cards", "locations", "movements", "users"], loadData)
+-  useAutoRefresh(loadData, 60000) // 1 minute au lieu de 30 secondes
++  // Les mouvements sont désormais poussés en temps réel (SSE, voir RealtimeBridge) ;
++  // ce polling ne sert plus que de filet de sécurité en cas de coupure de la connexion.
++  useAutoRefresh(loadData, 5 * 60000) // 5 minutes
+ 
+   const getActionLabel = (action: string): string => {
+     const labels: { [key: string]: string } = {
+diff --git a/components/dashboard/movements-management.tsx b/components/dashboard/movements-management.tsx
+index c068dcf..d09b567 100644
+--- a/components/dashboard/movements-management.tsx
++++ b/components/dashboard/movements-management.tsx
+@@ -285,7 +285,9 @@ export default function MovementsManagement() {
+ 
+   // Synchronisation automatique des mouvements
+   useDataSync(["movements"], loadMovements)
+-  useAutoRefresh(loadMovements, 120000) // 2 minutes
++  // Les mouvements sont désormais poussés en temps réel (SSE, voir RealtimeBridge) ;
++  // ce polling ne sert plus que de filet de sécurité en cas de coupure de la connexion.
++  useAutoRefresh(loadMovements, 5 * 60000) // 5 minutes
+ 
+   const getCardName = (cardId: string) => {
+     const card = cards.find((c) => c.id === cardId)
+diff --git a/components/dashboard/realtime-bridge.tsx b/components/dashboard/realtime-bridge.tsx
+new file mode 100644
+index 0000000..9bc58f4
+--- /dev/null
++++ b/components/dashboard/realtime-bridge.tsx
+@@ -0,0 +1,22 @@
++"use client"
++
++import { useServerEvent } from "@/hooks/use-server-event"
++import { eventBus } from "@/lib/event-bus"
++
++// Relie le flux SSE serveur (mouvements créés/supprimés par n'importe quel
++// utilisateur) au bus d'évènements local du navigateur, déjà utilisé par
++// useDataSync sur les pages Mouvements et Tableau de bord. Ainsi, ces pages
++// se rafraîchissent en temps réel sans code supplémentaire de leur côté.
++export default function RealtimeBridge() {
++  useServerEvent("movement", (payload: { action?: string }) => {
++    const event =
++      payload?.action === "deleted"
++        ? "movement:deleted"
++        : payload?.action === "updated"
++          ? "movement:updated"
++          : "movement:created"
++    eventBus.emit(event, payload)
++  })
++
++  return null
++}
+diff --git a/components/notifications.tsx b/components/notifications.tsx
+index 7c2eb2f..ce0d469 100644
+--- a/components/notifications.tsx
++++ b/components/notifications.tsx
+@@ -13,6 +13,7 @@ import {
+ } from "@/components/ui/dropdown-menu"
+ import { ScrollArea } from "@/components/ui/scroll-area"
+ import { getAuthHeaders } from "@/lib/api-client"
++import { useServerEvent } from "@/hooks/use-server-event"
+ 
+ export default function NotificationsDropdown() {
+   const [notifications, setNotifications] = useState<Notification[]>([])
+@@ -20,8 +21,9 @@ export default function NotificationsDropdown() {
+ 
+   useEffect(() => {
+     loadNotifications()
+-    // Refresh notifications every 30 seconds
+-    const interval = setInterval(loadNotifications, 30000)
++    // Filet de sécurité si la connexion SSE (temps réel) venait à se couper :
++    // la mise à jour en direct passe désormais par useServerEvent ci-dessous.
++    const interval = setInterval(loadNotifications, 5 * 60 * 1000)
+     return () => clearInterval(interval)
+   }, [])
+ 
+@@ -47,6 +49,12 @@ export default function NotificationsDropdown() {
+     }
+   }
+ 
++  // Une notification créée par n'importe quelle action (alerte de stock bas,
++  // etc.) est poussée en temps réel via SSE : on recharge la liste dès réception.
++  useServerEvent("notification", () => {
++    loadNotifications()
++  })
++
+   const handleMarkAsRead = async (id: string) => {
+     try {
+       const response = await fetch(`/api/notifications/${id}`, {
+diff --git a/hooks/use-server-event.ts b/hooks/use-server-event.ts
+new file mode 100644
+index 0000000..d664eb0
+--- /dev/null
++++ b/hooks/use-server-event.ts
+@@ -0,0 +1,16 @@
++"use client"
++
++import { useEffect, useRef } from "react"
++import { subscribeToRealtime } from "@/lib/realtime-client"
++
++// S'abonne à un évènement poussé par le serveur (SSE) : "notification" ou "movement".
++export function useServerEvent(event: "notification" | "movement", handler: (data: any) => void) {
++  const handlerRef = useRef(handler)
++  useEffect(() => {
++    handlerRef.current = handler
++  }, [handler])
++
++  useEffect(() => {
++    return subscribeToRealtime(event, (data) => handlerRef.current(data))
++  }, [event])
++}
+diff --git a/lib/notification-helper.ts b/lib/notification-helper.ts
+index 978fb93..9ad7224 100644
+--- a/lib/notification-helper.ts
++++ b/lib/notification-helper.ts
+@@ -1,6 +1,7 @@
+ // Helper pour créer des notifications automatiques
+ import { prisma } from "@/lib/db"
+ import type { Notification } from "@/lib/types"
++import { serverEvents } from "@/lib/server-events"
+ 
+ export async function createNotification(data: {
+   type: "info" | "warning" | "error" | "success"
+@@ -18,6 +19,9 @@ export async function createNotification(data: {
+         isRead: false,
+       }
+     })
++    // Pousse la notification en temps réel (SSE) aux clients connectés, en plus
++    // de la persister pour les clients qui la récupéreront via /api/notifications.
++    serverEvents.emit("notification", notification)
+     return notification as Notification
+   } catch (error) {
+     console.error('Error creating notification:', error)
+diff --git a/lib/realtime-client.ts b/lib/realtime-client.ts
+new file mode 100644
+index 0000000..c43502b
+--- /dev/null
++++ b/lib/realtime-client.ts
+@@ -0,0 +1,57 @@
++"use client"
++
++// Connexion SSE (Server-Sent Events) partagée côté client : un seul EventSource
++// par onglet, quel que soit le nombre de composants abonnés (bell de
++// notifications, synchronisation des mouvements, etc.), avec reconnexion
++// automatique gérée nativement par le navigateur.
++
++type RealtimeEvent = "notification" | "movement"
++type RealtimeHandler = (data: any) => void
++
++const listeners: Record<RealtimeEvent, Set<RealtimeHandler>> = {
++  notification: new Set(),
++  movement: new Set(),
++}
++
++let eventSource: EventSource | null = null
++let subscriberCount = 0
++
++function parseAndDispatch(event: RealtimeEvent, raw: MessageEvent) {
++  try {
++    const data = JSON.parse(raw.data)
++    listeners[event].forEach((handler) => handler(data))
++  } catch (error) {
++    console.error(`[realtime] Error handling "${event}" event:`, error)
++  }
++}
++
++function connect() {
++  if (eventSource || typeof window === "undefined") return
++
++  const token = localStorage.getItem("accessToken")
++  if (!token) return
++
++  const source = new EventSource(`/api/events?token=${encodeURIComponent(token)}`)
++  source.addEventListener("notification", (e) => parseAndDispatch("notification", e as MessageEvent))
++  source.addEventListener("movement", (e) => parseAndDispatch("movement", e as MessageEvent))
++  eventSource = source
++}
++
++function disconnect() {
++  eventSource?.close()
++  eventSource = null
++}
++
++export function subscribeToRealtime(event: RealtimeEvent, handler: RealtimeHandler): () => void {
++  listeners[event].add(handler)
++  subscriberCount += 1
++  connect()
++
++  return () => {
++    listeners[event].delete(handler)
++    subscriberCount = Math.max(0, subscriberCount - 1)
++    if (subscriberCount === 0) {
++      disconnect()
++    }
++  }
++}
+diff --git a/lib/server-events.ts b/lib/server-events.ts
+new file mode 100644
+index 0000000..68351aa
+--- /dev/null
++++ b/lib/server-events.ts
+@@ -0,0 +1,16 @@
++import { EventEmitter } from "events"
++
++// Bus d'évènements côté serveur, utilisé pour pousser en temps réel (SSE) les
++// notifications et mouvements vers les clients connectés, à la place du
++// polling. Repose sur un unique process Node long-vivant (comme le reste de
++// l'application, ex. lib/db.ts) : ne fonctionnerait pas tel quel derrière des
++// fonctions serverless multi-instances.
++const globalForEvents = global as unknown as { serverEvents?: EventEmitter }
++
++export const serverEvents: EventEmitter = globalForEvents.serverEvents ?? new EventEmitter()
++// Un nombre potentiellement important de clients SSE peuvent s'abonner en parallèle.
++serverEvents.setMaxListeners(0)
++
++if (process.env.NODE_ENV !== "production") {
++  globalForEvents.serverEvents = serverEvents
++}

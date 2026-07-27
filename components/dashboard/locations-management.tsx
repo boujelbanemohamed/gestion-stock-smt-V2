@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -28,6 +29,7 @@ import { getAuthHeaders } from "@/lib/api-client"
 import { Printer, Building2, MapPin } from "lucide-react"
 
 export default function LocationsManagement() {
+  const searchParams = useSearchParams()
   const [locations, setLocations] = useState<Location[]>([])
   const [banks, setBanks] = useState<Bank[]>([])
   const [cards, setCards] = useState<any[]>([])
@@ -54,7 +56,10 @@ export default function LocationsManagement() {
   const [importErrors, setImportErrors] = useState<string[]>([])
 
   const [searchFilters, setSearchFilters] = useState<LocationFilters>({})
-  const [searchTerm, setSearchTerm] = useState("")
+  // Pré-rempli dès le premier rendu avec ?q=... (recherche globale) pour éviter
+  // qu'un premier fetch non filtré ne parte en parallèle de celui, filtré, déclenché
+  // par un effet séparé (l'un des deux résultats écrasant l'autre selon l'ordre de retour réseau).
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get("q") || "")
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -63,7 +68,7 @@ export default function LocationsManagement() {
 
   const loadConfig = async () => {
     try {
-      const configResponse = await fetch('/api/config')
+      const configResponse = await fetch('/api/config', { headers: getAuthHeaders() })
       const configData = await configResponse.json()
       if (configData.success && configData.data?.general?.logo) {
         setLogoPath(configData.data.general.logo)
@@ -80,7 +85,7 @@ export default function LocationsManagement() {
       if (searchFilters.bankId) params.append('bankId', searchFilters.bankId)
       if (searchTerm) params.append('search', searchTerm)
 
-      const locationsResponse = await fetch(`/api/locations?${params.toString()}`)
+      const locationsResponse = await fetch(`/api/locations?${params.toString()}`, { headers: getAuthHeaders() })
       const locationsData = await locationsResponse.json()
       
       if (locationsData.success) {
@@ -96,14 +101,14 @@ export default function LocationsManagement() {
         setCardsByLocation(byLocation)
       }
 
-      const banksResponse = await fetch('/api/banks?status=active')
+      const banksResponse = await fetch('/api/banks?status=active', { headers: getAuthHeaders() })
       const banksData = await banksResponse.json()
       if (banksData.success) {
         setBanks(banksData.data || [])
       }
 
       // Charger les cartes
-      const cardsResponse = await fetch('/api/cards')
+      const cardsResponse = await fetch('/api/cards', { headers: getAuthHeaders() })
       const cardsData = await cardsResponse.json()
       if (cardsData.success) {
         setCards(cardsData.data || [])
@@ -929,7 +934,7 @@ export default function LocationsManagement() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Gestion des Emplacements</h2>
-          <p className="text-slate-600">Gérez vos lieux de stockage</p>
+          <p className="text-xs text-[#008DA8]">Gérez vos lieux de stockage</p>
           {isRefreshing && <p className="text-sm text-blue-600">🔄 Actualisation en cours...</p>}
         </div>
         <div className="flex gap-2">

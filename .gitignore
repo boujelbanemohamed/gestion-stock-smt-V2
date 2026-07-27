@@ -8,9 +8,20 @@
 # testing
 /coverage
 
+# Playwright (tests end-to-end)
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+# Session admin sauvegardée par e2e/global-setup.ts (contient des tokens JWT valides)
+/e2e/.auth/*.json
+
 # next.js
 /.next/
 /out/
+
+# documents téléversés (justificatifs de mouvements) - contenu, pas du code
+/public/uploads/
 
 # production
 /build
@@ -53,10 +64,14 @@ next-env.d.ts
 .DS_Store
 Thumbs.db
 
-# Logs
-logs
+# Logs (uniquement le dossier de logs à la racine, PAS app/api/logs/ qui est du code)
+/logs
 *.log
 
 # Database
 *.sqlite
 *.db
+# Tout fichier d'environnement, y compris sauvegardes et variantes de production.
+# Les règles précédentes ne couvraient ni .env.production ni .env.production.backup.*
+.env*
+!.env.example

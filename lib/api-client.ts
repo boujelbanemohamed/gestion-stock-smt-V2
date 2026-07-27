@@ -96,8 +96,18 @@ export async function authenticatedFetch(
   options: RequestInit = {}
 ): Promise<Response> {
   let accessToken = getAccessToken()
+
+  // Pour un envoi de FormData (upload de fichier), le navigateur doit fixer
+  // lui-même le Content-Type avec sa boundary multipart. On ne doit surtout
+  // pas forcer 'Content-Type: application/json' par-dessus dans ce cas.
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
+  const baseHeaders = getAuthHeaders() as Record<string, string>
+  if (isFormData) {
+    delete baseHeaders['Content-Type']
+  }
+
   let headers: Record<string, string> = {
-    ...(getAuthHeaders() as Record<string, string>),
+    ...baseHeaders,
     ...(options.headers as Record<string, string> || {}),
   }
 

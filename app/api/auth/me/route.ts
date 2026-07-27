@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { User } from "@/lib/types"
 import { verifyAuth } from "@/lib/auth-middleware"
+import { sanitizeUser } from "@/lib/sanitize-user"
 
 // GET /api/auth/me - Récupérer l'utilisateur connecté
 
@@ -50,12 +51,9 @@ export async function GET(request: NextRequest) {
 
     console.log(`[API /auth/me] ✓ Utilisateur trouvé: ${user.email}`)
 
-    // Ne pas retourner le mot de passe
-    const { password: _, ...userWithoutPassword } = user
-
     return NextResponse.json<ApiResponse<User>>({
       success: true,
-      data: userWithoutPassword as User,
+      data: sanitizeUser(user) as User,
     })
   } catch (error) {
     console.error('Get current user error:', error)

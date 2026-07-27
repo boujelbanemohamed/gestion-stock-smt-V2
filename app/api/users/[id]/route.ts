@@ -4,6 +4,9 @@ import * as bcrypt from "bcryptjs"
 import type { ApiResponse } from "@/lib/api-types"
 import type { User } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
+import { requireAuth, requireAdmin, isAdminRole } from "@/lib/auth-middleware"
+import { sanitizeUser } from "@/lib/sanitize-user"
+import { sendPasswordChangedConfirmationEmail } from "@/lib/email-service"
 
 // GET /api/users/[id] - Récupérer un utilisateur par ID
 
@@ -12,6 +15,9 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const user = await prisma.user.findUnique({
       where: { id: params.id }
@@ -27,12 +33,9 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       )
     }
 
-    // Ne pas retourner le mot de passe
-    const { password: _, ...userWithoutPassword } = user
-
     return NextResponse.json<ApiResponse<User>>({
       success: true,
-      data: userWithoutPassword as User,
+      data: sanitizeUser(user) as User,
     })
   } catch (error) {
     console.error('Error fetching user:', error)
@@ -47,30 +50,43 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 }
 
 // PUT /api/users/[id] - Mettre à jour un utilisateur
+// Un utilisateur peut modifier son propre profil (nom, email, mot de passe),
+// mais seul un administrateur peut modifier le rôle ou le statut actif
+// (à soi-même ou à un autre utilisateur), et seul un administrateur peut
+// modifier le compte d'un tiers.
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
+  const userData = auth.user
+  const isSelf = userData.id === params.id
+  const isAdmin = isAdminRole(userData.role)
+
+  if (!isSelf && !isAdmin) {
+    return NextResponse.json<ApiResponse>(
+      { success: false, error: "Accès refusé. Vous ne pouvez modifier que votre propre profil." },
+      { status: 403 },
+    )
+  }
+
   try {
     const body = await request.json()
-
-    // Récupérer l'utilisateur depuis le header
-    const userHeader = request.headers.get("x-user-data")
-    let userData = null
-    try {
-      if (userHeader) {
-        userData = JSON.parse(userHeader)
-      }
-    } catch (error) {
-      console.error('Error parsing user header:', error)
-    }
 
     // Si le mot de passe est fourni, le hasher
     const updateData: any = {}
     if (body.email !== undefined) updateData.email = body.email
     if (body.firstName !== undefined) updateData.firstName = body.firstName
     if (body.lastName !== undefined) updateData.lastName = body.lastName
-    if (body.role !== undefined) updateData.role = body.role
-    if (body.isActive !== undefined) updateData.isActive = body.isActive
-    
-    if (body.password) {
+
+    // Le rôle et le statut actif ne peuvent être modifiés que par un administrateur,
+    // même sur son propre compte (empêche l'auto-élévation de privilèges).
+    if (isAdmin) {
+      if (body.role !== undefined) updateData.role = body.role
+      if (body.isActive !== undefined) updateData.isActive = body.isActive
+    }
+
+    const passwordChanged = Boolean(body.password)
+    if (passwordChanged) {
       updateData.password = await bcrypt.hash(body.password, 10)
     }
 
@@ -80,6 +96,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     })
 
     // Logger l'action (toujours créer un log)
+    // Ne jamais logguer le mot de passe lui-même, seulement le fait qu'il a été changé.
     await logAudit({
       userId: userData?.id || "system",
       userEmail: userData?.email || "system@monetique.tn",
@@ -88,16 +105,22 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       entityType: "user",
       entityId: updatedUser.id,
       entityName: `${updatedUser.firstName} ${updatedUser.lastName}`,
-      details: `Modification de l'utilisateur ${updatedUser.firstName} ${updatedUser.lastName} (${updatedUser.email})${userData ? ` par ${userData.email}` : ' (utilisateur non identifié)'}`,
+      details: `Modification de l'utilisateur ${updatedUser.firstName} ${updatedUser.lastName} (${updatedUser.email})${userData ? ` par ${userData.email}` : ' (utilisateur non identifié)'}${passwordChanged ? ' — Mot de passe réinitialisé' : ''}`,
       status: "success"
     }, request)
 
-    // Ne pas retourner le mot de passe
-    const { password: _, ...userWithoutPassword } = updatedUser
+    if (passwordChanged) {
+      try {
+        await sendPasswordChangedConfirmationEmail(updatedUser.email, updatedUser.firstName)
+      } catch (emailError) {
+        console.error('Error sending password changed confirmation email:', emailError)
+        // On ne fait jamais échouer la mise à jour à cause d'un email non envoyé.
+      }
+    }
 
     return NextResponse.json<ApiResponse<User>>({
       success: true,
-      data: userWithoutPassword as User,
+      data: sanitizeUser(updatedUser) as User,
       message: "Utilisateur mis à jour avec succès",
     })
   } catch (error) {
@@ -114,18 +137,11 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
 // DELETE /api/users/[id] - Supprimer (désactiver) un utilisateur
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
-  try {
-    // Récupérer l'utilisateur depuis le header
-    const userHeader = request.headers.get("x-user-data")
-    let userData = null
-    try {
-      if (userHeader) {
-        userData = JSON.parse(userHeader)
-      }
-    } catch (error) {
-      console.error('Error parsing user header:', error)
-    }
+  const auth = requireAdmin(request)
+  if (!auth.authorized) return auth.response
+  const userData = auth.user
 
+  try {
     // Récupérer les infos avant suppression
     const user = await prisma.user.findUnique({
       where: { id: params.id }

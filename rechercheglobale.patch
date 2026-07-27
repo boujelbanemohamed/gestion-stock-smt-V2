@@ -1,0 +1,489 @@
+diff --git a/app/api/search/route.ts b/app/api/search/route.ts
+new file mode 100644
+index 0000000..783cb48
+--- /dev/null
++++ b/app/api/search/route.ts
+@@ -0,0 +1,96 @@
++import { type NextRequest, NextResponse } from "next/server"
++import { prisma } from "@/lib/db"
++import type { ApiResponse } from "@/lib/api-types"
++import { requireAuth } from "@/lib/auth-middleware"
++
++// GET /api/search?q=... - Recherche globale (banques, cartes, emplacements, utilisateurs)
++
++// Forcer la route à être dynamique (ne pas pré-rendre)
++export const dynamic = 'force-dynamic'
++export const runtime = 'nodejs'
++
++const RESULTS_PER_CATEGORY = 5
++
++export async function GET(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
++  const q = request.nextUrl.searchParams.get("q")?.trim() || ""
++
++  if (q.length < 2) {
++    return NextResponse.json<ApiResponse>({
++      success: true,
++      data: { banks: [], cards: [], locations: [], users: [] },
++    })
++  }
++
++  try {
++    const [banks, cards, locations, users] = await Promise.all([
++      prisma.bank.findMany({
++        where: {
++          isActive: true,
++          OR: [
++            { name: { contains: q, mode: "insensitive" } },
++            { code: { contains: q, mode: "insensitive" } },
++          ],
++        },
++        select: { id: true, name: true, code: true },
++        take: RESULTS_PER_CATEGORY,
++      }),
++      prisma.card.findMany({
++        where: {
++          isActive: true,
++          OR: [
++            { name: { contains: q, mode: "insensitive" } },
++            { type: { contains: q, mode: "insensitive" } },
++            { subType: { contains: q, mode: "insensitive" } },
++            { subSubType: { contains: q, mode: "insensitive" } },
++          ],
++        },
++        select: { id: true, name: true, type: true, bank: { select: { name: true } } },
++        take: RESULTS_PER_CATEGORY,
++      }),
++      prisma.location.findMany({
++        where: {
++          isActive: true,
++          name: { contains: q, mode: "insensitive" },
++        },
++        select: { id: true, name: true, bank: { select: { name: true } } },
++        take: RESULTS_PER_CATEGORY,
++      }),
++      prisma.user.findMany({
++        where: {
++          isActive: true,
++          OR: [
++            { firstName: { contains: q, mode: "insensitive" } },
++            { lastName: { contains: q, mode: "insensitive" } },
++            { email: { contains: q, mode: "insensitive" } },
++          ],
++        },
++        select: { id: true, firstName: true, lastName: true, email: true, role: true },
++        take: RESULTS_PER_CATEGORY,
++      }),
++    ])
++
++    return NextResponse.json<ApiResponse>({
++      success: true,
++      data: {
++        banks: banks.map((b) => ({ id: b.id, name: b.name, code: b.code })),
++        cards: cards.map((c) => ({ id: c.id, name: c.name, type: c.type, bankName: c.bank?.name || "-" })),
++        locations: locations.map((l) => ({ id: l.id, name: l.name, bankName: l.bank?.name || "-" })),
++        users: users.map((u) => ({
++          id: u.id,
++          name: `${u.firstName} ${u.lastName}`,
++          email: u.email,
++          role: u.role,
++        })),
++      },
++    })
++  } catch (error) {
++    console.error("Error searching:", error)
++    return NextResponse.json<ApiResponse>(
++      { success: false, error: "Erreur lors de la recherche" },
++      { status: 500 },
++    )
++  }
++}
+diff --git a/app/dashboard/banks/page.tsx b/app/dashboard/banks/page.tsx
+index 31fce8c..02bb248 100644
+--- a/app/dashboard/banks/page.tsx
++++ b/app/dashboard/banks/page.tsx
+@@ -1,7 +1,12 @@
+ "use client"
+ 
++import { Suspense } from "react"
+ import BanksManagement from "@/components/dashboard/banks-management"
+ 
+ export default function BanksPage() {
+-  return <BanksManagement />
++  return (
++    <Suspense fallback={null}>
++      <BanksManagement />
++    </Suspense>
++  )
+ }
+diff --git a/app/dashboard/layout.tsx b/app/dashboard/layout.tsx
+index fe3efbd..189486a 100644
+--- a/app/dashboard/layout.tsx
++++ b/app/dashboard/layout.tsx
+@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge"
+ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
+ import { cn } from "@/lib/utils"
+ import NotificationsDropdown from "@/components/notifications"
++import GlobalSearch from "@/components/dashboard/global-search"
+ 
+ type NavigationItem = {
+   name: string
+@@ -322,6 +323,7 @@ export default function DashboardLayout({
+               <p className="text-sm text-slate-600">Gérez efficacement vos stocks de cartes bancaires</p>
+             </div>
+             <div className="flex items-center gap-4">
++              <GlobalSearch />
+               <div className="flex items-center gap-2">
+                 <Avatar className="h-8 w-8">
+                   <AvatarImage src={currentUser?.avatarUrl || undefined} alt={`${currentUser?.firstName || ''} ${currentUser?.lastName || ''}`} />
+diff --git a/app/dashboard/locations/page.tsx b/app/dashboard/locations/page.tsx
+index 06d64e9..b1fe3a4 100644
+--- a/app/dashboard/locations/page.tsx
++++ b/app/dashboard/locations/page.tsx
+@@ -1,7 +1,12 @@
+ "use client"
+ 
++import { Suspense } from "react"
+ import LocationsManagement from "@/components/dashboard/locations-management"
+ 
+ export default function LocationsPage() {
+-  return <LocationsManagement />
++  return (
++    <Suspense fallback={null}>
++      <LocationsManagement />
++    </Suspense>
++  )
+ }
+diff --git a/app/dashboard/users/page.tsx b/app/dashboard/users/page.tsx
+index 2d99d1f..ad338a3 100644
+--- a/app/dashboard/users/page.tsx
++++ b/app/dashboard/users/page.tsx
+@@ -1,7 +1,12 @@
+ "use client"
+ 
++import { Suspense } from "react"
+ import UsersManagement from "@/components/dashboard/users-management"
+ 
+ export default function UsersPage() {
+-  return <UsersManagement />
++  return (
++    <Suspense fallback={null}>
++      <UsersManagement />
++    </Suspense>
++  )
+ }
+diff --git a/components/dashboard/banks-management.tsx b/components/dashboard/banks-management.tsx
+index c4391b0..4b1134e 100644
+--- a/components/dashboard/banks-management.tsx
++++ b/components/dashboard/banks-management.tsx
+@@ -2,6 +2,7 @@
+ 
+ import type React from "react"
+ import { useState, useEffect, useRef } from "react"
++import { useSearchParams } from "next/navigation"
+ import { Button } from "@/components/ui/button"
+ import { Input } from "@/components/ui/input"
+ import { Label } from "@/components/ui/label"
+@@ -26,6 +27,8 @@ import { ChevronDown, ChevronRight, Download, Upload, Search, Filter, Printer }
+ import { getAuthHeaders } from "@/lib/api-client"
+ 
+ export default function BanksManagement() {
++  const searchParams = useSearchParams()
++  const prefillSearchRef = useRef(false)
+   const [banks, setBanks] = useState<Bank[]>([])
+   const [locations, setLocations] = useState<any[]>([])
+   const [cards, setCards] = useState<any[]>([])
+@@ -111,6 +114,15 @@ export default function BanksManagement() {
+     loadBanks()
+   }, [filters])
+ 
++  // Pré-remplir la recherche quand on arrive depuis la recherche globale (?q=...)
++  useEffect(() => {
++    if (prefillSearchRef.current) return
++    const q = searchParams.get("q")
++    if (!q) return
++    prefillSearchRef.current = true
++    setFilters((prev) => ({ ...prev, searchTerm: q }))
++  }, [searchParams])
++
+ 
+   // Gestion de la soumission du formulaire (async pour les appels API)
+   const handleSubmit = async (e: React.FormEvent) => {
+diff --git a/components/dashboard/global-search.tsx b/components/dashboard/global-search.tsx
+new file mode 100644
+index 0000000..1042afb
+--- /dev/null
++++ b/components/dashboard/global-search.tsx
+@@ -0,0 +1,192 @@
++"use client"
++
++import { useEffect, useRef, useState } from "react"
++import { useRouter } from "next/navigation"
++import { Search, Loader2, Landmark, CreditCard, MapPin, Users } from "lucide-react"
++import { Input } from "@/components/ui/input"
++import { Popover, PopoverContent, PopoverAnchor } from "@/components/ui/popover"
++import { authenticatedFetch } from "@/lib/api-client"
++
++interface SearchResults {
++  banks: Array<{ id: string; name: string; code: string }>
++  cards: Array<{ id: string; name: string; type: string; bankName: string }>
++  locations: Array<{ id: string; name: string; bankName: string }>
++  users: Array<{ id: string; name: string; email: string; role: string }>
++}
++
++const EMPTY_RESULTS: SearchResults = { banks: [], cards: [], locations: [], users: [] }
++
++export default function GlobalSearch() {
++  const router = useRouter()
++  const [query, setQuery] = useState("")
++  const [results, setResults] = useState<SearchResults>(EMPTY_RESULTS)
++  const [isOpen, setIsOpen] = useState(false)
++  const [isLoading, setIsLoading] = useState(false)
++  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
++
++  useEffect(() => {
++    if (debounceRef.current) clearTimeout(debounceRef.current)
++
++    const trimmed = query.trim()
++    if (trimmed.length < 2) {
++      setResults(EMPTY_RESULTS)
++      setIsLoading(false)
++      return
++    }
++
++    setIsLoading(true)
++    debounceRef.current = setTimeout(async () => {
++      try {
++        const response = await authenticatedFetch(`/api/search?q=${encodeURIComponent(trimmed)}`)
++        const data = await response.json()
++        if (data.success) {
++          setResults(data.data)
++        }
++      } catch (error) {
++        console.error("Error searching:", error)
++      } finally {
++        setIsLoading(false)
++      }
++    }, 300)
++
++    return () => {
++      if (debounceRef.current) clearTimeout(debounceRef.current)
++    }
++  }, [query])
++
++  const hasResults =
++    results.banks.length > 0 || results.cards.length > 0 || results.locations.length > 0 || results.users.length > 0
++
++  const closeSearch = () => {
++    setIsOpen(false)
++    setQuery("")
++    setResults(EMPTY_RESULTS)
++  }
++
++  const goTo = (href: string) => {
++    router.push(href)
++    closeSearch()
++  }
++
++  return (
++    <Popover
++      open={isOpen && query.trim().length >= 2}
++      onOpenChange={(open) => {
++        if (!open) closeSearch()
++      }}
++    >
++      <PopoverAnchor asChild>
++        <div className="relative w-72">
++          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
++          <Input
++            value={query}
++            onChange={(e) => {
++              setQuery(e.target.value)
++              setIsOpen(true)
++            }}
++            onFocus={() => setIsOpen(true)}
++            placeholder="Rechercher une carte, une banque..."
++            className="pl-9"
++          />
++        </div>
++      </PopoverAnchor>
++      <PopoverContent
++        align="start"
++        className="w-96 p-0"
++        onOpenAutoFocus={(e) => e.preventDefault()}
++        onCloseAutoFocus={(e) => e.preventDefault()}
++      >
++        <div className="max-h-96 overflow-y-auto p-2">
++          {isLoading ? (
++            <div className="flex items-center justify-center gap-2 py-6 text-sm text-slate-500">
++              <Loader2 className="h-4 w-4 animate-spin" />
++              Recherche...
++            </div>
++          ) : !hasResults ? (
++            <p className="py-6 text-center text-sm text-slate-500">Aucun résultat pour « {query} »</p>
++          ) : (
++            <div className="space-y-3">
++              {results.banks.length > 0 && (
++                <div>
++                  <p className="px-2 text-xs font-semibold uppercase text-slate-400">Banques</p>
++                  {results.banks.map((bank) => (
++                    <button
++                      key={bank.id}
++                      onClick={() => goTo(`/dashboard/banks?q=${encodeURIComponent(bank.name)}`)}
++                      className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-slate-100"
++                    >
++                      <Landmark className="h-4 w-4 shrink-0 text-[#008DA8]" />
++                      <div className="min-w-0">
++                        <p className="truncate font-medium">{bank.name}</p>
++                        <p className="text-xs text-slate-500">{bank.code}</p>
++                      </div>
++                    </button>
++                  ))}
++                </div>
++              )}
++
++              {results.cards.length > 0 && (
++                <div>
++                  <p className="px-2 text-xs font-semibold uppercase text-slate-400">Cartes</p>
++                  {results.cards.map((card) => (
++                    <button
++                      key={card.id}
++                      onClick={() => goTo(`/dashboard/cards/${card.id}`)}
++                      className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-slate-100"
++                    >
++                      <CreditCard className="h-4 w-4 shrink-0 text-[#008DA8]" />
++                      <div className="min-w-0">
++                        <p className="truncate font-medium">{card.name}</p>
++                        <p className="truncate text-xs text-slate-500">
++                          {card.bankName} • {card.type}
++                        </p>
++                      </div>
++                    </button>
++                  ))}
++                </div>
++              )}
++
++              {results.locations.length > 0 && (
++                <div>
++                  <p className="px-2 text-xs font-semibold uppercase text-slate-400">Emplacements</p>
++                  {results.locations.map((location) => (
++                    <button
++                      key={location.id}
++                      onClick={() => goTo(`/dashboard/locations?q=${encodeURIComponent(location.name)}`)}
++                      className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-slate-100"
++                    >
++                      <MapPin className="h-4 w-4 shrink-0 text-[#008DA8]" />
++                      <div className="min-w-0">
++                        <p className="truncate font-medium">{location.name}</p>
++                        <p className="truncate text-xs text-slate-500">{location.bankName}</p>
++                      </div>
++                    </button>
++                  ))}
++                </div>
++              )}
++
++              {results.users.length > 0 && (
++                <div>
++                  <p className="px-2 text-xs font-semibold uppercase text-slate-400">Utilisateurs</p>
++                  {results.users.map((user) => (
++                    <button
++                      key={user.id}
++                      onClick={() => goTo(`/dashboard/users?q=${encodeURIComponent(user.name)}`)}
++                      className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-slate-100"
++                    >
++                      <Users className="h-4 w-4 shrink-0 text-[#008DA8]" />
++                      <div className="min-w-0">
++                        <p className="truncate font-medium">{user.name}</p>
++                        <p className="truncate text-xs text-slate-500">{user.email}</p>
++                      </div>
++                    </button>
++                  ))}
++                </div>
++              )}
++            </div>
++          )}
++        </div>
++      </PopoverContent>
++    </Popover>
++  )
++}
+diff --git a/components/dashboard/locations-management.tsx b/components/dashboard/locations-management.tsx
+index 3d70faf..e60e9b8 100644
+--- a/components/dashboard/locations-management.tsx
++++ b/components/dashboard/locations-management.tsx
+@@ -2,7 +2,8 @@
+ 
+ import type React from "react"
+ 
+-import { useState, useEffect } from "react"
++import { useState, useEffect, useRef } from "react"
++import { useSearchParams } from "next/navigation"
+ import { Button } from "@/components/ui/button"
+ import { Input } from "@/components/ui/input"
+ import { Label } from "@/components/ui/label"
+@@ -28,6 +29,8 @@ import { getAuthHeaders } from "@/lib/api-client"
+ import { Printer, Building2, MapPin } from "lucide-react"
+ 
+ export default function LocationsManagement() {
++  const searchParams = useSearchParams()
++  const prefillSearchRef = useRef(false)
+   const [locations, setLocations] = useState<Location[]>([])
+   const [banks, setBanks] = useState<Bank[]>([])
+   const [cards, setCards] = useState<any[]>([])
+@@ -519,6 +522,15 @@ export default function LocationsManagement() {
+     loadData()
+   }, [searchFilters, searchTerm])
+ 
++  // Pré-remplir la recherche quand on arrive depuis la recherche globale (?q=...)
++  useEffect(() => {
++    if (prefillSearchRef.current) return
++    const q = searchParams.get("q")
++    if (!q) return
++    prefillSearchRef.current = true
++    setSearchTerm(q)
++  }, [searchParams])
++
+   const getBankName = (bankId: string) => {
+     const bank = banks.find((b) => b.id === bankId)
+     return bank ? bank.name : "N/A"
+diff --git a/components/dashboard/users-management.tsx b/components/dashboard/users-management.tsx
+index bc245b2..7ec20b3 100644
+--- a/components/dashboard/users-management.tsx
++++ b/components/dashboard/users-management.tsx
+@@ -1,7 +1,8 @@
+ "use client"
+ 
+ import type React from "react"
+-import { useState, useEffect } from "react"
++import { useState, useEffect, useRef } from "react"
++import { useSearchParams } from "next/navigation"
+ import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
+ import { usePermissions } from "@/hooks/use-permissions"
+ import type { User, RolePermissions, UserFilters, Permission, Module, Action } from "@/lib/types"
+@@ -45,6 +46,8 @@ const ALL_PERMISSIONS: Permission[] = [
+ 
+ export default function UsersManagement() {
+   const { hasPermission, isLoading: permissionsLoading } = usePermissions()
++  const searchParams = useSearchParams()
++  const prefillSearchRef = useRef(false)
+   const [users, setUsers] = useState<User[]>([])
+   const [rolePermissions, setRolePermissions] = useState<RolePermissions[]>([])
+   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+@@ -90,6 +93,15 @@ export default function UsersManagement() {
+     loadData()
+   }, [filters])
+ 
++  // Pré-remplir la recherche quand on arrive depuis la recherche globale (?q=...)
++  useEffect(() => {
++    if (prefillSearchRef.current) return
++    const q = searchParams.get("q")
++    if (!q) return
++    prefillSearchRef.current = true
++    setFilters((prev) => ({ ...prev, searchTerm: q }))
++  }, [searchParams])
++
+   const loadData = async () => {
+     try {
+       // Charger les utilisateurs

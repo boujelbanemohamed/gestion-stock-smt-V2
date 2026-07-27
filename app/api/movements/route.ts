@@ -3,7 +3,9 @@ import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { Movement } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
-import { verifyAuth } from "@/lib/auth-middleware"
+import { verifyAuth, requireAuth } from "@/lib/auth-middleware"
+import { serverEvents } from "@/lib/server-events"
+import { createLowStockNotification, createMovementNotification } from "@/lib/notification-helper"
 
 // GET /api/movements - Récupérer tous les mouvements
 
@@ -12,6 +14,9 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const searchParams = request.nextUrl.searchParams
     const cardId = searchParams.get("cardId")
@@ -171,6 +176,23 @@ export async function POST(request: NextRequest) {
             )
           }
 
+          // Validation de la quantité : entier strictement positif.
+          // Le contrôle ci-dessus ne teste qu'une valeur "falsy" : il rejette 0
+          // mais laisse passer les quantités négatives, qui inversaient alors le
+          // sens du mouvement et corrompaient le stock. On normalise également en
+          // nombre pour que les calculs de stock en aval soient sans ambiguïté.
+          const quantity = Number(body.quantity)
+          if (!Number.isInteger(quantity) || quantity <= 0) {
+            return NextResponse.json<ApiResponse>(
+              {
+                success: false,
+                error: "La quantité doit être un entier strictement positif",
+              },
+              { status: 400 },
+            )
+          }
+          body.quantity = quantity
+
           // Validation du motif (obligatoire)
           if (!body.reason || body.reason.trim() === "") {
             return NextResponse.json<ApiResponse>(
@@ -329,6 +351,9 @@ export async function POST(request: NextRequest) {
           quantity: body.quantity,
           reason: body.reason || "",
           userId: userId,
+          // Document justificatif : uniquement pertinent pour les entrées
+          documentUrl: body.movementType === 'entry' ? (body.documentUrl || null) : null,
+          documentName: body.movementType === 'entry' ? (body.documentName || null) : null,
         },
         include: {
           card: true,
@@ -367,6 +392,10 @@ export async function POST(request: NextRequest) {
       status: "success"
     }, request)
 
+    // Pousse le mouvement en temps réel (SSE) aux clients connectés : les pages
+    // Mouvements et Tableau de bord se rafraîchissent instantanément, sans polling.
+    serverEvents.emit("movement", { action: "created", movementId: newMovement.id })
+
     // Envoyer notification email pour le mouvement
     try {
       const { sendMovementNotification } = await import("@/lib/email-service")
@@ -381,6 +410,14 @@ export async function POST(request: NextRequest) {
     } catch (emailError) {
       console.error('Erreur lors de l\'envoi de la notification email:', emailError)
       // On continue même si l'email échoue
+    }
+
+    // Créer la notification in-app correspondante
+    try {
+      await createMovementNotification(body.movementType, newMovement.card.name, body.quantity)
+    } catch (notifError) {
+      console.error('Erreur lors de la création de la notification in-app:', notifError)
+      // On continue même si la notification échoue
     }
 
     // Vérifier les seuils de stock après le mouvement
@@ -410,6 +447,11 @@ export async function POST(request: NextRequest) {
               cardWithStock.minThreshold,
               stockLevel.location?.name,
               cardWithStock.bank?.name
+            )
+            await createLowStockNotification(
+              `${cardWithStock.name} (${stockLevel.location?.name || "emplacement inconnu"})`,
+              stockLevel.quantity,
+              cardWithStock.minThreshold
             )
           }
         }

@@ -1,0 +1,107 @@
+diff --git a/app/dashboard/statistics/page.tsx b/app/dashboard/statistics/page.tsx
+index a159b65..be75feb 100644
+--- a/app/dashboard/statistics/page.tsx
++++ b/app/dashboard/statistics/page.tsx
+@@ -574,7 +574,7 @@ export default function StatisticsPage() {
+             <TrendingUp className="h-5 w-5" />
+             Calcul de Statistiques
+           </CardTitle>
+-          <CardDescription>
++          <CardDescription className="text-xs text-[#008DA8]">
+             Calculez le pourcentage de la quantité de l'emplacement De par rapport au total (De + Vers)
+           </CardDescription>
+         </CardHeader>
+diff --git a/components/dashboard/banks-management.tsx b/components/dashboard/banks-management.tsx
+index f613f7e..c4391b0 100644
+--- a/components/dashboard/banks-management.tsx
++++ b/components/dashboard/banks-management.tsx
+@@ -555,7 +555,7 @@ export default function BanksManagement() {
+       <div className="flex items-center justify-between">
+         <div>
+           <h2 className="text-2xl font-bold text-slate-900">Gestion des Banques</h2>
+-          <p className="text-slate-600">Gérez vos banques partenaires</p>
++          <p className="text-xs text-[#008DA8]">Gérez vos banques partenaires</p>
+           {isRefreshing && <p className="text-sm text-blue-600">Actualisation en cours...</p>}
+         </div>
+         <div className="flex gap-2 items-center">
+diff --git a/components/dashboard/cards-management.tsx b/components/dashboard/cards-management.tsx
+index 510b187..ccbde84 100644
+--- a/components/dashboard/cards-management.tsx
++++ b/components/dashboard/cards-management.tsx
+@@ -962,7 +962,7 @@ export default function CardsManagement() {
+       <div className="flex items-center justify-between">
+         <div>
+           <h2 className="text-2xl font-bold text-slate-900">Gestion des Cartes</h2>
+-          <p className="text-slate-600">
++          <p className="text-xs text-[#008DA8]">
+             Gérez votre inventaire de cartes avec hiérarchie Type → Sous-type → Sous-sous-type
+           </p>
+           {isRefreshing && <p className="text-sm text-blue-600">Actualisation en cours...</p>}
+diff --git a/components/dashboard/configuration-panel.tsx b/components/dashboard/configuration-panel.tsx
+index b23ae7c..e514092 100644
+--- a/components/dashboard/configuration-panel.tsx
++++ b/components/dashboard/configuration-panel.tsx
+@@ -493,9 +493,9 @@ export default function ConfigurationPanel() {
+       <div className="flex items-center justify-between">
+         <div>
+           <h2 className="text-2xl font-bold text-slate-900">Configuration</h2>
+-          <p className="text-slate-600">Gérez les paramètres de l'application</p>
++          <p className="text-xs text-[#008DA8]">Gérez les paramètres de l'application</p>
+         </div>
+-        <Button onClick={handleSave} disabled={isSaving} className="gap-2">
++        <Button onClick={handleSave} disabled={isSaving} className="gap-2 bg-green-600 text-white hover:bg-green-700">
+           <Save className="h-4 w-4" />
+           {isSaving ? "Enregistrement..." : "Enregistrer"}
+         </Button>
+diff --git a/components/dashboard/locations-management.tsx b/components/dashboard/locations-management.tsx
+index 809ddc1..3d70faf 100644
+--- a/components/dashboard/locations-management.tsx
++++ b/components/dashboard/locations-management.tsx
+@@ -929,7 +929,7 @@ export default function LocationsManagement() {
+       <div className="flex items-center justify-between">
+         <div>
+           <h2 className="text-2xl font-bold text-slate-900">Gestion des Emplacements</h2>
+-          <p className="text-slate-600">Gérez vos lieux de stockage</p>
++          <p className="text-xs text-[#008DA8]">Gérez vos lieux de stockage</p>
+           {isRefreshing && <p className="text-sm text-blue-600">🔄 Actualisation en cours...</p>}
+         </div>
+         <div className="flex gap-2">
+diff --git a/components/dashboard/logs-panel.tsx b/components/dashboard/logs-panel.tsx
+index d6454e1..2e7e72a 100644
+--- a/components/dashboard/logs-panel.tsx
++++ b/components/dashboard/logs-panel.tsx
+@@ -190,7 +190,7 @@ export default function LogsPanel() {
+     <div className="space-y-6">
+       <div>
+         <h1 className="text-3xl font-bold text-slate-900">Logs d'audit</h1>
+-        <p className="text-slate-600 mt-2">Consultez l'historique complet des actions effectuées sur la plateforme</p>
++        <p className="text-xs text-[#008DA8] mt-2">Consultez l'historique complet des actions effectuées sur la plateforme</p>
+       </div>
+ 
+       {/* Filtres */}
+diff --git a/components/dashboard/movements-management.tsx b/components/dashboard/movements-management.tsx
+index f6fff3c..a046266 100644
+--- a/components/dashboard/movements-management.tsx
++++ b/components/dashboard/movements-management.tsx
+@@ -1721,7 +1721,7 @@ export default function MovementsManagement() {
+       <div className="flex items-center justify-between">
+         <div>
+           <h2 className="text-3xl font-bold text-slate-900">Gestion des Mouvements</h2>
+-          <p className="text-sm text-slate-600 mt-1">Suivez les mouvements de stock</p>
++          <p className="text-xs text-[#008DA8] mt-1">Suivez les mouvements de stock</p>
+         </div>
+         <div className="flex items-center gap-3">
+           {/* Les boutons ont été déplacés dans l'en-tête du tableau ci-dessous */}
+diff --git a/components/dashboard/users-management.tsx b/components/dashboard/users-management.tsx
+index d2d3135..bc245b2 100644
+--- a/components/dashboard/users-management.tsx
++++ b/components/dashboard/users-management.tsx
+@@ -686,7 +686,7 @@ export default function UsersManagement() {
+           <div className="flex items-center justify-between">
+             <div>
+               <h2 className="text-2xl font-bold text-slate-900">Gestion des Utilisateurs</h2>
+-              <p className="text-sm text-slate-600">Gérez les utilisateurs et leurs droits d'accès</p>
++              <p className="text-xs text-[#008DA8]">Gérez les utilisateurs et leurs droits d'accès</p>
+             </div>
+             {hasPermission('users', 'create') && (
+               <Button

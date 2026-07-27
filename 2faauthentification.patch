@@ -1,0 +1,2138 @@
+diff --git a/app/api/auth/2fa/disable/route.ts b/app/api/auth/2fa/disable/route.ts
+new file mode 100644
+index 0000000..b7e4bf2
+--- /dev/null
++++ b/app/api/auth/2fa/disable/route.ts
+@@ -0,0 +1,57 @@
++import { type NextRequest, NextResponse } from "next/server"
++import * as bcrypt from "bcryptjs"
++import { prisma } from "@/lib/db"
++import type { ApiResponse } from "@/lib/api-types"
++import { requireAuth } from "@/lib/auth-middleware"
++import { logAudit } from "@/lib/audit-logger"
++
++// POST /api/auth/2fa/disable - Désactive la 2FA de l'utilisateur connecté
++// (re-authentification par mot de passe requise)
++
++export const dynamic = 'force-dynamic'
++export const runtime = 'nodejs'
++
++export async function POST(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
++  try {
++    const body = await request.json()
++    const password = typeof body.password === "string" ? body.password : ""
++
++    const user = await prisma.user.findUnique({ where: { id: auth.user.id } })
++    if (!user) {
++      return NextResponse.json<ApiResponse>({ success: false, error: "Utilisateur non trouvé" }, { status: 404 })
++    }
++
++    const isValidPassword = await bcrypt.compare(password, user.password)
++    if (!isValidPassword) {
++      return NextResponse.json<ApiResponse>({ success: false, error: "Mot de passe incorrect" }, { status: 401 })
++    }
++
++    await prisma.user.update({
++      where: { id: user.id },
++      data: { twoFactorEnabled: false, twoFactorSecret: null, twoFactorBackupCodes: [] },
++    })
++
++    await logAudit({
++      userId: user.id,
++      userEmail: user.email,
++      action: "update",
++      module: "users",
++      entityType: "user",
++      entityId: user.id,
++      entityName: `${user.firstName} ${user.lastName}`,
++      details: `Désactivation de la double authentification (2FA) par ${user.email}`,
++      status: "success",
++    }, request)
++
++    return NextResponse.json<ApiResponse>({ success: true, message: "Double authentification désactivée" })
++  } catch (error) {
++    console.error('Error disabling 2FA:', error)
++    return NextResponse.json<ApiResponse>(
++      { success: false, error: "Erreur lors de la désactivation de la double authentification" },
++      { status: 500 },
++    )
++  }
++}
+diff --git a/app/api/auth/2fa/enable/route.ts b/app/api/auth/2fa/enable/route.ts
+new file mode 100644
+index 0000000..ebe0630
+--- /dev/null
++++ b/app/api/auth/2fa/enable/route.ts
+@@ -0,0 +1,101 @@
++import { type NextRequest, NextResponse } from "next/server"
++import * as bcrypt from "bcryptjs"
++import { randomBytes } from "crypto"
++import { prisma } from "@/lib/db"
++import type { ApiResponse } from "@/lib/api-types"
++import { requireAuth } from "@/lib/auth-middleware"
++import { verifyTotp } from "@/lib/totp"
++import { getTwoFactorSettings } from "@/lib/two-factor-config"
++import { logAudit } from "@/lib/audit-logger"
++
++// POST /api/auth/2fa/enable - Confirme la mise en place de la 2FA avec un
++// premier code TOTP valide, et génère les codes de secours à usage unique.
++
++export const dynamic = 'force-dynamic'
++export const runtime = 'nodejs'
++
++const BACKUP_CODE_COUNT = 8
++
++function generateBackupCode(): string {
++  return randomBytes(5).toString("hex").toUpperCase().match(/.{1,5}/g)!.join("-")
++}
++
++export async function POST(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
++  try {
++    const body = await request.json()
++    const code = typeof body.code === "string" ? body.code : ""
++
++    const user = await prisma.user.findUnique({ where: { id: auth.user.id } })
++    if (!user || !user.twoFactorSecret) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "Aucune configuration 2FA en attente. Relancez la mise en place." },
++        { status: 400 },
++      )
++    }
++
++    if (user.twoFactorEnabled) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "La double authentification est déjà activée" },
++        { status: 400 },
++      )
++    }
++
++    const settings = await getTwoFactorSettings()
++    if (!settings.enabled) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "La double authentification n'est pas disponible actuellement" },
++        { status: 400 },
++      )
++    }
++
++    const isValid = verifyTotp(user.twoFactorSecret, code, {
++      digits: settings.codeLength,
++      period: settings.codePeriod,
++      algorithm: settings.algorithm,
++    })
++
++    if (!isValid) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "Code de vérification incorrect" },
++        { status: 400 },
++      )
++    }
++
++    const backupCodes = Array.from({ length: BACKUP_CODE_COUNT }, generateBackupCode)
++    const hashedBackupCodes = await Promise.all(backupCodes.map((c) => bcrypt.hash(c, 10)))
++
++    await prisma.user.update({
++      where: { id: user.id },
++      data: { twoFactorEnabled: true, twoFactorBackupCodes: hashedBackupCodes },
++    })
++
++    await logAudit({
++      userId: user.id,
++      userEmail: user.email,
++      action: "update",
++      module: "users",
++      entityType: "user",
++      entityId: user.id,
++      entityName: `${user.firstName} ${user.lastName}`,
++      details: `Activation de la double authentification (2FA) par ${user.email}`,
++      status: "success",
++    }, request)
++
++    // Les codes de secours ne sont montrés qu'une seule fois : seule leur
++    // empreinte (bcrypt) est conservée en base.
++    return NextResponse.json<ApiResponse<{ backupCodes: string[] }>>({
++      success: true,
++      data: { backupCodes },
++      message: "Double authentification activée avec succès",
++    })
++  } catch (error) {
++    console.error('Error enabling 2FA:', error)
++    return NextResponse.json<ApiResponse>(
++      { success: false, error: "Erreur lors de l'activation de la double authentification" },
++      { status: 500 },
++    )
++  }
++}
+diff --git a/app/api/auth/2fa/setup/route.ts b/app/api/auth/2fa/setup/route.ts
+new file mode 100644
+index 0000000..e7923f0
+--- /dev/null
++++ b/app/api/auth/2fa/setup/route.ts
+@@ -0,0 +1,70 @@
++import { type NextRequest, NextResponse } from "next/server"
++import QRCode from "qrcode"
++import { prisma } from "@/lib/db"
++import type { ApiResponse } from "@/lib/api-types"
++import { requireAuth } from "@/lib/auth-middleware"
++import { generateBase32Secret, buildOtpAuthUri } from "@/lib/totp"
++import { getTwoFactorSettings } from "@/lib/two-factor-config"
++
++// POST /api/auth/2fa/setup - Génère un nouveau secret TOTP pour l'utilisateur
++// connecté (à confirmer ensuite via /api/auth/2fa/enable)
++
++export const dynamic = 'force-dynamic'
++export const runtime = 'nodejs'
++
++export async function POST(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
++  try {
++    const user = await prisma.user.findUnique({ where: { id: auth.user.id } })
++    if (!user) {
++      return NextResponse.json<ApiResponse>({ success: false, error: "Utilisateur non trouvé" }, { status: 404 })
++    }
++
++    if (user.twoFactorEnabled) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "La double authentification est déjà activée" },
++        { status: 400 },
++      )
++    }
++
++    const settings = await getTwoFactorSettings()
++    if (!settings.enabled) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "La double authentification n'est pas disponible actuellement" },
++        { status: 400 },
++      )
++    }
++
++    const secret = generateBase32Secret()
++
++    // Le secret est mémorisé dès cette étape ; la 2FA reste désactivée tant que
++    // l'utilisateur n'a pas confirmé un code valide via /api/auth/2fa/enable.
++    await prisma.user.update({
++      where: { id: user.id },
++      data: { twoFactorSecret: secret },
++    })
++
++    const otpauthUri = buildOtpAuthUri({
++      secret,
++      accountName: user.email,
++      issuer: settings.issuer,
++      digits: settings.codeLength,
++      period: settings.codePeriod,
++      algorithm: settings.algorithm,
++    })
++    const qrCodeDataUrl = await QRCode.toDataURL(otpauthUri)
++
++    return NextResponse.json<ApiResponse<{ secret: string; otpauthUri: string; qrCodeDataUrl: string }>>({
++      success: true,
++      data: { secret, otpauthUri, qrCodeDataUrl },
++    })
++  } catch (error) {
++    console.error('Error setting up 2FA:', error)
++    return NextResponse.json<ApiResponse>(
++      { success: false, error: "Erreur lors de la préparation de la double authentification" },
++      { status: 500 },
++    )
++  }
++}
+diff --git a/app/api/auth/2fa/verify-login/route.ts b/app/api/auth/2fa/verify-login/route.ts
+new file mode 100644
+index 0000000..3788934
+--- /dev/null
++++ b/app/api/auth/2fa/verify-login/route.ts
+@@ -0,0 +1,120 @@
++import { type NextRequest, NextResponse } from "next/server"
++import * as bcrypt from "bcryptjs"
++import { prisma } from "@/lib/db"
++import type { ApiResponse } from "@/lib/api-types"
++import type { User } from "@/lib/types"
++import { signAccessToken, signRefreshToken, verifyTwoFactorPendingToken } from "@/lib/auth"
++import { verifyTotp } from "@/lib/totp"
++import { getTwoFactorSettings } from "@/lib/two-factor-config"
++import { sanitizeUser } from "@/lib/sanitize-user"
++import { twoFactorRateLimiter } from "@/lib/rate-limiter"
++import { logger } from "@/lib/logger"
++
++// POST /api/auth/2fa/verify-login - Deuxième étape de connexion : vérifie le
++// code TOTP (ou un code de secours) associé au jeton temporaire émis par
++// /api/auth/login, puis délivre les vrais tokens de session.
++
++export const dynamic = 'force-dynamic'
++export const runtime = 'nodejs'
++
++export async function POST(request: NextRequest) {
++  const rateLimitResponse = twoFactorRateLimiter(request)
++  if (rateLimitResponse) return rateLimitResponse
++
++  try {
++    const body = await request.json()
++    const tempToken = typeof body.tempToken === "string" ? body.tempToken : ""
++    const code = typeof body.code === "string" ? body.code.trim() : ""
++
++    if (!tempToken || !code) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "Jeton temporaire et code requis" },
++        { status: 400 },
++      )
++    }
++
++    let userId: string
++    try {
++      userId = verifyTwoFactorPendingToken(tempToken).userId
++    } catch (error) {
++      const message = error instanceof Error ? error.message : "Jeton invalide"
++      return NextResponse.json<ApiResponse>({ success: false, error: message }, { status: 401 })
++    }
++
++    const user = await prisma.user.findUnique({ where: { id: userId } })
++    if (!user || !user.isActive) {
++      return NextResponse.json<ApiResponse>({ success: false, error: "Compte introuvable ou désactivé" }, { status: 401 })
++    }
++
++    if (!user.twoFactorEnabled || !user.twoFactorSecret) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "La double authentification n'est pas activée sur ce compte" },
++        { status: 400 },
++      )
++    }
++
++    const settings = await getTwoFactorSettings()
++    let isValid = verifyTotp(user.twoFactorSecret, code, {
++      digits: settings.codeLength,
++      period: settings.codePeriod,
++      algorithm: settings.algorithm,
++    })
++
++    // Si le code TOTP ne correspond pas, tenter un code de secours à usage unique.
++    let consumedBackupCodeIndex = -1
++    if (!isValid) {
++      for (let i = 0; i < user.twoFactorBackupCodes.length; i++) {
++        if (await bcrypt.compare(code, user.twoFactorBackupCodes[i])) {
++          isValid = true
++          consumedBackupCodeIndex = i
++          break
++        }
++      }
++    }
++
++    if (!isValid) {
++      logger.warn('Invalid 2FA code', { email: user.email })
++      return NextResponse.json<ApiResponse>({ success: false, error: "Code de vérification incorrect" }, { status: 401 })
++    }
++
++    if (consumedBackupCodeIndex !== -1) {
++      // Un code de secours ne peut servir qu'une fois : on le retire immédiatement.
++      const remainingBackupCodes = user.twoFactorBackupCodes.filter((_, i) => i !== consumedBackupCodeIndex)
++      await prisma.user.update({ where: { id: user.id }, data: { twoFactorBackupCodes: remainingBackupCodes } })
++      logger.info('2FA backup code used', { email: user.email })
++    }
++
++    const accessToken = signAccessToken({
++      userId: user.id,
++      email: user.email,
++      firstName: user.firstName,
++      lastName: user.lastName,
++      role: user.role,
++    })
++    const refreshToken = signRefreshToken({
++      userId: user.id,
++      email: user.email,
++      firstName: user.firstName,
++      lastName: user.lastName,
++      role: user.role,
++    })
++
++    logger.info('2FA login successful', { email: user.email })
++
++    return NextResponse.json<ApiResponse<{ user: User; accessToken: string; refreshToken: string }>>({
++      success: true,
++      data: {
++        user: sanitizeUser(user) as User,
++        accessToken,
++        refreshToken,
++      },
++      message: "Connexion réussie",
++    })
++  } catch (error) {
++    logger.error('2FA verify-login error', error)
++    return NextResponse.json<ApiResponse>(
++      { success: false, error: "Erreur lors de la vérification du code" },
++      { status: 500 },
++    )
++  }
++}
+diff --git a/app/api/auth/login/route.ts b/app/api/auth/login/route.ts
+index 6aa2df4..0b2a0b0 100644
+--- a/app/api/auth/login/route.ts
++++ b/app/api/auth/login/route.ts
+@@ -3,9 +3,10 @@ import { prisma } from "@/lib/db"
+ import * as bcrypt from "bcryptjs"
+ import type { ApiResponse } from "@/lib/api-types"
+ import type { User } from "@/lib/types"
+-import { signAccessToken, signRefreshToken } from "@/lib/auth"
++import { signAccessToken, signRefreshToken, signTwoFactorPendingToken } from "@/lib/auth"
+ import { loginRateLimiter } from "@/lib/rate-limiter"
+ import { logger } from "@/lib/logger"
++import { sanitizeUser } from "@/lib/sanitize-user"
+ 
+ // Forcer la route à être dynamique (ne pas pré-rendre)
+ export const dynamic = 'force-dynamic'
+@@ -86,6 +87,23 @@ export async function POST(request: NextRequest) {
+     logger.info('Login successful', { email: user.email })
+     console.log(`[Login API] ✓ Connexion réussie pour: ${user.email}`)
+ 
++    // Si la double authentification est activée, ne pas émettre les tokens
++    // tout de suite : le mot de passe seul ne suffit pas. On renvoie un jeton
++    // temporaire (5 min) que le client devra présenter avec un code TOTP valide
++    // sur /api/auth/2fa/verify-login pour obtenir les vrais tokens de session.
++    if (user.twoFactorEnabled) {
++      logger.info('Password valid, awaiting 2FA code', { email: user.email })
++      const tempToken = signTwoFactorPendingToken(user.id)
++      return NextResponse.json<ApiResponse<{ requiresTwoFactor: true; tempToken: string }>>({
++        success: true,
++        data: {
++          requiresTwoFactor: true,
++          tempToken,
++        },
++        message: "Code de vérification requis",
++      })
++    }
++
+     // Générer les tokens JWT
+     console.log(`[Login API] Génération des tokens JWT...`)
+     let accessToken: string
+@@ -121,15 +139,12 @@ export async function POST(request: NextRequest) {
+       )
+     }
+ 
+-    // Ne pas retourner le mot de passe
+-    const { password: _, ...userWithoutPassword } = user
+-
+     console.log(`[Login API] ✓ Retour des tokens et données utilisateur`)
+     // Retourner les tokens et les données utilisateur
+     return NextResponse.json<ApiResponse<{ user: User; accessToken: string; refreshToken: string }>>({
+       success: true,
+       data: {
+-        user: userWithoutPassword as User,
++        user: sanitizeUser(user) as User,
+         accessToken,
+         refreshToken,
+       },
+diff --git a/app/api/auth/me/route.ts b/app/api/auth/me/route.ts
+index 5dd7379..7885c17 100644
+--- a/app/api/auth/me/route.ts
++++ b/app/api/auth/me/route.ts
+@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
+ import type { ApiResponse } from "@/lib/api-types"
+ import type { User } from "@/lib/types"
+ import { verifyAuth } from "@/lib/auth-middleware"
++import { sanitizeUser } from "@/lib/sanitize-user"
+ 
+ // GET /api/auth/me - Récupérer l'utilisateur connecté
+ 
+@@ -50,12 +51,9 @@ export async function GET(request: NextRequest) {
+ 
+     console.log(`[API /auth/me] ✓ Utilisateur trouvé: ${user.email}`)
+ 
+-    // Ne pas retourner le mot de passe
+-    const { password: _, ...userWithoutPassword } = user
+-
+     return NextResponse.json<ApiResponse<User>>({
+       success: true,
+-      data: userWithoutPassword as User,
++      data: sanitizeUser(user) as User,
+     })
+   } catch (error) {
+     console.error('Get current user error:', error)
+diff --git a/app/api/users/[id]/avatar/route.ts b/app/api/users/[id]/avatar/route.ts
+index 906935f..44171ff 100644
+--- a/app/api/users/[id]/avatar/route.ts
++++ b/app/api/users/[id]/avatar/route.ts
+@@ -7,6 +7,7 @@ import type { ApiResponse } from "@/lib/api-types"
+ import type { User } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
+ import { requireAuth, isAdminRole } from "@/lib/auth-middleware"
++import { sanitizeUser } from "@/lib/sanitize-user"
+ 
+ // POST /api/users/[id]/avatar - Téléverse l'avatar d'un utilisateur (soi-même ou un admin)
+ // DELETE /api/users/[id]/avatar - Retire l'avatar d'un utilisateur (soi-même ou un admin)
+@@ -98,11 +99,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
+       status: "success",
+     }, request)
+ 
+-    const { password: _, ...userWithoutPassword } = updatedUser
+-
+     return NextResponse.json<ApiResponse<User>>({
+       success: true,
+-      data: userWithoutPassword as User,
++      data: sanitizeUser(updatedUser) as User,
+       message: "Avatar mis à jour avec succès",
+     })
+   } catch (error) {
+@@ -143,11 +142,9 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
+       status: "success",
+     }, request)
+ 
+-    const { password: _, ...userWithoutPassword } = updatedUser
+-
+     return NextResponse.json<ApiResponse<User>>({
+       success: true,
+-      data: userWithoutPassword as User,
++      data: sanitizeUser(updatedUser) as User,
+       message: "Avatar supprimé avec succès",
+     })
+   } catch (error) {
+diff --git a/app/api/users/[id]/route.ts b/app/api/users/[id]/route.ts
+index 462e0cb..6044ecc 100644
+--- a/app/api/users/[id]/route.ts
++++ b/app/api/users/[id]/route.ts
+@@ -5,6 +5,7 @@ import type { ApiResponse } from "@/lib/api-types"
+ import type { User } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
+ import { requireAuth, requireAdmin, isAdminRole } from "@/lib/auth-middleware"
++import { sanitizeUser } from "@/lib/sanitize-user"
+ 
+ // GET /api/users/[id] - Récupérer un utilisateur par ID
+ 
+@@ -31,12 +32,9 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
+       )
+     }
+ 
+-    // Ne pas retourner le mot de passe
+-    const { password: _, ...userWithoutPassword } = user
+-
+     return NextResponse.json<ApiResponse<User>>({
+       success: true,
+-      data: userWithoutPassword as User,
++      data: sanitizeUser(user) as User,
+     })
+   } catch (error) {
+     console.error('Error fetching user:', error)
+@@ -110,12 +108,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
+       status: "success"
+     }, request)
+ 
+-    // Ne pas retourner le mot de passe
+-    const { password: _, ...userWithoutPassword } = updatedUser
+-
+     return NextResponse.json<ApiResponse<User>>({
+       success: true,
+-      data: userWithoutPassword as User,
++      data: sanitizeUser(updatedUser) as User,
+       message: "Utilisateur mis à jour avec succès",
+     })
+   } catch (error) {
+diff --git a/app/api/users/route.ts b/app/api/users/route.ts
+index 89dfb58..90842d5 100644
+--- a/app/api/users/route.ts
++++ b/app/api/users/route.ts
+@@ -5,6 +5,7 @@ import type { ApiResponse } from "@/lib/api-types"
+ import type { User } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
+ import { requireAuth, requireAdmin } from "@/lib/auth-middleware"
++import { sanitizeUser } from "@/lib/sanitize-user"
+ 
+ // GET /api/users - Récupérer tous les utilisateurs avec filtres optionnels
+ 
+@@ -41,8 +42,7 @@ export async function GET(request: NextRequest) {
+       orderBy: { createdAt: 'desc' }
+     })
+ 
+-    // Retirer les mots de passe
+-    const usersWithoutPasswords = users.map(({ password, ...user }) => user)
++    const usersWithoutPasswords = users.map(sanitizeUser)
+ 
+     return NextResponse.json<ApiResponse<User[]>>({
+       success: true,
+@@ -150,8 +150,7 @@ export async function POST(request: NextRequest) {
+       }
+     }
+ 
+-    // Ne pas retourner le mot de passe
+-    const { password: _, ...userWithoutPassword } = newUser
++    const userWithoutPassword = sanitizeUser(newUser)
+ 
+     return NextResponse.json<ApiResponse<User>>(
+       {
+diff --git a/app/dashboard/profile/page.tsx b/app/dashboard/profile/page.tsx
+index 09bddeb..cc5987e 100644
+--- a/app/dashboard/profile/page.tsx
++++ b/app/dashboard/profile/page.tsx
+@@ -30,6 +30,17 @@ export default function ProfilePage() {
+     confirmPassword: "",
+   })
+ 
++  // Double authentification (2FA)
++  const [twoFactorStep, setTwoFactorStep] = useState<"idle" | "qr" | "backupCodes">("idle")
++  const [qrCodeDataUrl, setQrCodeDataUrl] = useState("")
++  const [manualSecret, setManualSecret] = useState("")
++  const [verificationCode, setVerificationCode] = useState("")
++  const [backupCodes, setBackupCodes] = useState<string[]>([])
++  const [isTwoFactorLoading, setIsTwoFactorLoading] = useState(false)
++  const [isDisablingTwoFactor, setIsDisablingTwoFactor] = useState(false)
++  const [disablePassword, setDisablePassword] = useState("")
++  const [isTwoFactorFeatureEnabled, setIsTwoFactorFeatureEnabled] = useState(false)
++
+   useEffect(() => {
+     // Récupérer l'utilisateur depuis localStorage
+     const storedUser = localStorage.getItem('currentUser')
+@@ -48,6 +59,16 @@ export default function ProfilePage() {
+         localStorage.removeItem('currentUser')
+       }
+     }
++
++    // Vérifie si la double authentification est activée globalement (Configuration > Sécurité).
++    authenticatedFetch('/api/config')
++      .then((response) => response.json())
++      .then((data) => {
++        if (data.success) {
++          setIsTwoFactorFeatureEnabled(Boolean(data.data?.security?.twoFactor?.enabled))
++        }
++      })
++      .catch((error) => console.error('Error loading 2FA availability:', error))
+   }, [])
+ 
+   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+@@ -203,6 +224,108 @@ export default function ProfilePage() {
+     }
+   }
+ 
++  const handleStartTwoFactorSetup = async () => {
++    setIsTwoFactorLoading(true)
++    try {
++      const response = await authenticatedFetch("/api/auth/2fa/setup", { method: "POST" })
++      const data = await response.json()
++
++      if (data.success) {
++        setQrCodeDataUrl(data.data.qrCodeDataUrl)
++        setManualSecret(data.data.secret)
++        setTwoFactorStep("qr")
++      } else {
++        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
++      }
++    } catch (error) {
++      console.error('Error starting 2FA setup:', error)
++      toast({ title: "Erreur", description: "Erreur lors de la préparation de la double authentification", variant: "destructive" })
++    } finally {
++      setIsTwoFactorLoading(false)
++    }
++  }
++
++  const handleConfirmTwoFactor = async () => {
++    if (!currentUser) return
++
++    setIsTwoFactorLoading(true)
++    try {
++      const response = await authenticatedFetch("/api/auth/2fa/enable", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ code: verificationCode }),
++      })
++      const data = await response.json()
++
++      if (data.success) {
++        setBackupCodes(data.data.backupCodes)
++        setTwoFactorStep("backupCodes")
++        setVerificationCode("")
++
++        const updatedUser = { ...currentUser, twoFactorEnabled: true }
++        localStorage.setItem('currentUser', JSON.stringify(updatedUser))
++        setCurrentUser(updatedUser)
++        eventBus.emit("user:updated", updatedUser)
++        toast({
++          title: "Double authentification activée",
++          description: "Conservez vos codes de secours dans un endroit sûr.",
++        })
++      } else {
++        toast({ title: "Erreur", description: data.error || "Code incorrect", variant: "destructive" })
++      }
++    } catch (error) {
++      console.error('Error enabling 2FA:', error)
++      toast({ title: "Erreur", description: "Erreur lors de l'activation de la double authentification", variant: "destructive" })
++    } finally {
++      setIsTwoFactorLoading(false)
++    }
++  }
++
++  const handleCancelTwoFactorSetup = () => {
++    setTwoFactorStep("idle")
++    setQrCodeDataUrl("")
++    setManualSecret("")
++    setVerificationCode("")
++  }
++
++  const handleFinishTwoFactorSetup = () => {
++    setTwoFactorStep("idle")
++    setQrCodeDataUrl("")
++    setManualSecret("")
++    setBackupCodes([])
++  }
++
++  const handleDisableTwoFactor = async () => {
++    if (!currentUser) return
++
++    setIsTwoFactorLoading(true)
++    try {
++      const response = await authenticatedFetch("/api/auth/2fa/disable", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ password: disablePassword }),
++      })
++      const data = await response.json()
++
++      if (data.success) {
++        const updatedUser = { ...currentUser, twoFactorEnabled: false }
++        localStorage.setItem('currentUser', JSON.stringify(updatedUser))
++        setCurrentUser(updatedUser)
++        eventBus.emit("user:updated", updatedUser)
++        setIsDisablingTwoFactor(false)
++        setDisablePassword("")
++        toast({ title: "Double authentification désactivée" })
++      } else {
++        toast({ title: "Erreur", description: data.error || "Mot de passe incorrect", variant: "destructive" })
++      }
++    } catch (error) {
++      console.error('Error disabling 2FA:', error)
++      toast({ title: "Erreur", description: "Erreur lors de la désactivation de la double authentification", variant: "destructive" })
++    } finally {
++      setIsTwoFactorLoading(false)
++    }
++  }
++
+   if (!currentUser) {
+     return (
+       <div className="flex items-center justify-center h-64">
+@@ -367,6 +490,118 @@ export default function ProfilePage() {
+         </CardContent>
+       </Card>
+ 
++      <Separator />
++
++      {/* Double authentification (2FA) : masquée si désactivée globalement dans
++          Configuration > Sécurité, sauf pour un utilisateur qui l'a déjà activée
++          (il doit toujours pouvoir la désactiver lui-même). */}
++      {(isTwoFactorFeatureEnabled || currentUser.twoFactorEnabled) && (
++      <Card>
++        <CardHeader>
++          <CardTitle>Double authentification (2FA)</CardTitle>
++          <CardDescription>
++            Ajoutez une couche de sécurité supplémentaire à votre compte avec une application d'authentification
++            (Google Authenticator, Microsoft Authenticator, etc.).
++          </CardDescription>
++        </CardHeader>
++        <CardContent className="space-y-4">
++          {twoFactorStep === "idle" &&
++            (currentUser.twoFactorEnabled ? (
++              <>
++                <p className="text-sm font-medium text-green-600">Activée</p>
++                {!isDisablingTwoFactor ? (
++                  <Button variant="destructive" onClick={() => setIsDisablingTwoFactor(true)}>
++                    Désactiver
++                  </Button>
++                ) : (
++                  <div className="space-y-2">
++                    <Label htmlFor="disablePassword">Confirmez votre mot de passe pour désactiver</Label>
++                    <Input
++                      id="disablePassword"
++                      type="password"
++                      value={disablePassword}
++                      onChange={(e) => setDisablePassword(e.target.value)}
++                    />
++                    <div className="flex space-x-2">
++                      <Button variant="destructive" onClick={handleDisableTwoFactor} disabled={isTwoFactorLoading}>
++                        {isTwoFactorLoading ? "Désactivation..." : "Confirmer la désactivation"}
++                      </Button>
++                      <Button
++                        variant="outline"
++                        onClick={() => {
++                          setIsDisablingTwoFactor(false)
++                          setDisablePassword("")
++                        }}
++                      >
++                        Annuler
++                      </Button>
++                    </div>
++                  </div>
++                )}
++              </>
++            ) : (
++              <>
++                <p className="text-sm text-muted-foreground">Non activée</p>
++                <Button onClick={handleStartTwoFactorSetup} disabled={isTwoFactorLoading}>
++                  {isTwoFactorLoading ? "Préparation..." : "Activer la double authentification"}
++                </Button>
++              </>
++            ))}
++
++          {twoFactorStep === "qr" && (
++            <div className="space-y-4">
++              <p className="text-sm text-muted-foreground">
++                Scannez ce QR code avec votre application d'authentification, puis saisissez le code généré pour
++                confirmer.
++              </p>
++              {qrCodeDataUrl && (
++                // eslint-disable-next-line @next/next/no-img-element
++                <img src={qrCodeDataUrl} alt="QR code de double authentification" className="h-48 w-48" />
++              )}
++              <div className="space-y-1">
++                <Label>Clé manuelle (si vous ne pouvez pas scanner le QR code)</Label>
++                <code className="block break-all rounded bg-muted p-2 text-xs">{manualSecret}</code>
++              </div>
++              <div className="space-y-2">
++                <Label htmlFor="verificationCode">Code de vérification</Label>
++                <Input
++                  id="verificationCode"
++                  inputMode="numeric"
++                  placeholder="123456"
++                  value={verificationCode}
++                  onChange={(e) => setVerificationCode(e.target.value)}
++                />
++              </div>
++              <div className="flex space-x-2">
++                <Button onClick={handleConfirmTwoFactor} disabled={isTwoFactorLoading}>
++                  {isTwoFactorLoading ? "Vérification..." : "Confirmer et activer"}
++                </Button>
++                <Button variant="outline" onClick={handleCancelTwoFactorSetup}>
++                  Annuler
++                </Button>
++              </div>
++            </div>
++          )}
++
++          {twoFactorStep === "backupCodes" && (
++            <div className="space-y-4">
++              <p className="text-sm font-medium text-destructive">
++                Notez ces codes de secours dans un endroit sûr : ils ne seront plus jamais affichés. Chacun ne peut
++                être utilisé qu'une seule fois, pour vous connecter si vous perdez l'accès à votre application
++                d'authentification.
++              </p>
++              <div className="grid grid-cols-2 gap-2 rounded bg-muted p-4 font-mono text-sm">
++                {backupCodes.map((code) => (
++                  <div key={code}>{code}</div>
++                ))}
++              </div>
++              <Button onClick={handleFinishTwoFactorSetup}>J'ai noté mes codes</Button>
++            </div>
++          )}
++        </CardContent>
++      </Card>
++      )}
++
+       {/* Account Information */}
+       <Card>
+         <CardHeader>
+diff --git a/components/auth/login-form.tsx b/components/auth/login-form.tsx
+index 50738cb..24d926d 100644
+--- a/components/auth/login-form.tsx
++++ b/components/auth/login-form.tsx
+@@ -22,6 +22,16 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
+   const [error, setError] = useState("")
+   const [isLoading, setIsLoading] = useState(false)
+ 
++  // Étape 2 (double authentification) : n'est utilisée que si le compte a la 2FA activée.
++  const [step, setStep] = useState<"credentials" | "twoFactor">("credentials")
++  const [tempToken, setTempToken] = useState("")
++  const [code, setCode] = useState("")
++
++  const finalizeLogin = (user: User, accessToken: string, refreshToken: string) => {
++    saveAuthTokens(accessToken, refreshToken, user)
++    onLogin(user)
++  }
++
+   const handleSubmit = async (e: React.FormEvent) => {
+     e.preventDefault()
+     setIsLoading(true)
+@@ -36,47 +46,28 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
+ 
+       const result = await response.json()
+ 
+-      console.log('[LoginForm] Réponse du serveur:', {
+-        success: result.success,
+-        hasData: !!result.data,
+-        error: result.error,
+-      })
+-
+-      if (result.success && result.data) {
+-        // L'API retourne { user, accessToken, refreshToken }
+-        const { user, accessToken, refreshToken } = result.data
+-        
+-        console.log('[LoginForm] Données reçues:', {
+-          hasUser: !!user,
+-          hasAccessToken: !!accessToken,
+-          hasRefreshToken: !!refreshToken,
+-          userEmail: user?.email,
+-        })
+-        
+-        if (!user || !accessToken || !refreshToken) {
+-          console.error('[LoginForm] ERREUR: Données incomplètes', {
+-            user: !!user,
+-            accessToken: !!accessToken,
+-            refreshToken: !!refreshToken,
+-          })
+-          setError("Erreur lors de la connexion : données incomplètes")
+-          setIsLoading(false)
+-          return
+-        }
+-
+-        // Sauvegarder les tokens dans localStorage
+-        console.log('[LoginForm] Sauvegarde des tokens dans localStorage...')
+-        saveAuthTokens(accessToken, refreshToken, user)
+-        console.log('[LoginForm] ✓ Tokens sauvegardés')
+-        
+-        // Appeler le callback avec l'utilisateur
+-        console.log('[LoginForm] Redirection vers /dashboard...')
+-        onLogin(user)
+-      } else {
+-        console.error('[LoginForm] ERREUR: Connexion échouée', result.error)
++      if (!result.success || !result.data) {
+         setError(result.error || "Email ou mot de passe incorrect")
+         setIsLoading(false)
++        return
++      }
++
++      if (result.data.requiresTwoFactor) {
++        // Mot de passe valide : il ne reste que le code de l'application d'authentification.
++        setTempToken(result.data.tempToken)
++        setStep("twoFactor")
++        setIsLoading(false)
++        return
++      }
++
++      const { user, accessToken, refreshToken } = result.data
++      if (!user || !accessToken || !refreshToken) {
++        setError("Erreur lors de la connexion : données incomplètes")
++        setIsLoading(false)
++        return
+       }
++
++      finalizeLogin(user, accessToken, refreshToken)
+     } catch (error) {
+       console.error('Login error:', error)
+       setError("Erreur de connexion au serveur")
+@@ -84,6 +75,42 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
+     }
+   }
+ 
++  const handleVerifyCode = async (e: React.FormEvent) => {
++    e.preventDefault()
++    setIsLoading(true)
++    setError("")
++
++    try {
++      const response = await fetch('/api/auth/2fa/verify-login', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ tempToken, code })
++      })
++
++      const result = await response.json()
++
++      if (!result.success || !result.data) {
++        setError(result.error || "Code de vérification incorrect")
++        setIsLoading(false)
++        return
++      }
++
++      const { user, accessToken, refreshToken } = result.data
++      finalizeLogin(user, accessToken, refreshToken)
++    } catch (error) {
++      console.error('2FA verification error:', error)
++      setError("Erreur de connexion au serveur")
++      setIsLoading(false)
++    }
++  }
++
++  const handleBackToCredentials = () => {
++    setStep("credentials")
++    setTempToken("")
++    setCode("")
++    setError("")
++  }
++
+   return (
+     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4">
+       <Card className="w-full max-w-md">
+@@ -99,41 +126,77 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
+             />
+           </div>
+           <CardTitle className="text-2xl font-bold text-slate-900">Gestion de Stocks</CardTitle>
+-          <CardDescription className="text-slate-600">Connectez-vous à votre plateforme de gestion</CardDescription>
++          <CardDescription className="text-slate-600">
++            {step === "credentials"
++              ? "Connectez-vous à votre plateforme de gestion"
++              : "Saisissez le code de votre application d'authentification"}
++          </CardDescription>
+         </CardHeader>
+         <CardContent>
+-          <form onSubmit={handleSubmit} className="space-y-4">
+-            <div className="space-y-2">
+-              <Label htmlFor="email">Email</Label>
+-              <Input
+-                id="email"
+-                type="email"
+-                value={email}
+-                onChange={(e) => setEmail(e.target.value)}
+-                required
+-                className="w-full"
+-              />
+-            </div>
+-            <div className="space-y-2">
+-              <Label htmlFor="password">Mot de passe</Label>
+-              <Input
+-                id="password"
+-                type="password"
+-                value={password}
+-                onChange={(e) => setPassword(e.target.value)}
+-                required
+-                className="w-full"
+-              />
+-            </div>
+-            {error && (
+-              <Alert variant="destructive">
+-                <AlertDescription>{error}</AlertDescription>
+-              </Alert>
+-            )}
+-            <Button type="submit" className="w-full" disabled={isLoading}>
+-              {isLoading ? "Connexion..." : "Se connecter"}
+-            </Button>
+-          </form>
++          {step === "credentials" ? (
++            <form onSubmit={handleSubmit} className="space-y-4">
++              <div className="space-y-2">
++                <Label htmlFor="email">Email</Label>
++                <Input
++                  id="email"
++                  type="email"
++                  value={email}
++                  onChange={(e) => setEmail(e.target.value)}
++                  required
++                  className="w-full"
++                />
++              </div>
++              <div className="space-y-2">
++                <Label htmlFor="password">Mot de passe</Label>
++                <Input
++                  id="password"
++                  type="password"
++                  value={password}
++                  onChange={(e) => setPassword(e.target.value)}
++                  required
++                  className="w-full"
++                />
++              </div>
++              {error && (
++                <Alert variant="destructive">
++                  <AlertDescription>{error}</AlertDescription>
++                </Alert>
++              )}
++              <Button type="submit" className="w-full" disabled={isLoading}>
++                {isLoading ? "Connexion..." : "Se connecter"}
++              </Button>
++            </form>
++          ) : (
++            <form onSubmit={handleVerifyCode} className="space-y-4">
++              <div className="space-y-2">
++                <Label htmlFor="twoFactorCode">Code de vérification</Label>
++                <Input
++                  id="twoFactorCode"
++                  inputMode="numeric"
++                  autoFocus
++                  placeholder="123456"
++                  value={code}
++                  onChange={(e) => setCode(e.target.value)}
++                  required
++                  className="w-full text-center text-lg tracking-widest"
++                />
++                <p className="text-xs text-slate-500">
++                  Ou saisissez l'un de vos codes de secours si vous n'avez pas accès à l'application.
++                </p>
++              </div>
++              {error && (
++                <Alert variant="destructive">
++                  <AlertDescription>{error}</AlertDescription>
++                </Alert>
++              )}
++              <Button type="submit" className="w-full" disabled={isLoading}>
++                {isLoading ? "Vérification..." : "Vérifier"}
++              </Button>
++              <Button type="button" variant="ghost" className="w-full" onClick={handleBackToCredentials}>
++                Retour
++              </Button>
++            </form>
++          )}
+         </CardContent>
+       </Card>
+     </div>
+diff --git a/components/dashboard/users-management.tsx b/components/dashboard/users-management.tsx
+index cb943f0..48d0540 100644
+--- a/components/dashboard/users-management.tsx
++++ b/components/dashboard/users-management.tsx
+@@ -268,6 +268,7 @@ export default function UsersManagement() {
+       email?: string
+       firstName?: string
+       lastName?: string
++      password?: string
+     } = {}
+ 
+     if (!formData.email || formData.email.trim() === "") {
+diff --git a/lib/auth.ts b/lib/auth.ts
+index c6fc62b..c411048 100644
+--- a/lib/auth.ts
++++ b/lib/auth.ts
+@@ -134,6 +134,55 @@ export function verifyRefreshToken(token: string): { userId: string; email: stri
+   }
+ }
+ 
++// Jeton intermédiaire émis après un mot de passe valide lorsque la double
++// authentification est activée, en attendant la vérification du code TOTP.
++// Une audience distincte de celle des tokens d'accès garantit qu'il ne peut
++// jamais être accepté par erreur par requireAuth/verifyAccessToken sur une
++// route protégée : jwt.verify rejette immédiatement une audience différente.
++const TWO_FACTOR_PENDING_EXPIRES_IN = 5 * 60 // 5 minutes
++const TWO_FACTOR_PENDING_AUDIENCE = "gestion-stock-smt-2fa-pending"
++
++export interface TwoFactorPendingPayload {
++  userId: string
++  purpose: "2fa_pending"
++}
++
++/**
++ * Signe un jeton temporaire identifiant l'utilisateur dont le mot de passe
++ * vient d'être validé, en attente de la vérification de son code 2FA.
++ */
++export function signTwoFactorPendingToken(userId: string): string {
++  const payload: TwoFactorPendingPayload = { userId, purpose: "2fa_pending" }
++  return jwt.sign(payload, JWT_SECRET, {
++    expiresIn: TWO_FACTOR_PENDING_EXPIRES_IN,
++    issuer: "gestion-stock-smt",
++    audience: TWO_FACTOR_PENDING_AUDIENCE,
++  })
++}
++
++/**
++ * Vérifie un jeton temporaire de double authentification
++ * @throws {Error} Si le jeton est invalide, expiré, ou n'est pas un jeton 2FA
++ */
++export function verifyTwoFactorPendingToken(token: string): TwoFactorPendingPayload {
++  try {
++    const decoded = jwt.verify(token, JWT_SECRET, {
++      issuer: "gestion-stock-smt",
++      audience: TWO_FACTOR_PENDING_AUDIENCE,
++    }) as TwoFactorPendingPayload
++
++    return decoded
++  } catch (error) {
++    if (error instanceof jwt.TokenExpiredError) {
++      throw new Error("Session de connexion expirée, veuillez vous reconnecter")
++    }
++    if (error instanceof jwt.JsonWebTokenError) {
++      throw new Error("Jeton de connexion invalide")
++    }
++    throw error
++  }
++}
++
+ /**
+  * Décode un token sans vérifier sa signature (utilisé uniquement pour des raisons de debugging)
+  */
+diff --git a/lib/rate-limiter.ts b/lib/rate-limiter.ts
+index a256e9a..f2549ee 100644
+--- a/lib/rate-limiter.ts
++++ b/lib/rate-limiter.ts
+@@ -108,6 +108,22 @@ export const loginRateLimiter = createRateLimiter({
+   },
+ })
+ 
++/**
++ * Rate limiter pour la vérification des codes 2FA (5 tentatives par 15 minutes) :
++ * un code TOTP à 6 chiffres est bruteforçable en un nombre gérable d'essais
++ * sans cette limite (seulement 10^6 possibilités par fenêtre de temps).
++ */
++export const twoFactorRateLimiter = createRateLimiter({
++  windowMs: 15 * 60 * 1000, // 15 minutes
++  maxRequests: 5,
++  message: "Trop de tentatives. Veuillez réessayer dans 15 minutes.",
++  keyGenerator: (req) => {
++    const forwarded = req.headers.get("x-forwarded-for")
++    const ip = forwarded ? forwarded.split(",")[0] : req.headers.get("x-real-ip") || "unknown"
++    return `2fa:${ip}`
++  },
++})
++
+ /**
+  * Rate limiter général pour les API (100 requêtes par minute)
+  */
+diff --git a/lib/sanitize-user.ts b/lib/sanitize-user.ts
+new file mode 100644
+index 0000000..ce0a409
+--- /dev/null
++++ b/lib/sanitize-user.ts
+@@ -0,0 +1,8 @@
++// Retire les champs qui ne doivent jamais quitter le serveur avant de renvoyer
++// un utilisateur au client : mot de passe, secret TOTP et codes de secours 2FA.
++export function sanitizeUser<T extends { password?: unknown; twoFactorSecret?: unknown; twoFactorBackupCodes?: unknown }>(
++  user: T,
++): Omit<T, "password" | "twoFactorSecret" | "twoFactorBackupCodes"> {
++  const { password, twoFactorSecret, twoFactorBackupCodes, ...safeUser } = user
++  return safeUser
++}
+diff --git a/lib/totp.ts b/lib/totp.ts
+new file mode 100644
+index 0000000..f93f1e4
+--- /dev/null
++++ b/lib/totp.ts
+@@ -0,0 +1,118 @@
++// Implémentation TOTP (RFC 6238) / HOTP (RFC 4226) sans dépendance externe,
++// basée uniquement sur le module "crypto" de Node. Compatible Google
++// Authenticator, Microsoft Authenticator, 1Password, etc.
++
++import { createHmac, randomBytes } from "crypto"
++
++const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
++
++export type TotpAlgorithm = "SHA1" | "SHA256" | "SHA512"
++
++export interface TotpOptions {
++  digits?: number
++  period?: number
++  algorithm?: TotpAlgorithm
++}
++
++function base32Encode(buffer: Buffer): string {
++  let bits = 0
++  let value = 0
++  let output = ""
++  for (const byte of buffer) {
++    value = (value << 8) | byte
++    bits += 8
++    while (bits >= 5) {
++      output += BASE32_ALPHABET[(value >>> (bits - 5)) & 31]
++      bits -= 5
++    }
++  }
++  if (bits > 0) {
++    output += BASE32_ALPHABET[(value << (5 - bits)) & 31]
++  }
++  return output
++}
++
++function base32Decode(input: string): Buffer {
++  const clean = input.toUpperCase().replace(/=+$/, "").replace(/[^A-Z2-7]/g, "")
++  let bits = 0
++  let value = 0
++  const bytes: number[] = []
++  for (const char of clean) {
++    const idx = BASE32_ALPHABET.indexOf(char)
++    if (idx === -1) continue
++    value = (value << 5) | idx
++    bits += 5
++    if (bits >= 8) {
++      bytes.push((value >>> (bits - 8)) & 0xff)
++      bits -= 8
++    }
++  }
++  return Buffer.from(bytes)
++}
++
++/** Génère un secret TOTP aléatoire encodé en base32. */
++export function generateBase32Secret(byteLength = 20): string {
++  return base32Encode(randomBytes(byteLength))
++}
++
++function hotp(secret: string, counter: number, digits: number, algorithm: TotpAlgorithm): string {
++  const key = base32Decode(secret)
++  const counterBuffer = Buffer.alloc(8)
++  counterBuffer.writeBigUInt64BE(BigInt(counter))
++
++  const hmac = createHmac(algorithm.toLowerCase(), key).update(counterBuffer).digest()
++  // Troncature dynamique (RFC 4226 §5.3), valable quel que soit l'algorithme de hachage.
++  const offset = hmac[hmac.length - 1] & 0x0f
++  const binary =
++    ((hmac[offset] & 0x7f) << 24) |
++    ((hmac[offset + 1] & 0xff) << 16) |
++    ((hmac[offset + 2] & 0xff) << 8) |
++    (hmac[offset + 3] & 0xff)
++
++  return (binary % 10 ** digits).toString().padStart(digits, "0")
++}
++
++/** Calcule le code TOTP courant pour un secret donné, à un instant précis (par défaut : maintenant). */
++export function generateTotp(secret: string, options: TotpOptions = {}, timestamp = Date.now()): string {
++  const { digits = 6, period = 30, algorithm = "SHA1" } = options
++  const counter = Math.floor(timestamp / 1000 / period)
++  return hotp(secret, counter, digits, algorithm)
++}
++
++/**
++ * Vérifie un code TOTP saisi par l'utilisateur, en tolérant un léger décalage
++ * d'horloge (une période avant/après par défaut).
++ */
++export function verifyTotp(secret: string, token: string, options: TotpOptions = {}, window = 1): boolean {
++  const { period = 30 } = options
++  const cleanToken = token.replace(/\s+/g, "")
++  if (!cleanToken) return false
++
++  const now = Date.now()
++  for (let errorWindow = -window; errorWindow <= window; errorWindow++) {
++    const candidate = generateTotp(secret, options, now + errorWindow * period * 1000)
++    if (candidate === cleanToken) return true
++  }
++  return false
++}
++
++/** Construit l'URI otpauth:// à encoder en QR code pour la configuration dans une app d'authentification. */
++export function buildOtpAuthUri(params: {
++  secret: string
++  accountName: string
++  issuer: string
++  digits?: number
++  period?: number
++  algorithm?: TotpAlgorithm
++}): string {
++  const { secret, accountName, issuer, digits = 6, period = 30, algorithm = "SHA1" } = params
++  const label = encodeURIComponent(`${issuer}:${accountName}`)
++  const query = new URLSearchParams({
++    secret,
++    issuer,
++    algorithm,
++    digits: String(digits),
++    period: String(period),
++  })
++  return `otpauth://totp/${label}?${query.toString()}`
++}
+diff --git a/lib/two-factor-config.ts b/lib/two-factor-config.ts
+new file mode 100644
+index 0000000..2c86405
+--- /dev/null
++++ b/lib/two-factor-config.ts
+@@ -0,0 +1,25 @@
++import { prisma } from "@/lib/db"
++import type { TwoFactorSettings } from "@/lib/types"
++
++const DEFAULT_TWO_FACTOR_SETTINGS: TwoFactorSettings = {
++  enabled: false,
++  appName: "Monetique Tunisie",
++  issuer: "Monetique",
++  codeLength: 6,
++  codePeriod: 30,
++  algorithm: "SHA1",
++  mandatory: false,
++  mandatoryRoles: [],
++  gracePeriodDays: 7,
++}
++
++/**
++ * Récupère les paramètres 2FA configurés dans Configuration > Sécurité
++ * (Configuration > Sécurité étant stockée en JSON, un champ manquant retombe
++ * sur une valeur par défaut plutôt que de faire échouer la génération/vérification TOTP).
++ */
++export async function getTwoFactorSettings(): Promise<TwoFactorSettings> {
++  const config = await prisma.appConfig.findUnique({ where: { id: "singleton" } })
++  const twoFactor = (config?.config as any)?.security?.twoFactor
++  return { ...DEFAULT_TWO_FACTOR_SETTINGS, ...(twoFactor || {}) }
++}
+diff --git a/lib/types.ts b/lib/types.ts
+index 694504f..f21c8a8 100644
+--- a/lib/types.ts
++++ b/lib/types.ts
+@@ -11,6 +11,7 @@ export interface User {
+   lastLogin?: Date | null
+   createdAt: Date
+   updatedAt: Date
++  twoFactorEnabled?: boolean
+ }
+ 
+ export interface Bank {
+diff --git a/package.json b/package.json
+index 0c0f2f3..445f8d9 100644
+--- a/package.json
++++ b/package.json
+@@ -67,6 +67,7 @@
+     "next": "^14.2.33",
+     "next-themes": "^0.4.6",
+     "nodemailer": "^7.0.6",
++    "qrcode": "^1.5.4",
+     "react": "^18",
+     "react-day-picker": "latest",
+     "react-dom": "^18",
+@@ -88,6 +89,7 @@
+     "@types/bcryptjs": "^2.4.6",
+     "@types/node": "^22",
+     "@types/nodemailer": "^7.0.2",
++    "@types/qrcode": "^1.5.6",
+     "@types/react": "^18",
+     "@types/react-dom": "^18",
+     "@vitejs/plugin-react": "^6.0.4",
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index 2c836ad..18d8413 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -24,6 +24,11 @@ model User {
+   createdAt DateTime @default(now())
+   updatedAt DateTime @updatedAt
+ 
++  // Authentification à deux facteurs (TOTP)
++  twoFactorEnabled     Boolean  @default(false)
++  twoFactorSecret      String?
++  twoFactorBackupCodes String[] @default([])
++
+   // Relations
+   movements Movement[]
+   auditLogs AuditLog[]
+diff --git a/tests/api/auth-login.test.ts b/tests/api/auth-login.test.ts
+new file mode 100644
+index 0000000..ac3a00e
+--- /dev/null
++++ b/tests/api/auth-login.test.ts
+@@ -0,0 +1,79 @@
++import { beforeEach, describe, expect, it, vi } from "vitest"
++import { NextRequest } from "next/server"
++import * as bcrypt from "bcryptjs"
++import { verifyTwoFactorPendingToken } from "@/lib/auth"
++
++vi.mock("@/lib/db", () => ({
++  prisma: {
++    user: {
++      findUnique: vi.fn(),
++    },
++  },
++}))
++
++const { prisma } = await import("@/lib/db")
++const { POST: login } = await import("@/app/api/auth/login/route")
++
++const hashedPassword = bcrypt.hashSync("correct-password", 4)
++
++const baseUser = {
++  id: "user-1",
++  email: "jane@example.com",
++  firstName: "Jane",
++  lastName: "Doe",
++  role: "user",
++  isActive: true,
++  password: hashedPassword,
++  twoFactorEnabled: false,
++}
++
++function loginRequest(email: string, password: string) {
++  return new NextRequest("http://localhost/api/auth/login", {
++    method: "POST",
++    headers: new Headers({ "content-type": "application/json" }),
++    body: JSON.stringify({ email, password }),
++  })
++}
++
++describe("POST /api/auth/login", () => {
++  beforeEach(() => {
++    vi.clearAllMocks()
++  })
++
++  it("délivre directement les tokens si la 2FA n'est pas activée", async () => {
++    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser } as any)
++
++    const response = await login(loginRequest(baseUser.email, "correct-password"))
++    const json = await response.json()
++
++    expect(response.status).toBe(200)
++    expect(json.data.accessToken).toBeTruthy()
++    expect(json.data.refreshToken).toBeTruthy()
++    expect(json.data.user.email).toBe(baseUser.email)
++    expect(json.data.requiresTwoFactor).toBeUndefined()
++  })
++
++  it("ne délivre pas de tokens et renvoie un jeton temporaire si la 2FA est activée", async () => {
++    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser, twoFactorEnabled: true } as any)
++
++    const response = await login(loginRequest(baseUser.email, "correct-password"))
++    const json = await response.json()
++
++    expect(response.status).toBe(200)
++    expect(json.data.requiresTwoFactor).toBe(true)
++    expect(json.data.accessToken).toBeUndefined()
++    expect(json.data.refreshToken).toBeUndefined()
++    expect(json.data.user).toBeUndefined()
++
++    // Le jeton temporaire doit bien identifier cet utilisateur et rien de plus.
++    const decoded = verifyTwoFactorPendingToken(json.data.tempToken)
++    expect(decoded.userId).toBe(baseUser.id)
++  })
++
++  it("refuse un mauvais mot de passe avant même de considérer la 2FA (401)", async () => {
++    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser, twoFactorEnabled: true } as any)
++
++    const response = await login(loginRequest(baseUser.email, "wrong-password"))
++    expect(response.status).toBe(401)
++  })
++})
+diff --git a/tests/api/two-factor.test.ts b/tests/api/two-factor.test.ts
+new file mode 100644
+index 0000000..0c4929f
+--- /dev/null
++++ b/tests/api/two-factor.test.ts
+@@ -0,0 +1,274 @@
++import { beforeEach, describe, expect, it, vi } from "vitest"
++import { NextRequest } from "next/server"
++import * as bcrypt from "bcryptjs"
++import { signAccessToken, signTwoFactorPendingToken } from "@/lib/auth"
++import { generateTotp } from "@/lib/totp"
++
++vi.mock("@/lib/db", () => ({
++  prisma: {
++    user: {
++      findUnique: vi.fn(),
++      update: vi.fn(),
++    },
++    appConfig: {
++      findUnique: vi.fn(),
++    },
++    auditLog: {
++      create: vi.fn(),
++    },
++  },
++}))
++
++vi.mock("@/lib/email-service", () => ({
++  sendUserActivityAlert: vi.fn().mockResolvedValue(undefined),
++}))
++
++vi.mock("qrcode", () => ({
++  default: { toDataURL: vi.fn().mockResolvedValue("data:image/png;base64,fake") },
++}))
++
++const { prisma } = await import("@/lib/db")
++const { POST: setupTwoFactor } = await import("@/app/api/auth/2fa/setup/route")
++const { POST: enableTwoFactor } = await import("@/app/api/auth/2fa/enable/route")
++const { POST: disableTwoFactor } = await import("@/app/api/auth/2fa/disable/route")
++const { POST: verifyLogin } = await import("@/app/api/auth/2fa/verify-login/route")
++
++const TWO_FACTOR_CONFIG = {
++  config: {
++    security: {
++      twoFactor: {
++        enabled: true,
++        appName: "Gestion de Stocks",
++        issuer: "Gestion de Stocks",
++        codeLength: 6,
++        codePeriod: 30,
++        algorithm: "SHA1",
++        mandatory: false,
++        mandatoryRoles: [],
++        gracePeriodDays: 7,
++      },
++    },
++  },
++}
++
++const baseUser = {
++  id: "user-1",
++  email: "jane@example.com",
++  firstName: "Jane",
++  lastName: "Doe",
++  role: "user",
++  isActive: true,
++  password: bcrypt.hashSync("correct-password", 4),
++  twoFactorEnabled: false,
++  twoFactorSecret: null as string | null,
++  twoFactorBackupCodes: [] as string[],
++}
++
++function authedRequest(body: unknown, token: string) {
++  return new NextRequest("http://localhost/api/auth/2fa/action", {
++    method: "POST",
++    headers: new Headers({ "content-type": "application/json", authorization: `Bearer ${token}` }),
++    body: JSON.stringify(body),
++  })
++}
++
++function publicRequest(body: unknown) {
++  return new NextRequest("http://localhost/api/auth/2fa/verify-login", {
++    method: "POST",
++    headers: new Headers({ "content-type": "application/json" }),
++    body: JSON.stringify(body),
++  })
++}
++
++const userToken = signAccessToken({
++  userId: baseUser.id,
++  email: baseUser.email,
++  firstName: baseUser.firstName,
++  lastName: baseUser.lastName,
++  role: baseUser.role,
++})
++
++describe("POST /api/auth/2fa/setup", () => {
++  beforeEach(() => {
++    vi.clearAllMocks()
++    vi.mocked(prisma.appConfig.findUnique).mockResolvedValue(TWO_FACTOR_CONFIG as any)
++  })
++
++  it("génère un secret, le persiste (2FA toujours désactivée) et renvoie un QR code", async () => {
++    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser } as any)
++    vi.mocked(prisma.user.update).mockResolvedValue({} as any)
++
++    const response = await setupTwoFactor(authedRequest({}, userToken))
++    const json = await response.json()
++
++    expect(response.status).toBe(200)
++    expect(json.data.secret).toMatch(/^[A-Z2-7]+$/)
++    expect(json.data.otpauthUri).toMatch(/^otpauth:\/\/totp\//)
++    expect(json.data.qrCodeDataUrl).toContain("data:image/png")
++    expect(prisma.user.update).toHaveBeenCalledWith({
++      where: { id: baseUser.id },
++      data: { twoFactorSecret: json.data.secret },
++    })
++  })
++
++  it("refuse si la fonctionnalité est désactivée globalement (Configuration > Sécurité)", async () => {
++    vi.mocked(prisma.appConfig.findUnique).mockResolvedValue({
++      config: { security: { twoFactor: { ...TWO_FACTOR_CONFIG.config.security.twoFactor, enabled: false } } },
++    } as any)
++    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser } as any)
++
++    const response = await setupTwoFactor(authedRequest({}, userToken))
++    expect(response.status).toBe(400)
++    expect(prisma.user.update).not.toHaveBeenCalled()
++  })
++
++  it("refuse si la 2FA est déjà activée", async () => {
++    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser, twoFactorEnabled: true } as any)
++
++    const response = await setupTwoFactor(authedRequest({}, userToken))
++    expect(response.status).toBe(400)
++  })
++})
++
++describe("POST /api/auth/2fa/enable", () => {
++  beforeEach(() => {
++    vi.clearAllMocks()
++    vi.mocked(prisma.appConfig.findUnique).mockResolvedValue(TWO_FACTOR_CONFIG as any)
++  })
++
++  it("active la 2FA avec un code valide et renvoie des codes de secours", async () => {
++    const secret = "JBSWY3DPEHPK3PXP"
++    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser, twoFactorSecret: secret } as any)
++    vi.mocked(prisma.user.update).mockResolvedValue({} as any)
++
++    const code = generateTotp(secret, { digits: 6, period: 30, algorithm: "SHA1" })
++    const response = await enableTwoFactor(authedRequest({ code }, userToken))
++    const json = await response.json()
++
++    expect(response.status).toBe(200)
++    expect(json.data.backupCodes).toHaveLength(8)
++    expect(prisma.user.update).toHaveBeenCalledWith(
++      expect.objectContaining({
++        where: { id: baseUser.id },
++        data: expect.objectContaining({ twoFactorEnabled: true }),
++      }),
++    )
++  })
++
++  it("refuse un code incorrect et n'active pas la 2FA", async () => {
++    const secret = "JBSWY3DPEHPK3PXP"
++    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser, twoFactorSecret: secret } as any)
++
++    const response = await enableTwoFactor(authedRequest({ code: "000000" }, userToken))
++    expect(response.status).toBe(400)
++    expect(prisma.user.update).not.toHaveBeenCalled()
++  })
++
++  it("refuse s'il n'y a pas de configuration 2FA en attente", async () => {
++    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser, twoFactorSecret: null } as any)
++
++    const response = await enableTwoFactor(authedRequest({ code: "123456" }, userToken))
++    expect(response.status).toBe(400)
++  })
++})
++
++describe("POST /api/auth/2fa/disable", () => {
++  beforeEach(() => {
++    vi.clearAllMocks()
++  })
++
++  it("désactive la 2FA avec le bon mot de passe", async () => {
++    vi.mocked(prisma.user.findUnique).mockResolvedValue({
++      ...baseUser,
++      twoFactorEnabled: true,
++      twoFactorSecret: "SECRET",
++      twoFactorBackupCodes: ["hash1"],
++    } as any)
++    vi.mocked(prisma.user.update).mockResolvedValue({} as any)
++
++    const response = await disableTwoFactor(authedRequest({ password: "correct-password" }, userToken))
++    const json = await response.json()
++
++    expect(response.status).toBe(200)
++    expect(json.success).toBe(true)
++    expect(prisma.user.update).toHaveBeenCalledWith({
++      where: { id: baseUser.id },
++      data: { twoFactorEnabled: false, twoFactorSecret: null, twoFactorBackupCodes: [] },
++    })
++  })
++
++  it("refuse un mauvais mot de passe (401)", async () => {
++    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...baseUser, twoFactorEnabled: true } as any)
++
++    const response = await disableTwoFactor(authedRequest({ password: "wrong-password" }, userToken))
++    expect(response.status).toBe(401)
++    expect(prisma.user.update).not.toHaveBeenCalled()
++  })
++})
++
++describe("POST /api/auth/2fa/verify-login", () => {
++  const secret = "JBSWY3DPEHPK3PXP"
++
++  beforeEach(() => {
++    vi.clearAllMocks()
++    vi.mocked(prisma.appConfig.findUnique).mockResolvedValue(TWO_FACTOR_CONFIG as any)
++  })
++
++  it("délivre les tokens de session avec un code TOTP valide", async () => {
++    vi.mocked(prisma.user.findUnique).mockResolvedValue({
++      ...baseUser,
++      twoFactorEnabled: true,
++      twoFactorSecret: secret,
++    } as any)
++
++    const tempToken = signTwoFactorPendingToken(baseUser.id)
++    const code = generateTotp(secret, { digits: 6, period: 30, algorithm: "SHA1" })
++
++    const response = await verifyLogin(publicRequest({ tempToken, code }))
++    const json = await response.json()
++
++    expect(response.status).toBe(200)
++    expect(json.data.accessToken).toBeTruthy()
++    expect(json.data.refreshToken).toBeTruthy()
++    expect(json.data.user.email).toBe(baseUser.email)
++    expect(json.data.user).not.toHaveProperty("twoFactorSecret")
++  })
++
++  it("refuse un code TOTP incorrect (401)", async () => {
++    vi.mocked(prisma.user.findUnique).mockResolvedValue({
++      ...baseUser,
++      twoFactorEnabled: true,
++      twoFactorSecret: secret,
++    } as any)
++
++    const tempToken = signTwoFactorPendingToken(baseUser.id)
++    const response = await verifyLogin(publicRequest({ tempToken, code: "000000" }))
++    expect(response.status).toBe(401)
++  })
++
++  it("refuse un jeton temporaire invalide", async () => {
++    const response = await verifyLogin(publicRequest({ tempToken: "bogus", code: "123456" }))
++    expect(response.status).toBe(401)
++  })
++
++  it("accepte un code de secours valide et le consomme (usage unique)", async () => {
++    const backupCode = "ABCDE-FGHIJ"
++    const hashedBackupCode = await bcrypt.hash(backupCode, 4)
++    vi.mocked(prisma.user.findUnique).mockResolvedValue({
++      ...baseUser,
++      twoFactorEnabled: true,
++      twoFactorSecret: secret,
++      twoFactorBackupCodes: [hashedBackupCode],
++    } as any)
++    vi.mocked(prisma.user.update).mockResolvedValue({} as any)
++
++    const tempToken = signTwoFactorPendingToken(baseUser.id)
++    const response = await verifyLogin(publicRequest({ tempToken, code: backupCode }))
++
++    expect(response.status).toBe(200)
++    expect(prisma.user.update).toHaveBeenCalledWith({
++      where: { id: baseUser.id },
++      data: { twoFactorBackupCodes: [] },
++    })
++  })
++})
+diff --git a/tests/components/login-form.test.tsx b/tests/components/login-form.test.tsx
+index cc4ba9e..460b587 100644
+--- a/tests/components/login-form.test.tsx
++++ b/tests/components/login-form.test.tsx
+@@ -90,4 +90,68 @@ describe("LoginForm", () => {
+ 
+     expect(await screen.findByText("Erreur de connexion au serveur")).toBeInTheDocument()
+   })
++
++  it("passe à la saisie du code 2FA quand le compte l'exige, puis termine la connexion", async () => {
++    const user = userEvent.setup()
++    const onLogin = vi.fn()
++    const mockUser = { id: "u1", email: "jane@example.com", firstName: "Jane", lastName: "Doe", role: "admin" }
++
++    const fetchMock = vi.fn((url: string) => {
++      if (url === "/api/auth/login") {
++        return jsonResponse({ success: true, data: { requiresTwoFactor: true, tempToken: "temp-token-abc" } })
++      }
++      if (url === "/api/auth/2fa/verify-login") {
++        return jsonResponse({
++          success: true,
++          data: { user: mockUser, accessToken: "access-token", refreshToken: "refresh-token" },
++        })
++      }
++      throw new Error(`Unexpected fetch to ${url}`)
++    })
++    vi.stubGlobal("fetch", fetchMock)
++
++    render(<LoginForm onLogin={onLogin} />)
++
++    await user.type(screen.getByLabelText("Email"), "jane@example.com")
++    await user.type(screen.getByLabelText("Mot de passe"), "secret123")
++    await user.click(screen.getByRole("button", { name: /se connecter/i }))
++
++    expect(await screen.findByLabelText("Code de vérification")).toBeInTheDocument()
++
++    await user.type(screen.getByLabelText("Code de vérification"), "654321")
++    await user.click(screen.getByRole("button", { name: /vérifier/i }))
++
++    await waitFor(() => expect(onLogin).toHaveBeenCalledWith(mockUser))
++    expect(fetchMock).toHaveBeenCalledWith(
++      "/api/auth/2fa/verify-login",
++      expect.objectContaining({
++        method: "POST",
++        body: JSON.stringify({ tempToken: "temp-token-abc", code: "654321" }),
++      }),
++    )
++    expect(apiClient.saveAuthTokens).toHaveBeenCalledWith("access-token", "refresh-token", mockUser)
++  })
++
++  it("le bouton Retour ramène à la saisie email/mot de passe", async () => {
++    const user = userEvent.setup()
++    vi.stubGlobal(
++      "fetch",
++      vi.fn().mockReturnValue(
++        jsonResponse({ success: true, data: { requiresTwoFactor: true, tempToken: "temp-token-abc" } }),
++      ),
++    )
++
++    render(<LoginForm onLogin={vi.fn()} />)
++
++    await user.type(screen.getByLabelText("Email"), "jane@example.com")
++    await user.type(screen.getByLabelText("Mot de passe"), "secret123")
++    await user.click(screen.getByRole("button", { name: /se connecter/i }))
++
++    expect(await screen.findByLabelText("Code de vérification")).toBeInTheDocument()
++
++    await user.click(screen.getByRole("button", { name: /retour/i }))
++
++    expect(screen.getByLabelText("Email")).toBeInTheDocument()
++    expect(screen.getByLabelText("Mot de passe")).toBeInTheDocument()
++  })
+ })
+diff --git a/tests/components/profile-two-factor.test.tsx b/tests/components/profile-two-factor.test.tsx
+new file mode 100644
+index 0000000..dca602c
+--- /dev/null
++++ b/tests/components/profile-two-factor.test.tsx
+@@ -0,0 +1,109 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
++import { render, screen, waitFor } from "@testing-library/react"
++import userEvent from "@testing-library/user-event"
++import ProfilePage from "@/app/dashboard/profile/page"
++
++function jsonResponse(body: unknown) {
++  return Promise.resolve({ json: () => Promise.resolve(body) } as Response)
++}
++
++const storedUser = {
++  id: "u1",
++  email: "jane@example.com",
++  firstName: "Jane",
++  lastName: "Doe",
++  role: "admin",
++  isActive: true,
++  twoFactorEnabled: false,
++}
++
++describe("ProfilePage - Double authentification (2FA)", () => {
++  beforeEach(() => {
++    localStorage.setItem("currentUser", JSON.stringify(storedUser))
++    localStorage.setItem("accessToken", "access-token")
++  })
++
++  afterEach(() => {
++    vi.restoreAllMocks()
++    vi.unstubAllGlobals()
++    localStorage.clear()
++  })
++
++  it("propose d'activer la 2FA quand elle est désactivée, puis affiche le QR code et les codes de secours", async () => {
++    const user = userEvent.setup()
++    const fetchMock = vi.fn((url: string) => {
++      if (url === "/api/config") {
++        return jsonResponse({ success: true, data: { security: { twoFactor: { enabled: true } } } })
++      }
++      if (url === "/api/auth/2fa/setup") {
++        return jsonResponse({
++          success: true,
++          data: { secret: "JBSWY3DPEHPK3PXP", otpauthUri: "otpauth://totp/x", qrCodeDataUrl: "data:image/png;base64,fake" },
++        })
++      }
++      if (url === "/api/auth/2fa/enable") {
++        return jsonResponse({ success: true, data: { backupCodes: ["AAAAA-BBBBB", "CCCCC-DDDDD"] } })
++      }
++      throw new Error(`Unexpected fetch to ${url}`)
++    })
++    vi.stubGlobal("fetch", fetchMock)
++
++    render(<ProfilePage />)
++
++    expect(await screen.findByText("Non activée")).toBeInTheDocument()
++
++    await user.click(screen.getByRole("button", { name: /activer la double authentification/i }))
++
++    expect(await screen.findByAltText("QR code de double authentification")).toBeInTheDocument()
++    expect(screen.getByText("JBSWY3DPEHPK3PXP")).toBeInTheDocument()
++
++    await user.type(screen.getByLabelText("Code de vérification"), "123456")
++    await user.click(screen.getByRole("button", { name: /confirmer et activer/i }))
++
++    expect(await screen.findByText("AAAAA-BBBBB")).toBeInTheDocument()
++    expect(screen.getByText("CCCCC-DDDDD")).toBeInTheDocument()
++
++    await user.click(screen.getByRole("button", { name: /j'ai noté mes codes/i }))
++
++    await waitFor(() => expect(screen.getByText("Activée")).toBeInTheDocument())
++    expect(JSON.parse(localStorage.getItem("currentUser")!).twoFactorEnabled).toBe(true)
++  })
++
++  it("désactive la 2FA après confirmation du mot de passe", async () => {
++    localStorage.setItem("currentUser", JSON.stringify({ ...storedUser, twoFactorEnabled: true }))
++    const user = userEvent.setup()
++    const fetchMock = vi.fn((url: string) => {
++      if (url === "/api/config") {
++        return jsonResponse({ success: true, data: { security: { twoFactor: { enabled: true } } } })
++      }
++      if (url === "/api/auth/2fa/disable") {
++        return jsonResponse({ success: true, message: "Double authentification désactivée" })
++      }
++      throw new Error(`Unexpected fetch to ${url}`)
++    })
++    vi.stubGlobal("fetch", fetchMock)
++
++    render(<ProfilePage />)
++
++    expect(await screen.findByText("Activée")).toBeInTheDocument()
++
++    await user.click(screen.getByRole("button", { name: /^désactiver$/i }))
++    await user.type(screen.getByLabelText(/confirmez votre mot de passe/i), "correct-password")
++    await user.click(screen.getByRole("button", { name: /confirmer la désactivation/i }))
++
++    await waitFor(() => expect(screen.getByText("Non activée")).toBeInTheDocument())
++    expect(JSON.parse(localStorage.getItem("currentUser")!).twoFactorEnabled).toBe(false)
++  })
++
++  it("masque la section 2FA si elle est désactivée globalement et que l'utilisateur ne l'a pas activée", async () => {
++    vi.stubGlobal(
++      "fetch",
++      vi.fn().mockReturnValue(jsonResponse({ success: true, data: { security: { twoFactor: { enabled: false } } } })),
++    )
++
++    render(<ProfilePage />)
++
++    await waitFor(() => expect(screen.getByText("Informations du compte")).toBeInTheDocument())
++    expect(screen.queryByText("Double authentification (2FA)")).not.toBeInTheDocument()
++  })
++})
+diff --git a/tests/lib/auth.test.ts b/tests/lib/auth.test.ts
+index 9d4b676..3d35021 100644
+--- a/tests/lib/auth.test.ts
++++ b/tests/lib/auth.test.ts
+@@ -1,5 +1,12 @@
+ import { describe, expect, it } from "vitest"
+-import { signAccessToken, signRefreshToken, verifyAccessToken, extractTokenFromHeader } from "@/lib/auth"
++import {
++  signAccessToken,
++  signRefreshToken,
++  verifyAccessToken,
++  extractTokenFromHeader,
++  signTwoFactorPendingToken,
++  verifyTwoFactorPendingToken,
++} from "@/lib/auth"
+ 
+ const basePayload = {
+   userId: "user-1",
+@@ -44,6 +51,26 @@ describe("signRefreshToken", () => {
+   })
+ })
+ 
++describe("signTwoFactorPendingToken / verifyTwoFactorPendingToken", () => {
++  it("verifie un jeton 2FA en attente et retrouve l'identifiant utilisateur", () => {
++    const token = signTwoFactorPendingToken("user-42")
++    const decoded = verifyTwoFactorPendingToken(token)
++
++    expect(decoded.userId).toBe("user-42")
++    expect(decoded.purpose).toBe("2fa_pending")
++  })
++
++  it("ne peut jamais être accepté comme un token d'accès classique (audience différente)", () => {
++    const pendingToken = signTwoFactorPendingToken("user-42")
++    expect(() => verifyAccessToken(pendingToken)).toThrow()
++  })
++
++  it("un vrai token d'accès ne peut pas être utilisé comme jeton 2FA en attente", () => {
++    const accessToken = signAccessToken(basePayload)
++    expect(() => verifyTwoFactorPendingToken(accessToken)).toThrow()
++  })
++})
++
+ describe("extractTokenFromHeader", () => {
+   it("extrait le token d'un header Authorization Bearer valide", () => {
+     expect(extractTokenFromHeader("Bearer abc.def.ghi")).toBe("abc.def.ghi")
+diff --git a/tests/lib/sanitize-user.test.ts b/tests/lib/sanitize-user.test.ts
+new file mode 100644
+index 0000000..d0a9ede
+--- /dev/null
++++ b/tests/lib/sanitize-user.test.ts
+@@ -0,0 +1,24 @@
++import { describe, expect, it } from "vitest"
++import { sanitizeUser } from "@/lib/sanitize-user"
++
++describe("sanitizeUser", () => {
++  it("retire le mot de passe, le secret TOTP et les codes de secours", () => {
++    const user = {
++      id: "u1",
++      email: "jane@example.com",
++      password: "hashed-password",
++      twoFactorEnabled: true,
++      twoFactorSecret: "SUPERSECRET",
++      twoFactorBackupCodes: ["hash1", "hash2"],
++    }
++
++    const safe = sanitizeUser(user)
++
++    expect(safe).not.toHaveProperty("password")
++    expect(safe).not.toHaveProperty("twoFactorSecret")
++    expect(safe).not.toHaveProperty("twoFactorBackupCodes")
++    expect(safe.id).toBe("u1")
++    expect(safe.email).toBe("jane@example.com")
++    expect(safe.twoFactorEnabled).toBe(true)
++  })
++})
+diff --git a/tests/lib/totp.test.ts b/tests/lib/totp.test.ts
+new file mode 100644
+index 0000000..1b1b568
+--- /dev/null
++++ b/tests/lib/totp.test.ts
+@@ -0,0 +1,103 @@
++import { describe, expect, it } from "vitest"
++import { generateBase32Secret, generateTotp, verifyTotp, buildOtpAuthUri } from "@/lib/totp"
++
++// Encode une chaîne ASCII brute en base32, pour rejouer les vecteurs de test
++// officiels de la RFC 6238 (dont le secret y est donné en clair, pas en base32).
++function base32EncodeAscii(ascii: string): string {
++  const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
++  const buffer = Buffer.from(ascii, "ascii")
++  let bits = 0
++  let value = 0
++  let output = ""
++  for (const byte of buffer) {
++    value = (value << 8) | byte
++    bits += 8
++    while (bits >= 5) {
++      output += ALPHABET[(value >>> (bits - 5)) & 31]
++      bits -= 5
++    }
++  }
++  if (bits > 0) output += ALPHABET[(value << (5 - bits)) & 31]
++  return output
++}
++
++// Vecteurs de test officiels RFC 6238, Annexe B (secret SHA1, codes à 8 chiffres).
++const RFC6238_SECRET_SHA1 = base32EncodeAscii("12345678901234567890")
++const RFC6238_VECTORS: Array<[number, string]> = [
++  [59, "94287082"],
++  [1111111109, "07081804"],
++  [1111111111, "14050471"],
++  [1234567890, "89005924"],
++  [2000000000, "69279037"],
++]
++
++describe("generateTotp - vecteurs de test RFC 6238", () => {
++  it.each(RFC6238_VECTORS)("produit le bon code à t=%i", (unixSeconds, expected) => {
++    const code = generateTotp(
++      RFC6238_SECRET_SHA1,
++      { digits: 8, period: 30, algorithm: "SHA1" },
++      unixSeconds * 1000,
++    )
++    expect(code).toBe(expected)
++  })
++})
++
++describe("generateBase32Secret", () => {
++  it("génère un secret non vide composé uniquement de caractères base32", () => {
++    const secret = generateBase32Secret()
++    expect(secret.length).toBeGreaterThan(0)
++    expect(secret).toMatch(/^[A-Z2-7]+$/)
++  })
++
++  it("génère un secret différent à chaque appel", () => {
++    expect(generateBase32Secret()).not.toBe(generateBase32Secret())
++  })
++})
++
++describe("verifyTotp", () => {
++  const secret = generateBase32Secret()
++
++  it("accepte le code courant", () => {
++    const code = generateTotp(secret)
++    expect(verifyTotp(secret, code)).toBe(true)
++  })
++
++  it("rejette un code incorrect", () => {
++    expect(verifyTotp(secret, "000000")).toBe(false)
++  })
++
++  it("tolère un léger décalage d'horloge (une période avant/après)", () => {
++    const period = 30
++    const now = Date.now()
++    const codeOnePeriodAgo = generateTotp(secret, { period }, now - period * 1000)
++    expect(verifyTotp(secret, codeOnePeriodAgo, { period }, 1)).toBe(true)
++  })
++
++  it("rejette un code trop ancien (hors de la fenêtre de tolérance)", () => {
++    const period = 30
++    const now = Date.now()
++    const oldCode = generateTotp(secret, { period }, now - period * 1000 * 5)
++    expect(verifyTotp(secret, oldCode, { period }, 1)).toBe(false)
++  })
++
++  it("ignore les espaces dans le code saisi", () => {
++    const code = generateTotp(secret)
++    const spaced = `${code.slice(0, 3)} ${code.slice(3)}`
++    expect(verifyTotp(secret, spaced)).toBe(true)
++  })
++})
++
++describe("buildOtpAuthUri", () => {
++  it("construit une URI otpauth:// exploitable par un lecteur de QR code", () => {
++    const uri = buildOtpAuthUri({
++      secret: "JBSWY3DPEHPK3PXP",
++      accountName: "jane@example.com",
++      issuer: "Gestion de Stocks",
++    })
++
++    expect(uri).toMatch(/^otpauth:\/\/totp\//)
++    expect(uri).toContain("secret=JBSWY3DPEHPK3PXP")
++    expect(uri).toContain("issuer=Gestion")
++    expect(decodeURIComponent(uri)).toContain("Gestion de Stocks:jane@example.com")
++  })
++})
+diff --git a/tsconfig.json b/tsconfig.json
+index 4b2dc7b..948683b 100644
+--- a/tsconfig.json
++++ b/tsconfig.json
+@@ -23,5 +23,5 @@
+     }
+   },
+   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+-  "exclude": ["node_modules"]
++  "exclude": ["node_modules", "tests"]
+ }

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { Card } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
+import { requireAuth } from "@/lib/auth-middleware"
 
 // GET /api/cards/[id] - Récupérer une carte par ID
 
@@ -11,11 +12,17 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const card = await prisma.card.findUnique({
       where: { id: params.id },
       include: {
-        bank: true
+        bank: true,
+        stockLevels: {
+          include: { location: true },
+        },
       }
     })
 
@@ -47,19 +54,13 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
 // PUT /api/cards/[id] - Mettre à jour une carte
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const body = await request.json()
 
-    // Récupérer l'utilisateur depuis le header
-    const userHeader = request.headers.get("x-user-data")
-    let userData = null
-    try {
-      if (userHeader) {
-        userData = JSON.parse(userHeader)
-      }
-    } catch (error) {
-      console.error('Error parsing user header:', error)
-    }
+    const userData = auth.user
 
     const updatedCard = await prisma.card.update({
       where: { id: params.id },
@@ -108,17 +109,11 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
 // DELETE /api/cards/[id] - Supprimer (désactiver) une carte
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
-    // Récupérer l'utilisateur depuis le header
-    const userHeader = request.headers.get("x-user-data")
-    let userData = null
-    try {
-      if (userHeader) {
-        userData = JSON.parse(userHeader)
-      }
-    } catch (error) {
-      console.error('Error parsing user header:', error)
-    }
+    const userData = auth.user
 
     // Vérifier si la carte existe
     const card = await prisma.card.findUnique({

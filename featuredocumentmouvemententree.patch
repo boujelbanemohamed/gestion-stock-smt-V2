@@ -1,0 +1,272 @@
+diff --git a/.gitignore b/.gitignore
+index 4fe1791..a66f405 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -12,6 +12,9 @@
+ /.next/
+ /out/
+ 
++# documents téléversés (justificatifs de mouvements) - contenu, pas du code
++/public/uploads/
++
+ # production
+ /build
+ 
+diff --git a/app/api/movements/route.ts b/app/api/movements/route.ts
+index 9dde042..b9c95ea 100644
+--- a/app/api/movements/route.ts
++++ b/app/api/movements/route.ts
+@@ -329,6 +329,9 @@ export async function POST(request: NextRequest) {
+           quantity: body.quantity,
+           reason: body.reason || "",
+           userId: userId,
++          // Document justificatif : uniquement pertinent pour les entrées
++          documentUrl: body.movementType === 'entry' ? (body.documentUrl || null) : null,
++          documentName: body.movementType === 'entry' ? (body.documentName || null) : null,
+         },
+         include: {
+           card: true,
+diff --git a/app/api/movements/upload/route.ts b/app/api/movements/upload/route.ts
+new file mode 100644
+index 0000000..ce70e41
+--- /dev/null
++++ b/app/api/movements/upload/route.ts
+@@ -0,0 +1,76 @@
++import { type NextRequest, NextResponse } from "next/server"
++import { mkdir, writeFile } from "fs/promises"
++import path from "path"
++import { randomUUID } from "crypto"
++import type { ApiResponse } from "@/lib/api-types"
++import { requireAuth } from "@/lib/auth-middleware"
++
++// POST /api/movements/upload - Téléverse un document justificatif pour un mouvement d'entrée
++
++// Forcer la route à être dynamique (ne pas pré-rendre)
++export const dynamic = 'force-dynamic'
++export const runtime = 'nodejs'
++
++const MAX_SIZE_BYTES = 5 * 1024 * 1024 // 5 Mo
++
++// On dérive l'extension du type MIME plutôt que du nom de fichier fourni par le
++// client, pour ne jamais écrire sur disque un nom de fichier non maîtrisé.
++const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
++  "application/pdf": ".pdf",
++  "image/png": ".png",
++  "image/jpeg": ".jpg",
++  "image/webp": ".webp",
++}
++
++export async function POST(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
++  try {
++    const formData = await request.formData()
++    const file = formData.get("file")
++
++    if (!file || !(file instanceof File)) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "Aucun fichier fourni" },
++        { status: 400 },
++      )
++    }
++
++    if (file.size > MAX_SIZE_BYTES) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "Le fichier dépasse la taille maximale autorisée (5 Mo)" },
++        { status: 400 },
++      )
++    }
++
++    const extension = EXTENSION_BY_MIME_TYPE[file.type]
++    if (!extension) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "Type de fichier non autorisé. Formats acceptés : PDF, PNG, JPG, WEBP." },
++        { status: 400 },
++      )
++    }
++
++    const uploadDir = path.join(process.cwd(), "public", "uploads", "movements")
++    await mkdir(uploadDir, { recursive: true })
++
++    const storedFileName = `${randomUUID()}${extension}`
++    const buffer = Buffer.from(await file.arrayBuffer())
++    await writeFile(path.join(uploadDir, storedFileName), buffer)
++
++    return NextResponse.json<ApiResponse<{ url: string; name: string }>>({
++      success: true,
++      data: {
++        url: `/uploads/movements/${storedFileName}`,
++        name: file.name,
++      },
++    })
++  } catch (error) {
++    console.error("Error uploading movement document:", error)
++    return NextResponse.json<ApiResponse>(
++      { success: false, error: "Erreur lors du téléversement du document" },
++      { status: 500 },
++    )
++  }
++}
+diff --git a/components/dashboard/movements-management.tsx b/components/dashboard/movements-management.tsx
+index 1dd1374..795d185 100644
+--- a/components/dashboard/movements-management.tsx
++++ b/components/dashboard/movements-management.tsx
+@@ -23,7 +23,7 @@ import { Badge } from "@/components/ui/badge"
+ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+ import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
+ import type { Movement, Card as CardType, Location, Bank } from "@/lib/types"
+-import { Filter, ChevronLeft, ChevronRight } from "lucide-react"
++import { Filter, ChevronLeft, ChevronRight, Paperclip } from "lucide-react"
+ import { getAuthHeaders, authenticatedFetch } from "@/lib/api-client"
+ import {
+   Pagination,
+@@ -52,6 +52,11 @@ export default function MovementsManagement() {
+     reason: "",
+   })
+ 
++  // Document justificatif optionnel, uniquement pour les mouvements d'entrée.
++  // Géré à part de formData car un objet File ne doit pas transiter par le JSON
++  // envoyé pour chaque mouvement créé en masse.
++  const [documentFile, setDocumentFile] = useState<File | null>(null)
++
+   const [movementErrors, setMovementErrors] = useState<Array<{
+     cardName: string
+     error: string
+@@ -1117,6 +1122,32 @@ export default function MovementsManagement() {
+       // Réinitialiser les erreurs avant de commencer
+       setMovementErrors([])
+ 
++      // Téléverser le document justificatif une seule fois (le cas échéant) et
++      // l'associer à chaque mouvement créé dans ce lot.
++      let uploadedDocument: { url: string; name: string } | null = null
++      if (formData.movementType === "entry" && documentFile) {
++        const uploadBody = new FormData()
++        uploadBody.append("file", documentFile)
++
++        // Ne pas utiliser getAuthHeaders() tel quel : il force
++        // Content-Type: application/json, ce qui casse le multipart/form-data
++        // (le navigateur doit fixer lui-même le Content-Type avec sa boundary).
++        const uploadHeaders = getAuthHeaders() as Record<string, string>
++        delete uploadHeaders["Content-Type"]
++
++        const uploadResponse = await authenticatedFetch('/api/movements/upload', {
++          method: 'POST',
++          headers: uploadHeaders,
++          body: uploadBody,
++        })
++        const uploadResult = await uploadResponse.json()
++        if (!uploadResult.success) {
++          alert(`Erreur lors du téléversement du document : ${uploadResult.error || 'Erreur inconnue'}`)
++          return
++        }
++        uploadedDocument = uploadResult.data
++      }
++
+       for (const cardQuantity of formData.cardQuantities) {
+         const movementData = {
+           ...formData,
+@@ -1125,6 +1156,9 @@ export default function MovementsManagement() {
+           // userId sera récupéré depuis l'en-tête x-user-data
+           fromLocationId: formData.movementType === "entry" ? null : formData.fromLocationId || null,
+           toLocationId: formData.movementType === "exit" ? null : formData.toLocationId || null,
++          ...(uploadedDocument
++            ? { documentUrl: uploadedDocument.url, documentName: uploadedDocument.name }
++            : {}),
+         }
+ 
+         const response = await authenticatedFetch('/api/movements', {
+@@ -1424,6 +1458,7 @@ export default function MovementsManagement() {
+       movementType: "entry",
+       reason: "",
+     })
++    setDocumentFile(null)
+     setFormErrors({})
+     setMovementErrors([]) // Réinitialiser les erreurs de mouvement
+   }
+@@ -1963,6 +1998,29 @@ export default function MovementsManagement() {
+                     </div>
+                   </div>
+ 
++                  {/* 9. Document justificatif (optionnel, entrées uniquement) */}
++                  {formData.movementType === "entry" && (
++                    <div className="grid grid-cols-4 items-start gap-4">
++                      <Label htmlFor="document" className="text-right mt-2 font-semibold">
++                        Document
++                      </Label>
++                      <div className="col-span-3 space-y-1">
++                        <Input
++                          id="document"
++                          type="file"
++                          accept=".pdf,.png,.jpg,.jpeg,.webp"
++                          onChange={(e) => setDocumentFile(e.target.files?.[0] || null)}
++                        />
++                        <p className="text-xs text-muted-foreground">
++                          Optionnel. PDF ou image, 5 Mo maximum.
++                        </p>
++                        {documentFile && (
++                          <p className="text-xs text-muted-foreground">Fichier sélectionné : {documentFile.name}</p>
++                        )}
++                      </div>
++                    </div>
++                  )}
++
+                   {/* Section centralisée pour tous les messages d'erreur */}
+                   {(Object.keys(formErrors).length > 0 || movementErrors.length > 0) && (
+                     <div className="px-0">
+@@ -2254,6 +2312,7 @@ export default function MovementsManagement() {
+                       <TableHead>Vers</TableHead>
+                       <TableHead>Quantité</TableHead>
+                       <TableHead>Motif</TableHead>
++                      <TableHead>Document</TableHead>
+                       <TableHead>Utilisateur</TableHead>
+                     </TableRow>
+                   </TableHeader>
+@@ -2298,6 +2357,21 @@ export default function MovementsManagement() {
+                         <TableCell>{movement.toLocationId ? getLocationName(movement.toLocationId) : "-"}</TableCell>
+                         <TableCell>{movement.quantity}</TableCell>
+                         <TableCell className="max-w-xs truncate">{movement.reason}</TableCell>
++                        <TableCell>
++                          {movement.documentUrl ? (
++                            <a
++                              href={movement.documentUrl}
++                              target="_blank"
++                              rel="noopener noreferrer"
++                              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
++                              title={movement.documentName || "Voir le document"}
++                            >
++                              <Paperclip className="h-3.5 w-3.5" />
++                            </a>
++                          ) : (
++                            <span className="text-muted-foreground">-</span>
++                          )}
++                        </TableCell>
+                         <TableCell className="text-sm">{getUserName(movement.userId)}</TableCell>
+                       </TableRow>
+                     )) : null}
+diff --git a/lib/types.ts b/lib/types.ts
+index a5e3c03..6f4f9bd 100644
+--- a/lib/types.ts
++++ b/lib/types.ts
+@@ -61,6 +61,8 @@ export interface Movement {
+   quantity: number
+   reason: string
+   userId: string
++  documentUrl?: string | null
++  documentName?: string | null
+   createdAt: Date
+ }
+ 
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index 4885a46..bd5da80 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -103,6 +103,8 @@ model Movement {
+   quantity       Int
+   reason         String
+   userId         String
++  documentUrl    String?  // Chemin du document justificatif (entrées uniquement)
++  documentName   String?  // Nom original du fichier téléversé
+   createdAt      DateTime @default(now())
+ 
+   // Relations

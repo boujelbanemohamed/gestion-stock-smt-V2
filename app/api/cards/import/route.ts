@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
 import type { ImportResponse } from "@/lib/api-types"
 import type { CardImportRow } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
+import { requireAuth } from "@/lib/auth-middleware"
 
 // POST /api/cards/import - Importer des cartes depuis CSV
 
@@ -11,12 +12,13 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const body = await request.json()
 
-    // Récupérer l'utilisateur depuis le header
-    const userHeader = request.headers.get("x-user-data")
-    const userData = userHeader ? JSON.parse(userHeader) : null
+    const userData = auth.user
 
     if (!body.data || !Array.isArray(body.data)) {
       return NextResponse.json<ImportResponse>(

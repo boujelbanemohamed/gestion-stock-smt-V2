@@ -1,0 +1,51 @@
+diff --git a/app/dashboard/layout.tsx b/app/dashboard/layout.tsx
+index a924691..c643f51 100644
+--- a/app/dashboard/layout.tsx
++++ b/app/dashboard/layout.tsx
+@@ -287,7 +287,8 @@ export default function DashboardLayout({
+ 
+         {/* Navigation */}
+         <nav className="flex-1 p-4 space-y-2">
+-          {navigation.map((item) => {
++          {/* "Mon Profil" est affiché dans l'en-tête, pas dans la barre latérale */}
++          {navigation.filter((item) => item.href !== "/dashboard/profile").map((item) => {
+             const isActive = pathname === item.href
+             return (
+               <Link
+@@ -325,9 +326,6 @@ export default function DashboardLayout({
+               </Badge>
+             </div>
+           </div>
+-          <Button variant="outline" size="sm" onClick={handleLogout} className="w-full bg-transparent">
+-            Déconnexion
+-          </Button>
+         </div>
+       </div>
+ 
+@@ -342,7 +340,25 @@ export default function DashboardLayout({
+               </h2>
+               <p className="text-sm text-slate-600">Gérez efficacement vos stocks de cartes bancaires</p>
+             </div>
+-            <NotificationsDropdown />
++            <div className="flex items-center gap-4">
++              <div className="text-right">
++                <p className="text-sm font-medium text-slate-900">
++                  {currentUser?.firstName || ''} {currentUser?.lastName || ''}
++                </p>
++                <Badge variant={getRoleBadgeVariant(currentUser?.role || 'user')} className="text-xs">
++                  {currentUser?.role ? (currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1)) : 'User'}
++                </Badge>
++              </div>
++              <Link href="/dashboard/profile">
++                <Button variant="outline" size="sm">
++                  Mon Profil
++                </Button>
++              </Link>
++              <NotificationsDropdown />
++              <Button variant="outline" size="sm" onClick={handleLogout}>
++                Déconnexion
++              </Button>
++            </div>
+           </div>
+         </header>
+ 

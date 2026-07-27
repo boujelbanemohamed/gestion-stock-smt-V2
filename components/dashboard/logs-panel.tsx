@@ -7,6 +7,16 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { getAuthHeaders } from "@/lib/api-client"
+import { exportToCsv, exportToExcel } from "@/lib/export"
+import { toast } from "@/hooks/use-toast"
+import { Download } from "lucide-react"
 
 export default function LogsPanel() {
   const [logs, setLogs] = useState<AuditLog[]>([])
@@ -34,7 +44,7 @@ export default function LogsPanel() {
   const loadCurrentUser = async () => {
     try {
       // Pour l'instant, simuler un utilisateur admin
-      const usersResponse = await fetch('/api/users')
+      const usersResponse = await fetch('/api/users', { headers: getAuthHeaders() })
       const usersData = await usersResponse.json()
       if (usersData.success && usersData.data.length > 0) {
         const admin = usersData.data.find((u: any) => u.role === 'admin')
@@ -47,7 +57,7 @@ export default function LogsPanel() {
 
   const loadUsers = async () => {
     try {
-      const response = await fetch('/api/users')
+      const response = await fetch('/api/users', { headers: getAuthHeaders() })
       const data = await response.json()
       if (data.success) {
         setUsers(data.data || [])
@@ -74,7 +84,7 @@ export default function LogsPanel() {
         url += `&dateTo=${endDate}`
       }
       
-      const response = await fetch(url)
+      const response = await fetch(url, { headers: getAuthHeaders() })
       const data = await response.json()
       if (data.success) {
         setLogs(data.data || [])
@@ -181,6 +191,50 @@ export default function LogsPanel() {
     }).format(new Date(date))
   }
 
+  // Exporte les logs actuellement affichés (donc déjà filtrés par recherche,
+  // action, module, utilisateur et période), pas l'intégralité de la table.
+  const buildLogsExportTable = () => {
+    const headers = ["Date et heure", "Utilisateur", "Email", "Action", "Module", "Détails", "Statut", "Adresse IP", "Navigateur"]
+    const rows = filteredLogs.map((log) => [
+      formatDate(log.timestamp),
+      log.userName || "-",
+      log.userEmail,
+      getActionLabel(log.action),
+      getModuleLabel(log.module),
+      log.details,
+      log.status === "success" ? "Succès" : "Échec",
+      log.ipAddress || "-",
+      log.userAgent || "-",
+    ])
+    return { headers, rows }
+  }
+
+  const handleExportLogs = async (format: "csv" | "excel") => {
+    if (filteredLogs.length === 0) {
+      toast({
+        title: "Aucune donnée à exporter",
+        description: "Aucun log ne correspond aux filtres actuels.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      const { headers, rows } = buildLogsExportTable()
+      const filename = `logs_audit_${new Date().toISOString().slice(0, 10)}`
+
+      if (format === "csv") {
+        exportToCsv(filename, headers, rows)
+      } else {
+        await exportToExcel(filename, [{ name: "Logs", headers, rows }])
+      }
+      toast({ title: "Export réussi", description: `${filteredLogs.length} log(s) exporté(s).` })
+    } catch (error) {
+      console.error('Error exporting logs:', error)
+      toast({ title: "Erreur", description: "Erreur lors de l'export des logs", variant: "destructive" })
+    }
+  }
+
   if (!currentUser) {
     return null
   }
@@ -189,7 +243,7 @@ export default function LogsPanel() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Logs d'audit</h1>
-        <p className="text-slate-600 mt-2">Consultez l'historique complet des actions effectuées sur la plateforme</p>
+        <p className="text-xs text-[#008DA8] mt-2">Consultez l'historique complet des actions effectuées sur la plateforme</p>
       </div>
 
       {/* Filtres */}
@@ -202,17 +256,22 @@ export default function LogsPanel() {
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
-                <label className="text-sm font-medium text-slate-700 mb-2 block">Recherche</label>
+                <label htmlFor="log-search" className="text-sm font-medium text-slate-700 mb-2 block">
+                  Recherche
+                </label>
                 <Input
+                  id="log-search"
                   placeholder="Rechercher par utilisateur, action, détails..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
               <div>
-                <label className="text-sm font-medium text-slate-700 mb-2 block">Action</label>
+                <label htmlFor="log-action" className="text-sm font-medium text-slate-700 mb-2 block">
+                  Action
+                </label>
                 <Select value={actionFilter} onValueChange={setActionFilter}>
-                  <SelectTrigger>
+                  <SelectTrigger id="log-action">
                     <SelectValue placeholder="Toutes les actions" />
                   </SelectTrigger>
                   <SelectContent>
@@ -226,9 +285,11 @@ export default function LogsPanel() {
                 </Select>
               </div>
               <div>
-                <label className="text-sm font-medium text-slate-700 mb-2 block">Module</label>
+                <label htmlFor="log-module" className="text-sm font-medium text-slate-700 mb-2 block">
+                  Module
+                </label>
                 <Select value={moduleFilter} onValueChange={setModuleFilter}>
-                  <SelectTrigger>
+                  <SelectTrigger id="log-module">
                     <SelectValue placeholder="Tous les modules" />
                   </SelectTrigger>
                   <SelectContent>
@@ -245,9 +306,11 @@ export default function LogsPanel() {
                 </Select>
               </div>
               <div>
-                <label className="text-sm font-medium text-slate-700 mb-2 block">Utilisateur</label>
+                <label htmlFor="log-user" className="text-sm font-medium text-slate-700 mb-2 block">
+                  Utilisateur
+                </label>
                 <Select value={userFilter} onValueChange={setUserFilter}>
-                  <SelectTrigger>
+                  <SelectTrigger id="log-user">
                     <SelectValue placeholder="Tous les utilisateurs" />
                   </SelectTrigger>
                   <SelectContent>
@@ -264,8 +327,11 @@ export default function LogsPanel() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-slate-700 mb-2 block">Date de début</label>
+                <label htmlFor="log-date-from" className="text-sm font-medium text-slate-700 mb-2 block">
+                  Date de début
+                </label>
                 <Input
+                  id="log-date-from"
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
@@ -273,8 +339,11 @@ export default function LogsPanel() {
                 />
               </div>
               <div>
-                <label className="text-sm font-medium text-slate-700 mb-2 block">Date de fin</label>
+                <label htmlFor="log-date-to" className="text-sm font-medium text-slate-700 mb-2 block">
+                  Date de fin
+                </label>
                 <Input
+                  id="log-date-to"
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
@@ -288,20 +357,34 @@ export default function LogsPanel() {
             <p className="text-sm text-slate-600">
               {filteredLogs.length} log{filteredLogs.length > 1 ? "s" : ""} trouvé{filteredLogs.length > 1 ? "s" : ""}
             </p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setSearchTerm("")
-                setActionFilter("all")
-                setModuleFilter("all")
-                setUserFilter("all")
-                setStartDate("")
-                setEndDate("")
-              }}
-            >
-              Réinitialiser les filtres
-            </Button>
+            <div className="flex gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Download className="h-4 w-4 mr-2" />
+                    Exporter
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => handleExportLogs("csv")}>Exporter en CSV</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleExportLogs("excel")}>Exporter en Excel</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSearchTerm("")
+                  setActionFilter("all")
+                  setModuleFilter("all")
+                  setUserFilter("all")
+                  setStartDate("")
+                  setEndDate("")
+                }}
+              >
+                Réinitialiser les filtres
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

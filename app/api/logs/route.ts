@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { AuditLog } from "@/lib/types"
 import { logAudit, type LogEntry } from "@/lib/audit-logger"
+import { requireAuth } from "@/lib/auth-middleware"
 
 // GET /api/logs - Récupérer les logs d'audit avec filtres optionnels
 
@@ -11,6 +12,9 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const searchParams = request.nextUrl.searchParams
     const userId = searchParams.get("userId")
@@ -118,6 +122,9 @@ export async function GET(request: NextRequest) {
 
 // POST /api/logs - Créer un log d'audit manuellement
 export async function POST(request: NextRequest) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const body = await request.json()
     

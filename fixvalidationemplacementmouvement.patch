@@ -1,0 +1,21 @@
+diff --git a/components/dashboard/movements-management.tsx b/components/dashboard/movements-management.tsx
+index b933a0b..f30e6b1 100644
+--- a/components/dashboard/movements-management.tsx
++++ b/components/dashboard/movements-management.tsx
+@@ -1037,6 +1037,16 @@ export default function MovementsManagement() {
+       }
+     }
+ 
++    // Valider la présence des emplacements requis selon le type de mouvement
++    // (le serveur les exige aussi ; sans ce contrôle côté client, la requête
++    // partait avec un champ vide et échouait en 400 sans message clair dans le formulaire).
++    if ((formData.movementType === "entry" || formData.movementType === "transfer") && !formData.toLocationId) {
++      errors.toLocationId = "L'emplacement destination est obligatoire"
++    }
++    if ((formData.movementType === "exit" || formData.movementType === "transfer") && !formData.fromLocationId) {
++      errors.fromLocationId = "L'emplacement source est obligatoire"
++    }
++
+     // Validate locations belong to selected bank
+     if (formData.fromLocationId) {
+       const fromLocation = locations.find(l => l.id === formData.fromLocationId)

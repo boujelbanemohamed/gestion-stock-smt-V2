@@ -9,7 +9,15 @@ import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import type { DateRange } from "react-day-picker"
 import type { Bank, Location } from "@/lib/types"
 import { getAuthHeaders } from "@/lib/api-client"
-import { Calculator, TrendingUp, Printer } from "lucide-react"
+import { exportToCsv, exportToExcel } from "@/lib/export"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { toast } from "@/hooks/use-toast"
+import { Calculator, TrendingUp, Printer, Download } from "lucide-react"
 
 export default function StatisticsPage() {
   const [banks, setBanks] = useState<Bank[]>([])
@@ -566,6 +574,49 @@ export default function StatisticsPage() {
     loadLogoAndPrint()
   }
 
+  const handleExport = async (format: "csv" | "excel") => {
+    if (!result) return
+
+    const summaryHeaders = ["Indicateur", "Valeur"]
+    const summaryRows: (string | number)[][] = [
+      ["Emplacement De", result.fromLocationName || "-"],
+      ["Quantité De", result.quantiteDe],
+      ["Emplacement Vers", result.toLocationName || "-"],
+      ["Quantité Vers", result.quantiteVers],
+      ["Total (De + Vers)", result.total],
+      ["Pourcentage", `${result.pourcentage.toFixed(2)}%`],
+      ["Nombre de mouvements analysés", result.nombreMouvements],
+      ...(result.filtres.dateFrom && result.filtres.dateTo
+        ? [["Période", `du ${new Date(result.filtres.dateFrom).toLocaleDateString('fr-FR')} au ${new Date(result.filtres.dateTo).toLocaleDateString('fr-FR')}`]]
+        : []),
+    ]
+
+    const detailsHeaders = ["Date", "Banque", "Code banque", "Type de mouvement", "Type de carte", "Quantité De", "Quantité Vers", "Total"]
+    const detailsRows: (string | number)[][] = (result.detailsByDate || []).map((detail) => [
+      new Date(detail.date).toLocaleDateString('fr-FR'),
+      detail.bankName,
+      detail.bankCode,
+      detail.movementType,
+      detail.cardType,
+      detail.quantiteDe,
+      detail.quantiteVers,
+      detail.quantiteDe + detail.quantiteVers,
+    ])
+
+    const filename = `statistiques_${new Date().toISOString().slice(0, 10)}`
+
+    if (format === "csv") {
+      // Le CSV ne supporte qu'une seule table : on exporte le détail, le plus utile pour retraitement.
+      exportToCsv(filename, detailsHeaders, detailsRows)
+    } else {
+      await exportToExcel(filename, [
+        { name: "Résumé", headers: summaryHeaders, rows: summaryRows },
+        { name: "Détails", headers: detailsHeaders, rows: detailsRows },
+      ])
+    }
+    toast({ title: "Export réussi", description: "Les statistiques ont été exportées avec succès." })
+  }
+
   return (
     <div className="space-y-6">
       <Card>
@@ -574,7 +625,7 @@ export default function StatisticsPage() {
             <TrendingUp className="h-5 w-5" />
             Calcul de Statistiques
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-xs text-[#008DA8]">
             Calculez le pourcentage de la quantité de l'emplacement De par rapport au total (De + Vers)
           </CardDescription>
         </CardHeader>
@@ -714,14 +765,32 @@ export default function StatisticsPage() {
                       Pourcentage calculé sur la période sélectionnée
                     </CardDescription>
                   </div>
-                  <Button
-                    onClick={handlePrint}
-                    variant="outline"
-                    className="flex items-center gap-2"
-                  >
-                    <Printer className="h-4 w-4" />
-                    Imprimer
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={handlePrint}
+                      variant="outline"
+                      className="flex items-center gap-2"
+                    >
+                      <Printer className="h-4 w-4" />
+                      Imprimer
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" className="flex items-center gap-2">
+                          <Download className="h-4 w-4" />
+                          Exporter
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleExport("csv")}>
+                          Exporter en CSV
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleExport("excel")}>
+                          Exporter en Excel
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -811,7 +880,7 @@ export default function StatisticsPage() {
                           <CardContent>
                             <div className="space-y-4">
                               {/* Résumé de la banque */}
-                              <div className="grid grid-cols-4 gap-4 p-3 bg-slate-50 rounded-lg">
+                              <div className="grid grid-cols-2 gap-4 p-3 bg-slate-50 rounded-lg sm:grid-cols-4">
                                 <div>
                                   <div className="text-xs text-slate-600">Quantité De</div>
                                   <div className="text-lg font-bold text-blue-600">{bankStat.quantiteDe.toLocaleString()}</div>

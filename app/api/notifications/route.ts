@@ -2,6 +2,8 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { Notification } from "@/lib/types"
+import { requireAuth } from "@/lib/auth-middleware"
+import { serverEvents } from "@/lib/server-events"
 
 // GET /api/notifications - Récupérer les notifications
 
@@ -10,6 +12,9 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const searchParams = request.nextUrl.searchParams
     const userId = searchParams.get("userId")
@@ -59,6 +64,9 @@ export async function GET(request: NextRequest) {
 
 // POST /api/notifications - Créer une notification
 export async function POST(request: NextRequest) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const body = await request.json()
     
@@ -71,6 +79,9 @@ export async function POST(request: NextRequest) {
         isRead: false,
       },
     })
+
+    // Pousse la notification en temps réel (SSE) aux clients connectés.
+    serverEvents.emit("notification", notification)
 
     return NextResponse.json<ApiResponse<Notification>>({
       success: true,

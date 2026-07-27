@@ -1,0 +1,144 @@
+diff --git a/components/dashboard/banks-management.tsx b/components/dashboard/banks-management.tsx
+index 4b1134e..d98e9d0 100644
+--- a/components/dashboard/banks-management.tsx
++++ b/components/dashboard/banks-management.tsx
+@@ -28,7 +28,6 @@ import { getAuthHeaders } from "@/lib/api-client"
+ 
+ export default function BanksManagement() {
+   const searchParams = useSearchParams()
+-  const prefillSearchRef = useRef(false)
+   const [banks, setBanks] = useState<Bank[]>([])
+   const [locations, setLocations] = useState<any[]>([])
+   const [cards, setCards] = useState<any[]>([])
+@@ -36,9 +35,12 @@ export default function BanksManagement() {
+   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
+   const [editingBank, setEditingBank] = useState<Bank | null>(null)
+   const [expandedBanks, setExpandedBanks] = useState<Set<string>>(new Set())
++  // Pré-rempli dès le premier rendu avec ?q=... (recherche globale) pour éviter
++  // qu'un premier fetch non filtré ne parte en parallèle de celui, filtré, déclenché
++  // par un effet séparé (l'un des deux résultats écrasant l'autre selon l'ordre de retour réseau).
+   const [filters, setFilters] = useState<BankFilters>({
+     status: "all",
+-    searchTerm: "",
++    searchTerm: searchParams.get("q") || "",
+   })
+   const [countries, setCountries] = useState<string[]>([])
+   const [importFile, setImportFile] = useState<File | null>(null)
+@@ -114,16 +116,6 @@ export default function BanksManagement() {
+     loadBanks()
+   }, [filters])
+ 
+-  // Pré-remplir la recherche quand on arrive depuis la recherche globale (?q=...)
+-  useEffect(() => {
+-    if (prefillSearchRef.current) return
+-    const q = searchParams.get("q")
+-    if (!q) return
+-    prefillSearchRef.current = true
+-    setFilters((prev) => ({ ...prev, searchTerm: q }))
+-  }, [searchParams])
+-
+-
+   // Gestion de la soumission du formulaire (async pour les appels API)
+   const handleSubmit = async (e: React.FormEvent) => {
+     e.preventDefault()
+diff --git a/components/dashboard/locations-management.tsx b/components/dashboard/locations-management.tsx
+index e60e9b8..b929a50 100644
+--- a/components/dashboard/locations-management.tsx
++++ b/components/dashboard/locations-management.tsx
+@@ -2,7 +2,7 @@
+ 
+ import type React from "react"
+ 
+-import { useState, useEffect, useRef } from "react"
++import { useState, useEffect } from "react"
+ import { useSearchParams } from "next/navigation"
+ import { Button } from "@/components/ui/button"
+ import { Input } from "@/components/ui/input"
+@@ -30,7 +30,6 @@ import { Printer, Building2, MapPin } from "lucide-react"
+ 
+ export default function LocationsManagement() {
+   const searchParams = useSearchParams()
+-  const prefillSearchRef = useRef(false)
+   const [locations, setLocations] = useState<Location[]>([])
+   const [banks, setBanks] = useState<Bank[]>([])
+   const [cards, setCards] = useState<any[]>([])
+@@ -57,7 +56,10 @@ export default function LocationsManagement() {
+   const [importErrors, setImportErrors] = useState<string[]>([])
+ 
+   const [searchFilters, setSearchFilters] = useState<LocationFilters>({})
+-  const [searchTerm, setSearchTerm] = useState("")
++  // Pré-rempli dès le premier rendu avec ?q=... (recherche globale) pour éviter
++  // qu'un premier fetch non filtré ne parte en parallèle de celui, filtré, déclenché
++  // par un effet séparé (l'un des deux résultats écrasant l'autre selon l'ordre de retour réseau).
++  const [searchTerm, setSearchTerm] = useState(() => searchParams.get("q") || "")
+   const [formData, setFormData] = useState({
+     name: "",
+     description: "",
+@@ -522,15 +524,6 @@ export default function LocationsManagement() {
+     loadData()
+   }, [searchFilters, searchTerm])
+ 
+-  // Pré-remplir la recherche quand on arrive depuis la recherche globale (?q=...)
+-  useEffect(() => {
+-    if (prefillSearchRef.current) return
+-    const q = searchParams.get("q")
+-    if (!q) return
+-    prefillSearchRef.current = true
+-    setSearchTerm(q)
+-  }, [searchParams])
+-
+   const getBankName = (bankId: string) => {
+     const bank = banks.find((b) => b.id === bankId)
+     return bank ? bank.name : "N/A"
+diff --git a/components/dashboard/users-management.tsx b/components/dashboard/users-management.tsx
+index 7ec20b3..cb943f0 100644
+--- a/components/dashboard/users-management.tsx
++++ b/components/dashboard/users-management.tsx
+@@ -1,7 +1,7 @@
+ "use client"
+ 
+ import type React from "react"
+-import { useState, useEffect, useRef } from "react"
++import { useState, useEffect } from "react"
+ import { useSearchParams } from "next/navigation"
+ import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
+ import { usePermissions } from "@/hooks/use-permissions"
+@@ -47,7 +47,6 @@ const ALL_PERMISSIONS: Permission[] = [
+ export default function UsersManagement() {
+   const { hasPermission, isLoading: permissionsLoading } = usePermissions()
+   const searchParams = useSearchParams()
+-  const prefillSearchRef = useRef(false)
+   const [users, setUsers] = useState<User[]>([])
+   const [rolePermissions, setRolePermissions] = useState<RolePermissions[]>([])
+   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+@@ -57,10 +56,13 @@ export default function UsersManagement() {
+   const [selectedRole, setSelectedRole] = useState<RolePermissions | null>(null)
+   const [selectedUser, setSelectedUser] = useState<User | null>(null)
+   const [isUpdatingRole, setIsUpdatingRole] = useState(false)
++  // Pré-rempli dès le premier rendu avec ?q=... (recherche globale) pour éviter
++  // qu'un premier fetch non filtré ne parte en parallèle de celui, filtré, déclenché
++  // par un effet séparé (l'un des deux résultats écrasant l'autre selon l'ordre de retour réseau).
+   const [filters, setFilters] = useState<UserFilters>({
+     role: "all",
+     status: "all",
+-    searchTerm: "",
++    searchTerm: searchParams.get("q") || "",
+   })
+ 
+   const [formData, setFormData] = useState({
+@@ -93,15 +95,6 @@ export default function UsersManagement() {
+     loadData()
+   }, [filters])
+ 
+-  // Pré-remplir la recherche quand on arrive depuis la recherche globale (?q=...)
+-  useEffect(() => {
+-    if (prefillSearchRef.current) return
+-    const q = searchParams.get("q")
+-    if (!q) return
+-    prefillSearchRef.current = true
+-    setFilters((prev) => ({ ...prev, searchTerm: q }))
+-  }, [searchParams])
+-
+   const loadData = async () => {
+     try {
+       // Charger les utilisateurs

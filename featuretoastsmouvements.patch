@@ -1,0 +1,89 @@
+diff --git a/app/layout.tsx b/app/layout.tsx
+index a8fc75a..33b2223 100644
+--- a/app/layout.tsx
++++ b/app/layout.tsx
+@@ -1,6 +1,7 @@
+ import type React from "react"
+ import type { Metadata } from "next"
+ import { Inter, JetBrains_Mono } from "next/font/google"
++import { Toaster } from "@/components/ui/toaster"
+ import "./globals.css"
+ 
+ const geistSans = Inter({
+@@ -26,7 +27,10 @@ export default function RootLayout({
+ }>) {
+   return (
+     <html lang="fr" className={`${geistSans.variable} ${geistMono.variable}`}>
+-      <body className="font-sans antialiased">{children}</body>
++      <body className="font-sans antialiased">
++        {children}
++        <Toaster />
++      </body>
+     </html>
+   )
+ }
+diff --git a/components/dashboard/movements-management.tsx b/components/dashboard/movements-management.tsx
+index ae160e5..b933a0b 100644
+--- a/components/dashboard/movements-management.tsx
++++ b/components/dashboard/movements-management.tsx
+@@ -25,6 +25,7 @@ import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
+ import type { Movement, Card as CardType, Location, Bank } from "@/lib/types"
+ import { Filter, ChevronLeft, ChevronRight, Paperclip } from "lucide-react"
+ import { getAuthHeaders, authenticatedFetch } from "@/lib/api-client"
++import { toast } from "@/hooks/use-toast"
+ import {
+   Pagination,
+   PaginationContent,
+@@ -1138,7 +1139,11 @@ export default function MovementsManagement() {
+         })
+         const uploadResult = await uploadResponse.json()
+         if (!uploadResult.success) {
+-          alert(`Erreur lors du téléversement du document : ${uploadResult.error || 'Erreur inconnue'}`)
++          toast({
++            title: "Échec du téléversement",
++            description: uploadResult.error || "Erreur inconnue",
++            variant: "destructive",
++          })
+           return
+         }
+         uploadedDocument = uploadResult.data
+@@ -1198,20 +1203,35 @@ export default function MovementsManagement() {
+         resetForm()
+         setIsDialogOpen(false)
+         if (successCount > 0) {
+-          alert(`${successCount} mouvement(s) créé(s) avec succès`)
++          toast({
++            title: "Mouvement créé",
++            description: `${successCount} mouvement(s) créé(s) avec succès`,
++          })
+         }
+       } else {
+         // Garder le modal ouvert pour afficher les erreurs
+         // Afficher un message récapitulatif
+         if (successCount > 0) {
+-          alert(`${successCount} mouvement(s) créé(s), ${errorCount} erreur(s). Veuillez corriger les erreurs ci-dessous.`)
++          toast({
++            title: "Création partiellement réussie",
++            description: `${successCount} mouvement(s) créé(s), ${errorCount} erreur(s). Voir le détail ci-dessous.`,
++            variant: "destructive",
++          })
+         } else {
+-          alert(`${errorCount} erreur(s) lors de la création. Veuillez corriger les erreurs ci-dessous.`)
++          toast({
++            title: "Échec de la création",
++            description: `${errorCount} erreur(s) lors de la création. Voir le détail ci-dessous.`,
++            variant: "destructive",
++          })
+         }
+       }
+     } catch (error) {
+       console.error('Error creating movements:', error)
+-      alert('Erreur lors de la création des mouvements')
++      toast({
++        title: "Erreur",
++        description: "Erreur lors de la création des mouvements",
++        variant: "destructive",
++      })
+     }
+   }
+ 

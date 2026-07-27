@@ -1,0 +1,231 @@
+diff --git a/components/dashboard/logs-panel.tsx b/components/dashboard/logs-panel.tsx
+index 2e7e72a..862cb5e 100644
+--- a/components/dashboard/logs-panel.tsx
++++ b/components/dashboard/logs-panel.tsx
+@@ -7,7 +7,16 @@ import { Input } from "@/components/ui/input"
+ import { Button } from "@/components/ui/button"
+ import { Badge } from "@/components/ui/badge"
+ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
++import {
++  DropdownMenu,
++  DropdownMenuContent,
++  DropdownMenuItem,
++  DropdownMenuTrigger,
++} from "@/components/ui/dropdown-menu"
+ import { getAuthHeaders } from "@/lib/api-client"
++import { exportToCsv, exportToExcel } from "@/lib/export"
++import { toast } from "@/hooks/use-toast"
++import { Download } from "lucide-react"
+ 
+ export default function LogsPanel() {
+   const [logs, setLogs] = useState<AuditLog[]>([])
+@@ -182,6 +191,50 @@ export default function LogsPanel() {
+     }).format(new Date(date))
+   }
+ 
++  // Exporte les logs actuellement affichés (donc déjà filtrés par recherche,
++  // action, module, utilisateur et période), pas l'intégralité de la table.
++  const buildLogsExportTable = () => {
++    const headers = ["Date et heure", "Utilisateur", "Email", "Action", "Module", "Détails", "Statut", "Adresse IP", "Navigateur"]
++    const rows = filteredLogs.map((log) => [
++      formatDate(log.timestamp),
++      log.userName || "-",
++      log.userEmail,
++      getActionLabel(log.action),
++      getModuleLabel(log.module),
++      log.details,
++      log.status === "success" ? "Succès" : "Échec",
++      log.ipAddress || "-",
++      log.userAgent || "-",
++    ])
++    return { headers, rows }
++  }
++
++  const handleExportLogs = async (format: "csv" | "excel") => {
++    if (filteredLogs.length === 0) {
++      toast({
++        title: "Aucune donnée à exporter",
++        description: "Aucun log ne correspond aux filtres actuels.",
++        variant: "destructive",
++      })
++      return
++    }
++
++    try {
++      const { headers, rows } = buildLogsExportTable()
++      const filename = `logs_audit_${new Date().toISOString().slice(0, 10)}`
++
++      if (format === "csv") {
++        exportToCsv(filename, headers, rows)
++      } else {
++        await exportToExcel(filename, [{ name: "Logs", headers, rows }])
++      }
++      toast({ title: "Export réussi", description: `${filteredLogs.length} log(s) exporté(s).` })
++    } catch (error) {
++      console.error('Error exporting logs:', error)
++      toast({ title: "Erreur", description: "Erreur lors de l'export des logs", variant: "destructive" })
++    }
++  }
++
+   if (!currentUser) {
+     return null
+   }
+@@ -289,20 +342,34 @@ export default function LogsPanel() {
+             <p className="text-sm text-slate-600">
+               {filteredLogs.length} log{filteredLogs.length > 1 ? "s" : ""} trouvé{filteredLogs.length > 1 ? "s" : ""}
+             </p>
+-            <Button
+-              variant="outline"
+-              size="sm"
+-              onClick={() => {
+-                setSearchTerm("")
+-                setActionFilter("all")
+-                setModuleFilter("all")
+-                setUserFilter("all")
+-                setStartDate("")
+-                setEndDate("")
+-              }}
+-            >
+-              Réinitialiser les filtres
+-            </Button>
++            <div className="flex gap-2">
++              <DropdownMenu>
++                <DropdownMenuTrigger asChild>
++                  <Button variant="outline" size="sm">
++                    <Download className="h-4 w-4 mr-2" />
++                    Exporter
++                  </Button>
++                </DropdownMenuTrigger>
++                <DropdownMenuContent align="end">
++                  <DropdownMenuItem onClick={() => handleExportLogs("csv")}>Exporter en CSV</DropdownMenuItem>
++                  <DropdownMenuItem onClick={() => handleExportLogs("excel")}>Exporter en Excel</DropdownMenuItem>
++                </DropdownMenuContent>
++              </DropdownMenu>
++              <Button
++                variant="outline"
++                size="sm"
++                onClick={() => {
++                  setSearchTerm("")
++                  setActionFilter("all")
++                  setModuleFilter("all")
++                  setUserFilter("all")
++                  setStartDate("")
++                  setEndDate("")
++                }}
++              >
++                Réinitialiser les filtres
++              </Button>
++            </div>
+           </div>
+         </CardContent>
+       </Card>
+diff --git a/tests/components/logs-export.test.tsx b/tests/components/logs-export.test.tsx
+new file mode 100644
+index 0000000..c9680c2
+--- /dev/null
++++ b/tests/components/logs-export.test.tsx
+@@ -0,0 +1,104 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
++import { render, screen, waitFor } from "@testing-library/react"
++import userEvent from "@testing-library/user-event"
++import LogsPanel from "@/components/dashboard/logs-panel"
++
++function jsonResponse(body: unknown) {
++  return Promise.resolve({ json: () => Promise.resolve(body) } as Response)
++}
++
++async function blobText(blob: Blob): Promise<string> {
++  if (typeof (blob as any).text === "function") return (blob as any).text()
++  const buffer = await blob.arrayBuffer()
++  return new TextDecoder("utf-8").decode(buffer)
++}
++
++const admin = { id: "u1", email: "admin@example.com", firstName: "Admin", lastName: "System", role: "admin" }
++
++const sampleLogs = [
++  {
++    id: "log-1",
++    timestamp: "2026-01-15T10:30:00.000Z",
++    userId: "u1",
++    userEmail: "admin@example.com",
++    userName: "Admin System",
++    action: "delete",
++    module: "movements",
++    entityType: "movement",
++    details: "Suppression du mouvement Sortie - Visa Classique",
++    status: "success",
++    ipAddress: "127.0.0.1",
++    userAgent: "test-agent",
++  },
++]
++
++describe("LogsPanel - export CSV/Excel", () => {
++  let createObjectURLSpy: ReturnType<typeof vi.fn>
++  let capturedBlob: Blob | undefined
++
++  beforeEach(() => {
++    capturedBlob = undefined
++    createObjectURLSpy = vi.fn((blob: Blob) => {
++      capturedBlob = blob
++      return "blob:mock-url"
++    })
++    vi.stubGlobal("URL", { ...URL, createObjectURL: createObjectURLSpy, revokeObjectURL: vi.fn() })
++    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
++
++    vi.stubGlobal(
++      "fetch",
++      vi.fn((url: string) => {
++        if (url.includes("/api/logs")) return jsonResponse({ success: true, data: sampleLogs, total: 1 })
++        if (url.includes("/api/users")) return jsonResponse({ success: true, data: [admin] })
++        throw new Error(`Unexpected fetch to ${url}`)
++      }),
++    )
++  })
++
++  afterEach(() => {
++    vi.unstubAllGlobals()
++    vi.restoreAllMocks()
++  })
++
++  it("exporte les logs affichés (déjà filtrés) en CSV", async () => {
++    const user = userEvent.setup()
++    render(<LogsPanel />)
++
++    expect(await screen.findByText("Suppression du mouvement Sortie - Visa Classique")).toBeInTheDocument()
++
++    await user.click(screen.getByRole("button", { name: /exporter/i }))
++    await user.click(await screen.findByText("Exporter en CSV"))
++
++    await waitFor(() => expect(createObjectURLSpy).toHaveBeenCalledTimes(1))
++    const content = await blobText(capturedBlob!)
++
++    expect(content).toContain("Date et heure,Utilisateur,Email,Action,Module,Détails,Statut,Adresse IP,Navigateur")
++    expect(content).toContain("admin@example.com")
++    expect(content).toContain("Suppression du mouvement Sortie - Visa Classique")
++    expect(content).toContain("127.0.0.1")
++  })
++
++  it("n'exporte rien et prévient l'utilisateur si aucun log ne correspond aux filtres", async () => {
++    vi.stubGlobal(
++      "fetch",
++      vi.fn((url: string) => {
++        if (url.includes("/api/logs")) return jsonResponse({ success: true, data: [], total: 0 })
++        if (url.includes("/api/users")) return jsonResponse({ success: true, data: [admin] })
++        throw new Error(`Unexpected fetch to ${url}`)
++      }),
++    )
++
++    const user = userEvent.setup()
++    render(<LogsPanel />)
++
++    expect(await screen.findByText("Aucun log trouvé")).toBeInTheDocument()
++
++    await user.click(screen.getByRole("button", { name: /exporter/i }))
++    await user.click(await screen.findByText("Exporter en CSV"))
++
++    // Pas de Toaster monté dans ce test isolé : on vérifie l'effet concret,
++    // le fait qu'aucun export n'ait été déclenché.
++    await new Promise((resolve) => setTimeout(resolve, 50))
++    expect(createObjectURLSpy).not.toHaveBeenCalled()
++  })
++})

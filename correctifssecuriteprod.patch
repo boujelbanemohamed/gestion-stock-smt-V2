@@ -1,0 +1,1015 @@
+diff --git a/app/api/config/route.ts b/app/api/config/route.ts
+index b592508..bbd09d7 100644
+--- a/app/api/config/route.ts
++++ b/app/api/config/route.ts
+@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
+ import type { ApiResponse } from "@/lib/api-types"
+ import type { AppConfig } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
++import { requireAuth, requireAdmin, isAdminRole } from "@/lib/auth-middleware"
+ 
+ // GET /api/config - Récupérer la configuration de l'application
+ 
+@@ -10,7 +11,27 @@ import { logAudit } from "@/lib/audit-logger"
+ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
++// Retire les identifiants SMTP de la config renvoyée aux utilisateurs non-admin :
++// de nombreuses pages appellent GET /api/config juste pour le logo/nom de société,
++// mais le mot de passe SMTP en clair ne doit jamais être exposé à un compte non-admin.
++function redactForNonAdmin(config: any): any {
++  if (!config || typeof config !== "object") return config
++  if (!config.smtp) return config
++  return {
++    ...config,
++    smtp: {
++      ...config.smtp,
++      username: config.smtp.username ? "••••••••" : config.smtp.username,
++      password: config.smtp.password ? "••••••••" : config.smtp.password,
++    },
++  }
++}
++
+ export async function GET(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++  const canSeeSecrets = isAdminRole(auth.user.role)
++
+   try {
+     const config = await prisma.appConfig.findUnique({
+       where: { id: 'singleton' }
+@@ -80,13 +101,13 @@ export async function GET(request: NextRequest) {
+       
+       return NextResponse.json<ApiResponse<AppConfig>>({
+         success: true,
+-        data: defaultConfig.config as unknown as AppConfig,
++        data: (canSeeSecrets ? defaultConfig.config : redactForNonAdmin(defaultConfig.config)) as unknown as AppConfig,
+       })
+     }
+ 
+     return NextResponse.json<ApiResponse<AppConfig>>({
+       success: true,
+-      data: config.config as unknown as AppConfig,
++      data: (canSeeSecrets ? config.config : redactForNonAdmin(config.config)) as unknown as AppConfig,
+     })
+   } catch (error) {
+     console.error('Error fetching config:', error)
+@@ -102,20 +123,13 @@ export async function GET(request: NextRequest) {
+ 
+ // PUT /api/config - Mettre à jour la configuration
+ export async function PUT(request: NextRequest) {
++  const auth = requireAdmin(request)
++  if (!auth.authorized) return auth.response
++  const userData = auth.user
++
+   try {
+     const body = await request.json()
+ 
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    let userData = null
+-    try {
+-      if (userHeader) {
+-        userData = JSON.parse(userHeader)
+-      }
+-    } catch (error) {
+-      console.error('Error parsing user header:', error)
+-    }
+-
+     const updatedConfig = await prisma.appConfig.upsert({
+       where: { id: 'singleton' },
+       update: {
+diff --git a/app/api/config/test-smtp/route.ts b/app/api/config/test-smtp/route.ts
+index 55931ce..042c82f 100644
+--- a/app/api/config/test-smtp/route.ts
++++ b/app/api/config/test-smtp/route.ts
+@@ -1,6 +1,7 @@
+ import { type NextRequest, NextResponse } from "next/server"
+ import type { ApiResponse } from "@/lib/api-types"
+ import * as nodemailer from "nodemailer"
++import { requireAdmin } from "@/lib/auth-middleware"
+ 
+ // POST /api/config/test-smtp - Tester la configuration SMTP
+ 
+@@ -9,6 +10,9 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function POST(request: NextRequest) {
++  const auth = requireAdmin(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const body = await request.json()
+     const { smtp, testEmail } = body
+diff --git a/app/api/roles/[id]/route.ts b/app/api/roles/[id]/route.ts
+index 92a56b3..5b2e178 100644
+--- a/app/api/roles/[id]/route.ts
++++ b/app/api/roles/[id]/route.ts
+@@ -4,6 +4,7 @@ import type { ApiResponse } from "@/lib/api-types"
+ import type { RolePermissions } from "@/lib/types"
+ import { eventBus } from "@/lib/event-bus"
+ import { logAudit } from "@/lib/audit-logger"
++import { requireAdmin } from "@/lib/auth-middleware"
+ 
+ // PUT /api/roles/[id] - Mettre à jour un rôle
+ 
+@@ -12,20 +13,13 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAdmin(request)
++  if (!auth.authorized) return auth.response
++  const userData = auth.user
++
+   try {
+     const body = await request.json()
+ 
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    let userData = null
+-    try {
+-      if (userHeader) {
+-        userData = JSON.parse(userHeader)
+-      }
+-    } catch (error) {
+-      console.error('Error parsing user header:', error)
+-    }
+-
+     const role = await prisma.rolePermission.findUnique({
+       where: { id: params.id }
+     })
+@@ -96,18 +90,11 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
+ 
+ // DELETE /api/roles/[id] - Supprimer un rôle
+ export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+-  try {
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    let userData = null
+-    try {
+-      if (userHeader) {
+-        userData = JSON.parse(userHeader)
+-      }
+-    } catch (error) {
+-      console.error('Error parsing user header:', error)
+-    }
++  const auth = requireAdmin(request)
++  if (!auth.authorized) return auth.response
++  const userData = auth.user
+ 
++  try {
+     const role = await prisma.rolePermission.findUnique({
+       where: { id: params.id }
+     })
+diff --git a/app/api/roles/route.ts b/app/api/roles/route.ts
+index 8014d36..3f3a3ce 100644
+--- a/app/api/roles/route.ts
++++ b/app/api/roles/route.ts
+@@ -4,14 +4,21 @@ import type { ApiResponse } from "@/lib/api-types"
+ import type { RolePermissions } from "@/lib/types"
+ import { eventBus } from "@/lib/event-bus"
+ import { logAudit } from "@/lib/audit-logger"
++import { requireAuth, requireAdmin } from "@/lib/auth-middleware"
+ 
+ // GET /api/roles - Récupérer tous les rôles
++// Accessible à tout utilisateur authentifié : cette route est utilisée par
++// usePermissions() pour résoudre les permissions de CHAQUE utilisateur connecté,
++// pas seulement les admins.
+ 
+ // Forcer la route à être dynamique (ne pas pré-rendre)
+ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function GET(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const roles = await prisma.rolePermission.findMany({
+       orderBy: { role: 'asc' }
+@@ -35,20 +42,13 @@ export async function GET(request: NextRequest) {
+ 
+ // POST /api/roles - Créer un nouveau rôle
+ export async function POST(request: NextRequest) {
++  const auth = requireAdmin(request)
++  if (!auth.authorized) return auth.response
++  const userData = auth.user
++
+   try {
+     const body = await request.json()
+ 
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    let userData = null
+-    try {
+-      if (userHeader) {
+-        userData = JSON.parse(userHeader)
+-      }
+-    } catch (error) {
+-      console.error('Error parsing user header:', error)
+-    }
+-
+     if (!body.role || !body.permissions) {
+       return NextResponse.json<ApiResponse>(
+         {
+diff --git a/app/api/users/[id]/route.ts b/app/api/users/[id]/route.ts
+index 7bceab5..6ad11bd 100644
+--- a/app/api/users/[id]/route.ts
++++ b/app/api/users/[id]/route.ts
+@@ -4,6 +4,7 @@ import * as bcrypt from "bcryptjs"
+ import type { ApiResponse } from "@/lib/api-types"
+ import type { User } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
++import { requireAuth, requireAdmin, isAdminRole } from "@/lib/auth-middleware"
+ 
+ // GET /api/users/[id] - Récupérer un utilisateur par ID
+ 
+@@ -12,6 +13,9 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const user = await prisma.user.findUnique({
+       where: { id: params.id }
+@@ -47,29 +51,41 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
+ }
+ 
+ // PUT /api/users/[id] - Mettre à jour un utilisateur
++// Un utilisateur peut modifier son propre profil (nom, email, mot de passe),
++// mais seul un administrateur peut modifier le rôle ou le statut actif
++// (à soi-même ou à un autre utilisateur), et seul un administrateur peut
++// modifier le compte d'un tiers.
+ export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
++  const userData = auth.user
++  const isSelf = userData.id === params.id
++  const isAdmin = isAdminRole(userData.role)
++
++  if (!isSelf && !isAdmin) {
++    return NextResponse.json<ApiResponse>(
++      { success: false, error: "Accès refusé. Vous ne pouvez modifier que votre propre profil." },
++      { status: 403 },
++    )
++  }
++
+   try {
+     const body = await request.json()
+ 
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    let userData = null
+-    try {
+-      if (userHeader) {
+-        userData = JSON.parse(userHeader)
+-      }
+-    } catch (error) {
+-      console.error('Error parsing user header:', error)
+-    }
+-
+     // Si le mot de passe est fourni, le hasher
+     const updateData: any = {}
+     if (body.email !== undefined) updateData.email = body.email
+     if (body.firstName !== undefined) updateData.firstName = body.firstName
+     if (body.lastName !== undefined) updateData.lastName = body.lastName
+-    if (body.role !== undefined) updateData.role = body.role
+-    if (body.isActive !== undefined) updateData.isActive = body.isActive
+-    
++
++    // Le rôle et le statut actif ne peuvent être modifiés que par un administrateur,
++    // même sur son propre compte (empêche l'auto-élévation de privilèges).
++    if (isAdmin) {
++      if (body.role !== undefined) updateData.role = body.role
++      if (body.isActive !== undefined) updateData.isActive = body.isActive
++    }
++
+     if (body.password) {
+       updateData.password = await bcrypt.hash(body.password, 10)
+     }
+@@ -114,18 +130,11 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
+ 
+ // DELETE /api/users/[id] - Supprimer (désactiver) un utilisateur
+ export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+-  try {
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    let userData = null
+-    try {
+-      if (userHeader) {
+-        userData = JSON.parse(userHeader)
+-      }
+-    } catch (error) {
+-      console.error('Error parsing user header:', error)
+-    }
++  const auth = requireAdmin(request)
++  if (!auth.authorized) return auth.response
++  const userData = auth.user
+ 
++  try {
+     // Récupérer les infos avant suppression
+     const user = await prisma.user.findUnique({
+       where: { id: params.id }
+diff --git a/app/api/users/route.ts b/app/api/users/route.ts
+index ae7cff0..89dfb58 100644
+--- a/app/api/users/route.ts
++++ b/app/api/users/route.ts
+@@ -4,6 +4,7 @@ import * as bcrypt from "bcryptjs"
+ import type { ApiResponse } from "@/lib/api-types"
+ import type { User } from "@/lib/types"
+ import { logAudit } from "@/lib/audit-logger"
++import { requireAuth, requireAdmin } from "@/lib/auth-middleware"
+ 
+ // GET /api/users - Récupérer tous les utilisateurs avec filtres optionnels
+ 
+@@ -12,6 +13,9 @@ export const dynamic = 'force-dynamic'
+ export const runtime = 'nodejs'
+ 
+ export async function GET(request: NextRequest) {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const searchParams = request.nextUrl.searchParams
+     const role = searchParams.get("role")
+@@ -58,6 +62,9 @@ export async function GET(request: NextRequest) {
+ 
+ // POST /api/users - Créer un nouvel utilisateur
+ export async function POST(request: NextRequest) {
++  const auth = requireAdmin(request)
++  if (!auth.authorized) return auth.response
++
+   try {
+     const body = await request.json()
+ 
+@@ -99,16 +106,8 @@ export async function POST(request: NextRequest) {
+     // Hash du mot de passe
+     const hashedPassword = await bcrypt.hash(plainPassword, 10)
+ 
+-    // Récupérer l'utilisateur depuis le header
+-    const userHeader = request.headers.get("x-user-data")
+-    let userData = null
+-    try {
+-      if (userHeader) {
+-        userData = JSON.parse(userHeader)
+-      }
+-    } catch (error) {
+-      console.error('Error parsing user header:', error)
+-    }
++    // Identité de l'appelant (issue du JWT vérifié par requireAdmin, jamais d'un header client)
++    const userData = auth.user
+ 
+     const newUser = await prisma.user.create({
+       data: {
+diff --git a/app/dashboard/page.tsx b/app/dashboard/page.tsx
+index 352f766..45c90bc 100644
+--- a/app/dashboard/page.tsx
++++ b/app/dashboard/page.tsx
+@@ -11,6 +11,7 @@ import { format } from "date-fns"
+ import { fr } from "date-fns/locale"
+ import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
+ import { ChevronLeft, ChevronRight } from "lucide-react"
++import { getAuthHeaders } from "@/lib/api-client"
+ 
+ export default function DashboardPage() {
+   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined)
+@@ -59,7 +60,7 @@ export default function DashboardPage() {
+       logsParams.append('limit', logsPerPage.toString())
+       logsParams.append('offset', ((currentPage - 1) * logsPerPage).toString())
+       
+-      const logsResponse = await fetch(`/api/logs?${logsParams.toString()}`)
++      const logsResponse = await fetch(`/api/logs?${logsParams.toString()}`, { headers: getAuthHeaders() })
+       const logsData = await logsResponse.json()
+       
+       if (logsData.success) {
+diff --git a/app/dashboard/profile/page.tsx b/app/dashboard/profile/page.tsx
+index dc04482..a8e09be 100644
+--- a/app/dashboard/profile/page.tsx
++++ b/app/dashboard/profile/page.tsx
+@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
+ import { Label } from "@/components/ui/label"
+ import { Separator } from "@/components/ui/separator"
+ import { toast } from "@/hooks/use-toast"
++import { getAuthHeaders } from "@/lib/api-client"
+ 
+ export default function ProfilePage() {
+   const [currentUser, setCurrentUser] = useState<User | null>(null)
+@@ -51,7 +52,7 @@ export default function ProfilePage() {
+     try {
+       const response = await fetch(`/api/users/${currentUser.id}`, {
+         method: 'PUT',
+-        headers: { 'Content-Type': 'application/json' },
++        headers: getAuthHeaders(),
+         body: JSON.stringify(formData)
+       })
+ 
+@@ -105,7 +106,7 @@ export default function ProfilePage() {
+     try {
+       const response = await fetch(`/api/users/${currentUser.id}`, {
+         method: 'PUT',
+-        headers: { 'Content-Type': 'application/json' },
++        headers: getAuthHeaders(),
+         body: JSON.stringify({ password: passwordData.newPassword })
+       })
+ 
+diff --git a/app/middleware.ts b/app/middleware.ts
+index 780af64..1392e7d 100644
+--- a/app/middleware.ts
++++ b/app/middleware.ts
+@@ -13,6 +13,7 @@ const publicRoutes = [
+   "/login",
+   "/api/auth/login",
+   "/api/auth/refresh",
++  "/api/auth/logout",
+ ]
+ 
+ // Routes API qui nécessitent une authentification
+@@ -20,35 +21,28 @@ const protectedApiRoutes = ["/api"]
+ 
+ export function middleware(request: NextRequest) {
+   const { pathname } = request.nextUrl
+-  
+-  console.log(`[Middleware] Requête entrante: ${pathname}`)
+-  console.log(`[Middleware] Méthode: ${request.method}`)
+ 
+   // Ignorer les routes publiques
+-  const isPublicRoute = publicRoutes.some((route) => pathname === route || pathname.startsWith(route))
+-  console.log(`[Middleware] Route publique: ${isPublicRoute}`)
+-  
++  // IMPORTANT: comparaison EXACTE uniquement. Ne jamais utiliser
++  // `pathname.startsWith(route)` ici : comme tout pathname commence par "/",
++  // la route "/" matcherait alors n'importe quel chemin (y compris /api/*)
++  // et désactiverait silencieusement toute vérification d'authentification.
++  const isPublicRoute = publicRoutes.includes(pathname)
++
+   if (isPublicRoute) {
+-    console.log(`[Middleware] Route publique détectée, passage sans vérification`)
+     return NextResponse.next()
+   }
+ 
+   // Vérifier si c'est une route API protégée
+   const isProtectedApiRoute = protectedApiRoutes.some((route) => pathname.startsWith(route))
+-  console.log(`[Middleware] Route API protégée: ${isProtectedApiRoute}`)
+ 
+   if (isProtectedApiRoute) {
+     // Extraire le token du header Authorization
+     const authHeader = request.headers.get("authorization")
+     const token = extractTokenFromHeader(authHeader)
+ 
+-    console.log(`[Middleware] Route API protégée: ${pathname}`)
+-    console.log(`[Middleware] Authorization header présent: ${!!authHeader}`)
+-    console.log(`[Middleware] Token extrait: ${token ? 'Oui (' + token.substring(0, 20) + '...)' : 'Non'}`)
+-
+     if (!token) {
+       logger.warn("Unauthorized API request - No token provided", { pathname })
+-      console.error(`[Middleware] ERREUR: Aucun token fourni pour ${pathname}`)
+       return NextResponse.json(
+         {
+           success: false,
+@@ -60,12 +54,14 @@ export function middleware(request: NextRequest) {
+ 
+     try {
+       // Vérifier le token
+-      console.log(`[Middleware] Vérification du token pour ${pathname}...`)
+       const payload = verifyAccessToken(token)
+-      console.log(`[Middleware] ✓ Token valide pour utilisateur: ${payload.email}`)
+ 
+-      // Ajouter les données de l'utilisateur dans les headers pour les routes API
++      // Ajouter les données de l'utilisateur (issues du token vérifié) dans les
++      // headers pour les routes API. On repart d'un objet Headers propre plutôt
++      // que de copier request.headers, pour empêcher un client d'injecter lui-même
++      // un en-tête x-user-data forgé qui survivrait jusqu'à la route.
+       const requestHeaders = new Headers(request.headers)
++      requestHeaders.delete("x-user-data")
+       requestHeaders.set(
+         "x-user-data",
+         JSON.stringify({
+@@ -85,9 +81,6 @@ export function middleware(request: NextRequest) {
+     } catch (error) {
+       const errorMessage = error instanceof Error ? error.message : String(error)
+       logger.warn("Unauthorized API request - Invalid token", { pathname, error: errorMessage })
+-      console.error(`[Middleware] ERREUR: Token invalide pour ${pathname}`)
+-      console.error(`[Middleware] Détails de l'erreur:`, errorMessage)
+-      console.error(`[Middleware] Type d'erreur:`, error instanceof Error ? error.constructor.name : typeof error)
+       return NextResponse.json(
+         {
+           success: false,
+@@ -101,8 +94,7 @@ export function middleware(request: NextRequest) {
+   // Pour les routes dashboard, on ne peut pas vérifier le token côté serveur
+   // car les tokens sont dans localStorage côté client.
+   // La vérification sera faite côté client dans les composants.
+-  // On autorise l'accès et la page client vérifiera l'authentification.
+-  // Note: Les API appelées depuis ces pages seront protégées par le middleware ci-dessus.
++  // Les API appelées depuis ces pages sont protégées par le bloc ci-dessus.
+ 
+   // Par défaut, autoriser l'accès
+   return NextResponse.next()
+diff --git a/components/dashboard/banks-management.tsx b/components/dashboard/banks-management.tsx
+index 9cc6bf1..f613f7e 100644
+--- a/components/dashboard/banks-management.tsx
++++ b/components/dashboard/banks-management.tsx
+@@ -73,25 +73,25 @@ export default function BanksManagement() {
+       if (filters.status && filters.status !== 'all') params.append('status', filters.status)
+       if (filters.searchTerm) params.append('search', filters.searchTerm)
+       
+-      const response = await fetch(`/api/banks?${params.toString()}`)
++      const response = await fetch(`/api/banks?${params.toString()}`, { headers: getAuthHeaders() })
+       const data = await response.json()
+-      
++
+       if (data.success) {
+         setBanks(data.data || [])
+-        
++
+         // Extraire les pays uniques
+         const uniqueCountries = Array.from(new Set(data.data.map((b: Bank) => b.country)))
+         setCountries(uniqueCountries as string[])
+       }
+ 
+       // Charger aussi les locations et cartes pour l'affichage des détails
+-      const locationsResponse = await fetch('/api/locations')
++      const locationsResponse = await fetch('/api/locations', { headers: getAuthHeaders() })
+       const locationsData = await locationsResponse.json()
+       if (locationsData.success) {
+         setLocations(locationsData.data || [])
+       }
+ 
+-      const cardsResponse = await fetch('/api/cards')
++      const cardsResponse = await fetch('/api/cards', { headers: getAuthHeaders() })
+       const cardsData = await cardsResponse.json()
+       if (cardsData.success) {
+         setCards(cardsData.data || [])
+diff --git a/components/dashboard/cards-management.tsx b/components/dashboard/cards-management.tsx
+index b994721..510b187 100644
+--- a/components/dashboard/cards-management.tsx
++++ b/components/dashboard/cards-management.tsx
+@@ -47,7 +47,7 @@ export default function CardsManagement() {
+     setIsLoading(true)
+     try {
+       // Charger TOUTES les cartes pour extraire les types/sous-types (sans filtres)
+-      const allCardsResponse = await fetch('/api/cards')
++      const allCardsResponse = await fetch('/api/cards', { headers: getAuthHeaders() })
+       const allCardsData = await allCardsResponse.json()
+       if (allCardsData.success) {
+         // Extraire les types uniques de TOUTES les cartes
+@@ -68,14 +68,14 @@ export default function CardsManagement() {
+       if (filters.lowStock) params.append('lowStock', 'true')
+       if (filters.searchTerm) params.append('search', filters.searchTerm)
+ 
+-      const cardsResponse = await fetch(`/api/cards?${params.toString()}`)
++      const cardsResponse = await fetch(`/api/cards?${params.toString()}`, { headers: getAuthHeaders() })
+       const cardsData = await cardsResponse.json()
+       if (cardsData.success) {
+         setCards(cardsData.data || [])
+       }
+ 
+       // Charger les banques actives
+-      const banksResponse = await fetch('/api/banks?status=active')
++      const banksResponse = await fetch('/api/banks?status=active', { headers: getAuthHeaders() })
+       const banksData = await banksResponse.json()
+       if (banksData.success) {
+         setBanks(banksData.data || [])
+@@ -240,7 +240,8 @@ export default function CardsManagement() {
+     if (confirm("Êtes-vous sûr de vouloir supprimer cette carte ?")) {
+       try {
+         const response = await fetch(`/api/cards/${id}`, {
+-          method: 'DELETE'
++          method: 'DELETE',
++          headers: getAuthHeaders(),
+         })
+         const data = await response.json()
+         if (data.success) {
+diff --git a/components/dashboard/configuration-panel.tsx b/components/dashboard/configuration-panel.tsx
+index 20a28f3..f3e928c 100644
+--- a/components/dashboard/configuration-panel.tsx
++++ b/components/dashboard/configuration-panel.tsx
+@@ -29,7 +29,7 @@ export default function ConfigurationPanel() {
+ 
+   const loadConfig = async () => {
+     try {
+-      const response = await fetch('/api/config')
++      const response = await fetch('/api/config', { headers: getAuthHeaders() })
+       const data = await response.json()
+       if (data.success && data.data) {
+         setConfig(data.data)
+diff --git a/components/dashboard/dashboard.tsx b/components/dashboard/dashboard.tsx
+index 95ddec9..9fc0877 100644
+--- a/components/dashboard/dashboard.tsx
++++ b/components/dashboard/dashboard.tsx
+@@ -13,6 +13,7 @@ import MovementsManagement from "./movements-management"
+ import UsersManagement from "./users-management"
+ import ConfigurationPanel from "./configuration-panel"
+ import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
++import { getAuthHeaders } from "@/lib/api-client"
+ 
+ interface DashboardProps {
+   user: User
+@@ -56,7 +57,7 @@ export default function Dashboard({ user, onLogout }: DashboardProps) {
+ 
+   const loadStats = async () => {
+     try {
+-      const response = await fetch('/api/stats')
++      const response = await fetch('/api/stats', { headers: getAuthHeaders() })
+       const data = await response.json()
+       if (data.success) {
+         setStats(data.data)
+diff --git a/components/dashboard/locations-management.tsx b/components/dashboard/locations-management.tsx
+index d19f7f8..809ddc1 100644
+--- a/components/dashboard/locations-management.tsx
++++ b/components/dashboard/locations-management.tsx
+@@ -63,7 +63,7 @@ export default function LocationsManagement() {
+ 
+   const loadConfig = async () => {
+     try {
+-      const configResponse = await fetch('/api/config')
++      const configResponse = await fetch('/api/config', { headers: getAuthHeaders() })
+       const configData = await configResponse.json()
+       if (configData.success && configData.data?.general?.logo) {
+         setLogoPath(configData.data.general.logo)
+@@ -80,7 +80,7 @@ export default function LocationsManagement() {
+       if (searchFilters.bankId) params.append('bankId', searchFilters.bankId)
+       if (searchTerm) params.append('search', searchTerm)
+ 
+-      const locationsResponse = await fetch(`/api/locations?${params.toString()}`)
++      const locationsResponse = await fetch(`/api/locations?${params.toString()}`, { headers: getAuthHeaders() })
+       const locationsData = await locationsResponse.json()
+       
+       if (locationsData.success) {
+@@ -96,14 +96,14 @@ export default function LocationsManagement() {
+         setCardsByLocation(byLocation)
+       }
+ 
+-      const banksResponse = await fetch('/api/banks?status=active')
++      const banksResponse = await fetch('/api/banks?status=active', { headers: getAuthHeaders() })
+       const banksData = await banksResponse.json()
+       if (banksData.success) {
+         setBanks(banksData.data || [])
+       }
+ 
+       // Charger les cartes
+-      const cardsResponse = await fetch('/api/cards')
++      const cardsResponse = await fetch('/api/cards', { headers: getAuthHeaders() })
+       const cardsData = await cardsResponse.json()
+       if (cardsData.success) {
+         setCards(cardsData.data || [])
+diff --git a/components/dashboard/logs-panel.tsx b/components/dashboard/logs-panel.tsx
+index 76a7bbb..d6454e1 100644
+--- a/components/dashboard/logs-panel.tsx
++++ b/components/dashboard/logs-panel.tsx
+@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
+ import { Button } from "@/components/ui/button"
+ import { Badge } from "@/components/ui/badge"
+ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
++import { getAuthHeaders } from "@/lib/api-client"
+ 
+ export default function LogsPanel() {
+   const [logs, setLogs] = useState<AuditLog[]>([])
+@@ -34,7 +35,7 @@ export default function LogsPanel() {
+   const loadCurrentUser = async () => {
+     try {
+       // Pour l'instant, simuler un utilisateur admin
+-      const usersResponse = await fetch('/api/users')
++      const usersResponse = await fetch('/api/users', { headers: getAuthHeaders() })
+       const usersData = await usersResponse.json()
+       if (usersData.success && usersData.data.length > 0) {
+         const admin = usersData.data.find((u: any) => u.role === 'admin')
+@@ -47,7 +48,7 @@ export default function LogsPanel() {
+ 
+   const loadUsers = async () => {
+     try {
+-      const response = await fetch('/api/users')
++      const response = await fetch('/api/users', { headers: getAuthHeaders() })
+       const data = await response.json()
+       if (data.success) {
+         setUsers(data.data || [])
+@@ -74,7 +75,7 @@ export default function LogsPanel() {
+         url += `&dateTo=${endDate}`
+       }
+       
+-      const response = await fetch(url)
++      const response = await fetch(url, { headers: getAuthHeaders() })
+       const data = await response.json()
+       if (data.success) {
+         setLogs(data.data || [])
+diff --git a/components/dashboard/movements-management.tsx b/components/dashboard/movements-management.tsx
+index 30b2b82..1dd1374 100644
+--- a/components/dashboard/movements-management.tsx
++++ b/components/dashboard/movements-management.tsx
+@@ -93,7 +93,7 @@ export default function MovementsManagement() {
+ 
+   const loadConfig = async () => {
+     try {
+-      const configResponse = await fetch('/api/config')
++      const configResponse = await fetch('/api/config', { headers: getAuthHeaders() })
+       const configData = await configResponse.json()
+       if (configData.success && configData.data?.general?.logo) {
+         setLogoPath(configData.data.general.logo)
+@@ -111,21 +111,21 @@ export default function MovementsManagement() {
+   const loadCardsLocationsBanks = async () => {
+     try {
+       // Charger les cartes
+-      const cardsResponse = await fetch('/api/cards')
++      const cardsResponse = await fetch('/api/cards', { headers: getAuthHeaders() })
+       const cardsData = await cardsResponse.json()
+       if (cardsData.success) {
+         setCards(cardsData.data || [])
+       }
+ 
+       // Charger les emplacements
+-      const locationsResponse = await fetch('/api/locations')
++      const locationsResponse = await fetch('/api/locations', { headers: getAuthHeaders() })
+       const locationsData = await locationsResponse.json()
+       if (locationsData.success) {
+         setLocations(locationsData.data.filter((l: any) => l.isActive) || [])
+       }
+ 
+       // Charger les banques
+-      const banksResponse = await fetch('/api/banks?status=active')
++      const banksResponse = await fetch('/api/banks?status=active', { headers: getAuthHeaders() })
+       const banksData = await banksResponse.json()
+       if (banksData.success) {
+         setBanks(banksData.data || [])
+@@ -171,7 +171,7 @@ export default function MovementsManagement() {
+       params.append('limit', movementsPerPage.toString())
+ 
+       // Charger les mouvements avec filtres et pagination
+-      const movementsResponse = await fetch(`/api/movements?${params.toString()}`)
++      const movementsResponse = await fetch(`/api/movements?${params.toString()}`, { headers: getAuthHeaders() })
+       const movementsData = await movementsResponse.json()
+       if (movementsData.success && movementsData.data) {
+         // S'assurer que movements est toujours un tableau
+@@ -303,9 +303,9 @@ export default function MovementsManagement() {
+       params.append('limit', '10000')
+       params.append('page', '1')
+ 
+-      const movementsResponse = await fetch(`/api/movements?${params.toString()}`)
++      const movementsResponse = await fetch(`/api/movements?${params.toString()}`, { headers: getAuthHeaders() })
+       const movementsData = await movementsResponse.json()
+-      
++
+       let movementsToPrint: Movement[] = []
+       if (movementsData.success && movementsData.data) {
+         movementsToPrint = Array.isArray(movementsData.data.movements) 
+@@ -1153,7 +1153,11 @@ export default function MovementsManagement() {
+       }
+ 
+       await loadMovements()
+-      
++      // Recharger les cartes (et leurs stockLevels par emplacement) : sans cela, le stock
++      // disponible affiché/validé pour un mouvement suivant reste celui d'avant ce mouvement
++      // tant que la page n'est pas rechargée manuellement.
++      await loadCardsLocationsBanks()
++
+       // Impression d'un bon consolidé si plusieurs cartes (génération en masse) et que tous sont réussis
+       if (bulkContext.cardQuantities.length > 1 && successCount > 0 && errorCount === 0) {
+         printBulkSlip(bulkContext, createdMovements)
+diff --git a/components/dashboard/users-management.tsx b/components/dashboard/users-management.tsx
+index f251b66..65d5544 100644
+--- a/components/dashboard/users-management.tsx
++++ b/components/dashboard/users-management.tsx
+@@ -88,14 +88,14 @@ export default function UsersManagement() {
+       if (filters.status && filters.status !== 'all') params.append('status', filters.status)
+       if (filters.searchTerm) params.append('search', filters.searchTerm)
+       
+-      const usersResponse = await fetch(`/api/users?${params.toString()}`)
++      const usersResponse = await fetch(`/api/users?${params.toString()}`, { headers: getAuthHeaders() })
+       const usersData = await usersResponse.json()
+       if (usersData.success) {
+         setUsers(usersData.data || [])
+       }
+ 
+       // Charger les rôles
+-      const rolesResponse = await fetch('/api/roles')
++      const rolesResponse = await fetch('/api/roles', { headers: getAuthHeaders() })
+       const rolesData = await rolesResponse.json()
+       if (rolesData.success) {
+         setRolePermissions(rolesData.data || [])
+@@ -273,7 +273,8 @@ export default function UsersManagement() {
+     if (confirm("Êtes-vous sûr de vouloir désactiver cet utilisateur ?")) {
+       try {
+         const response = await fetch(`/api/users/${userId}`, {
+-          method: 'DELETE'
++          method: 'DELETE',
++          headers: getAuthHeaders(),
+         })
+         const data = await response.json()
+         if (data.success) {
+@@ -429,7 +430,8 @@ export default function UsersManagement() {
+     if (confirm(`Êtes-vous sûr de vouloir supprimer le rôle "${role.role}" ?`)) {
+       try {
+         const response = await fetch(`/api/roles/${roleId}`, {
+-          method: 'DELETE'
++          method: 'DELETE',
++          headers: getAuthHeaders(),
+         })
+ 
+         const data = await response.json()
+diff --git a/components/notifications.tsx b/components/notifications.tsx
+index dc14bc7..7c2eb2f 100644
+--- a/components/notifications.tsx
++++ b/components/notifications.tsx
+@@ -12,6 +12,7 @@ import {
+   DropdownMenuTrigger,
+ } from "@/components/ui/dropdown-menu"
+ import { ScrollArea } from "@/components/ui/scroll-area"
++import { getAuthHeaders } from "@/lib/api-client"
+ 
+ export default function NotificationsDropdown() {
+   const [notifications, setNotifications] = useState<Notification[]>([])
+@@ -30,7 +31,7 @@ export default function NotificationsDropdown() {
+       const currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null')
+       if (currentUser) {
+         // Récupérer toutes les notifications
+-        const response = await fetch(`/api/notifications?userId=${currentUser.id}`)
++        const response = await fetch(`/api/notifications?userId=${currentUser.id}`, { headers: getAuthHeaders() })
+         const data = await response.json()
+         if (data.success) {
+           const allNotifications = data.data.slice(0, 10) // Show last 10 notifications
+@@ -50,10 +51,10 @@ export default function NotificationsDropdown() {
+     try {
+       const response = await fetch(`/api/notifications/${id}`, {
+         method: 'PUT',
+-        headers: { 'Content-Type': 'application/json' },
++        headers: getAuthHeaders(),
+         body: JSON.stringify({ isRead: true })
+       })
+-      
++
+       if (response.ok) {
+         await loadNotifications()
+       }
+@@ -81,7 +82,7 @@ export default function NotificationsDropdown() {
+         const promises = unreadNotifications.map(notification => 
+           fetch(`/api/notifications/${notification.id}`, {
+             method: 'PUT',
+-            headers: { 'Content-Type': 'application/json' },
++            headers: getAuthHeaders(),
+             body: JSON.stringify({ isRead: true })
+           })
+         )
+@@ -102,7 +103,8 @@ export default function NotificationsDropdown() {
+   const handleDeleteNotification = async (id: string) => {
+     try {
+       const response = await fetch(`/api/notifications/${id}`, {
+-        method: 'DELETE'
++        method: 'DELETE',
++        headers: getAuthHeaders(),
+       })
+       
+       if (response.ok) {
+diff --git a/lib/auth-middleware.ts b/lib/auth-middleware.ts
+index a856157..1985f8f 100644
+--- a/lib/auth-middleware.ts
++++ b/lib/auth-middleware.ts
+@@ -4,9 +4,10 @@
+  * (Le middleware Next.js ne peut pas utiliser jsonwebtoken car il s'exécute dans Edge Runtime)
+  */
+ 
+-import { type NextRequest } from "next/server"
++import { type NextRequest, NextResponse } from "next/server"
+ import { verifyAccessToken, extractTokenFromHeader } from "@/lib/auth"
+ import { logger } from "@/lib/logger"
++import type { ApiResponse } from "@/lib/api-types"
+ 
+ export interface AuthenticatedRequest extends NextRequest {
+   user: {
+@@ -18,6 +19,76 @@ export interface AuthenticatedRequest extends NextRequest {
+   }
+ }
+ 
++export interface AuthUser {
++  id: string
++  email: string
++  firstName: string
++  lastName: string
++  role: string
++}
++
++// Rôles considérés comme administrateurs pour les actions sensibles
++// (gestion des utilisateurs, des rôles, de la configuration de l'application).
++const ADMIN_ROLES = ["admin", "super_admin"]
++
++export function isAdminRole(role: string): boolean {
++  return ADMIN_ROLES.includes(role.toLowerCase())
++}
++
++type AuthResult =
++  | { authorized: true; user: AuthUser }
++  | { authorized: false; response: NextResponse }
++
++/**
++ * Vérifie qu'une requête API porte un JWT valide.
++ * Ne dépend pas du header x-user-data injecté par le middleware Next.js :
++ * chaque route peut ainsi être protégée indépendamment (défense en profondeur),
++ * et l'identité utilisée pour l'audit provient toujours du token vérifié,
++ * jamais d'un en-tête que le client pourrait forger.
++ */
++export function requireAuth(request: NextRequest): AuthResult {
++  try {
++    const user = verifyAuth(request)
++    return { authorized: true, user }
++  } catch (error) {
++    const errorMessage = error instanceof Error ? error.message : String(error)
++    return {
++      authorized: false,
++      response: NextResponse.json<ApiResponse>(
++        { success: false, error: errorMessage },
++        { status: 401 }
++      ),
++    }
++  }
++}
++
++/**
++ * Comme requireAuth, mais exige en plus un rôle administrateur.
++ * À utiliser sur les endpoints sensibles : gestion des utilisateurs, des
++ * rôles/permissions, et de la configuration de l'application.
++ */
++export function requireAdmin(request: NextRequest): AuthResult {
++  const auth = requireAuth(request)
++  if (!auth.authorized) return auth
++
++  if (!ADMIN_ROLES.includes(auth.user.role.toLowerCase())) {
++    logger.warn("Forbidden API request - Insufficient role", {
++      pathname: request.nextUrl.pathname,
++      role: auth.user.role,
++      email: auth.user.email,
++    })
++    return {
++      authorized: false,
++      response: NextResponse.json<ApiResponse>(
++        { success: false, error: "Accès refusé. Droits administrateur requis." },
++        { status: 403 }
++      ),
++    }
++  }
++
++  return auth
++}
++
+ /**
+  * Vérifie le token JWT et retourne les données utilisateur
+  * @throws {Error} Si le token est invalide ou manquant
+diff --git a/lib/auth.ts b/lib/auth.ts
+index 647118b..c6fc62b 100644
+--- a/lib/auth.ts
++++ b/lib/auth.ts
+@@ -33,27 +33,20 @@ export interface JWTPayload {
+  * Génère un token JWT d'accès
+  */
+ export function signAccessToken(payload: Omit<JWTPayload, "iat" | "exp">): string {
+-  console.log(`[JWT] Génération du token d'accès pour: ${payload.email}`)
+-  console.log(`[JWT] JWT_SECRET défini: ${!!JWT_SECRET}`)
+-  console.log(`[JWT] Longueur JWT_SECRET: ${JWT_SECRET ? JWT_SECRET.length : 0}`)
+-
+   // Vérifier au runtime (pas au build)
+   if (process.env.NODE_ENV === "production") {
+     if (!JWT_SECRET || JWT_SECRET.length < 32) {
+-      const errorMsg = `JWT_SECRET invalide ou manquant lors de la signature (longueur: ${JWT_SECRET ? JWT_SECRET.length : 0})`
++      const errorMsg = "JWT_SECRET invalide ou manquant lors de la signature"
+       console.error(`[JWT] ERREUR: ${errorMsg}`)
+       throw new Error(errorMsg)
+     }
+   }
+ 
+-  const token = jwt.sign(payload, JWT_SECRET, {
++  return jwt.sign(payload, JWT_SECRET, {
+     expiresIn: ACCESS_TOKEN_EXPIRES_IN,
+     issuer: "gestion-stock-smt",
+     audience: "gestion-stock-smt-users",
+   })
+-
+-  console.log(`[JWT] ✓ Token d'accès généré avec succès`)
+-  return token
+ }
+ 
+ /**
+@@ -89,16 +82,10 @@ export function signRefreshToken(payload: Omit<JWTPayload, "iat" | "exp">): stri
+  */
+ export function verifyAccessToken(token: string): JWTPayload {
+   try {
+-    // Logs de diagnostic
+-    console.log(`[JWT] Vérification du token...`)
+-    console.log(`[JWT] JWT_SECRET défini: ${!!JWT_SECRET}`)
+-    console.log(`[JWT] Longueur JWT_SECRET: ${JWT_SECRET ? JWT_SECRET.length : 0}`)
+-    console.log(`[JWT] Token (premiers 30 chars): ${token.substring(0, 30)}...`)
+-
+     // Vérifier au runtime (pas au build)
+     if (process.env.NODE_ENV === "production") {
+       if (!JWT_SECRET || JWT_SECRET.length < 32) {
+-        const errorMsg = `JWT_SECRET invalide ou manquant (longueur: ${JWT_SECRET ? JWT_SECRET.length : 0})`
++        const errorMsg = "JWT_SECRET invalide ou manquant"
+         console.error(`[JWT] ERREUR: ${errorMsg}`)
+         throw new Error(errorMsg)
+       }
+@@ -109,7 +96,6 @@ export function verifyAccessToken(token: string): JWTPayload {
+       audience: "gestion-stock-smt-users",
+     }) as JWTPayload
+ 
+-    console.log(`[JWT] ✓ Token vérifié avec succès pour: ${decoded.email}`)
+     return decoded
+   } catch (error) {
+     if (error instanceof jwt.TokenExpiredError) {

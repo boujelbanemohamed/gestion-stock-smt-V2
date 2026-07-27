@@ -380,9 +380,15 @@ async function main() {
         },
         notifications: {
           enabled: true,
-          lowStockAlerts: true,
-          movementNotifications: true,
-          userActivityAlerts: true,
+          lowStockAlerts: { inApp: true, email: true },
+          movementNotifications: { inApp: true, email: true },
+          userActivityAlerts: { inApp: true, email: true },
+          accountEmails: {
+            welcomeEmail: true,
+            passwordResetEmail: true,
+            passwordChangedEmail: true,
+            authMethodChangedEmail: true
+          },
           lowStockThreshold: 100,
           criticalStockThreshold: 50,
           emailNotifications: true,

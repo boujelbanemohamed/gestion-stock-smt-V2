@@ -11,8 +11,11 @@ import { logger } from "@/lib/logger"
 const publicRoutes = [
   "/",
   "/login",
+  "/reset-password",
   "/api/auth/login",
   "/api/auth/refresh",
+  "/api/auth/forgot-password",
+  "/api/auth/reset-password",
 ]
 
 // Routes API qui nécessitent une authentification

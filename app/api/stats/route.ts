@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
+import { requireAuth } from "@/lib/auth-middleware"
 
 // GET /api/stats - Récupérer les statistiques
 
@@ -9,6 +10,9 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
+  const auth = requireAuth(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const searchParams = request.nextUrl.searchParams
     const dateFrom = searchParams.get("dateFrom")
@@ -71,9 +75,29 @@ export async function GET(request: NextRequest) {
     // Récupérer toutes les cartes et filtrer côté application
     const allCards = await prisma.card.findMany({
       where: { isActive: true },
-      select: { quantity: true, minThreshold: true }
+      select: {
+        id: true,
+        name: true,
+        quantity: true,
+        minThreshold: true,
+        bank: { select: { id: true, name: true } },
+      }
     })
-    const lowStockCards = allCards.filter(card => card.quantity < card.minThreshold).length
+    const lowStockCardsData = allCards.filter(card => card.quantity < card.minThreshold)
+    const lowStockCards = lowStockCardsData.length
+
+    // Liste des cartes en stock bas pour le widget d'alerte du tableau de bord,
+    // triée par écart au seuil le plus critique (quantité - seuil le plus négatif en premier)
+    const lowStockCardsList = lowStockCardsData
+      .sort((a, b) => (a.quantity - a.minThreshold) - (b.quantity - b.minThreshold))
+      .slice(0, 10)
+      .map(card => ({
+        id: card.id,
+        name: card.name,
+        bankName: card.bank?.name || "-",
+        quantity: card.quantity,
+        minThreshold: card.minThreshold,
+      }))
 
     // Utilisateurs actifs
     const activeUsers = await prisma.user.count({
@@ -293,6 +317,7 @@ export async function GET(request: NextRequest) {
       todayMovements,
       totalCards,
       lowStockCards,
+      lowStockCardsList,
       activeUsers,
       // Nouveaux KPIs
       totalStockVolume: totalStockVolume._sum.quantity || 0,

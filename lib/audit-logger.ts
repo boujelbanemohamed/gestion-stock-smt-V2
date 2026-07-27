@@ -52,11 +52,11 @@ export async function logAudit(
       const importantModules = ["users", "config", "roles"]
       
       if (importantActions.includes(entry.action) && importantModules.includes(entry.module)) {
+        const activityType = `${entry.action.charAt(0).toUpperCase() + entry.action.slice(1)} ${entry.module}`
+        const userName = entry.userEmail.split("@")[0] // Utiliser l'email comme nom si pas disponible
+
         try {
           const { sendUserActivityAlert } = await import("@/lib/email-service")
-          const activityType = `${entry.action.charAt(0).toUpperCase() + entry.action.slice(1)} ${entry.module}`
-          const userName = entry.userEmail.split("@")[0] // Utiliser l'email comme nom si pas disponible
-          
           await sendUserActivityAlert(
             activityType,
             userName,
@@ -66,6 +66,14 @@ export async function logAudit(
         } catch (emailError) {
           console.error("Erreur lors de l'envoi de l'alerte email:", emailError)
           // On continue même si l'email échoue
+        }
+
+        try {
+          const { createUserActivityNotification } = await import("@/lib/notification-helper")
+          await createUserActivityNotification(activityType, entry.module, entry.entityName || entry.entityType)
+        } catch (notifError) {
+          console.error("Erreur lors de la création de la notification in-app:", notifError)
+          // On continue même si la notification échoue
         }
       }
     }

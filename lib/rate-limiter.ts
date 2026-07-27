@@ -109,6 +109,38 @@ export const loginRateLimiter = createRateLimiter({
 })
 
 /**
+ * Rate limiter pour la vérification des codes 2FA (5 tentatives par 15 minutes) :
+ * un code TOTP à 6 chiffres est bruteforçable en un nombre gérable d'essais
+ * sans cette limite (seulement 10^6 possibilités par fenêtre de temps).
+ */
+export const twoFactorRateLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  maxRequests: 5,
+  message: "Trop de tentatives. Veuillez réessayer dans 15 minutes.",
+  keyGenerator: (req) => {
+    const forwarded = req.headers.get("x-forwarded-for")
+    const ip = forwarded ? forwarded.split(",")[0] : req.headers.get("x-real-ip") || "unknown"
+    return `2fa:${ip}`
+  },
+})
+
+/**
+ * Rate limiter pour les demandes de réinitialisation de mot de passe
+ * (5 demandes par 15 minutes) : évite qu'un tiers ne spamme d'emails de
+ * réinitialisation vers une adresse qui n'est pas la sienne.
+ */
+export const passwordResetRateLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  maxRequests: 5,
+  message: "Trop de demandes de réinitialisation. Veuillez réessayer dans 15 minutes.",
+  keyGenerator: (req) => {
+    const forwarded = req.headers.get("x-forwarded-for")
+    const ip = forwarded ? forwarded.split(",")[0] : req.headers.get("x-real-ip") || "unknown"
+    return `password-reset:${ip}`
+  },
+})
+
+/**
  * Rate limiter général pour les API (100 requêtes par minute)
  */
 export const apiRateLimiter = createRateLimiter({

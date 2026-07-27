@@ -1,0 +1,298 @@
+diff --git a/app/dashboard/statistics/page.tsx b/app/dashboard/statistics/page.tsx
+index be75feb..c26e3ac 100644
+--- a/app/dashboard/statistics/page.tsx
++++ b/app/dashboard/statistics/page.tsx
+@@ -9,7 +9,15 @@ import { DateRangePicker } from "@/components/dashboard/date-range-picker"
+ import type { DateRange } from "react-day-picker"
+ import type { Bank, Location } from "@/lib/types"
+ import { getAuthHeaders } from "@/lib/api-client"
+-import { Calculator, TrendingUp, Printer } from "lucide-react"
++import { exportToCsv, exportToExcel } from "@/lib/export"
++import {
++  DropdownMenu,
++  DropdownMenuContent,
++  DropdownMenuItem,
++  DropdownMenuTrigger,
++} from "@/components/ui/dropdown-menu"
++import { toast } from "@/hooks/use-toast"
++import { Calculator, TrendingUp, Printer, Download } from "lucide-react"
+ 
+ export default function StatisticsPage() {
+   const [banks, setBanks] = useState<Bank[]>([])
+@@ -566,6 +574,49 @@ export default function StatisticsPage() {
+     loadLogoAndPrint()
+   }
+ 
++  const handleExport = async (format: "csv" | "excel") => {
++    if (!result) return
++
++    const summaryHeaders = ["Indicateur", "Valeur"]
++    const summaryRows: (string | number)[][] = [
++      ["Emplacement De", result.fromLocationName || "-"],
++      ["Quantité De", result.quantiteDe],
++      ["Emplacement Vers", result.toLocationName || "-"],
++      ["Quantité Vers", result.quantiteVers],
++      ["Total (De + Vers)", result.total],
++      ["Pourcentage", `${result.pourcentage.toFixed(2)}%`],
++      ["Nombre de mouvements analysés", result.nombreMouvements],
++      ...(result.filtres.dateFrom && result.filtres.dateTo
++        ? [["Période", `du ${new Date(result.filtres.dateFrom).toLocaleDateString('fr-FR')} au ${new Date(result.filtres.dateTo).toLocaleDateString('fr-FR')}`]]
++        : []),
++    ]
++
++    const detailsHeaders = ["Date", "Banque", "Code banque", "Type de mouvement", "Type de carte", "Quantité De", "Quantité Vers", "Total"]
++    const detailsRows: (string | number)[][] = (result.detailsByDate || []).map((detail) => [
++      new Date(detail.date).toLocaleDateString('fr-FR'),
++      detail.bankName,
++      detail.bankCode,
++      detail.movementType,
++      detail.cardType,
++      detail.quantiteDe,
++      detail.quantiteVers,
++      detail.quantiteDe + detail.quantiteVers,
++    ])
++
++    const filename = `statistiques_${new Date().toISOString().slice(0, 10)}`
++
++    if (format === "csv") {
++      // Le CSV ne supporte qu'une seule table : on exporte le détail, le plus utile pour retraitement.
++      exportToCsv(filename, detailsHeaders, detailsRows)
++    } else {
++      await exportToExcel(filename, [
++        { name: "Résumé", headers: summaryHeaders, rows: summaryRows },
++        { name: "Détails", headers: detailsHeaders, rows: detailsRows },
++      ])
++    }
++    toast({ title: "Export réussi", description: "Les statistiques ont été exportées avec succès." })
++  }
++
+   return (
+     <div className="space-y-6">
+       <Card>
+@@ -714,14 +765,32 @@ export default function StatisticsPage() {
+                       Pourcentage calculé sur la période sélectionnée
+                     </CardDescription>
+                   </div>
+-                  <Button
+-                    onClick={handlePrint}
+-                    variant="outline"
+-                    className="flex items-center gap-2"
+-                  >
+-                    <Printer className="h-4 w-4" />
+-                    Imprimer
+-                  </Button>
++                  <div className="flex items-center gap-2">
++                    <Button
++                      onClick={handlePrint}
++                      variant="outline"
++                      className="flex items-center gap-2"
++                    >
++                      <Printer className="h-4 w-4" />
++                      Imprimer
++                    </Button>
++                    <DropdownMenu>
++                      <DropdownMenuTrigger asChild>
++                        <Button variant="outline" className="flex items-center gap-2">
++                          <Download className="h-4 w-4" />
++                          Exporter
++                        </Button>
++                      </DropdownMenuTrigger>
++                      <DropdownMenuContent align="end">
++                        <DropdownMenuItem onClick={() => handleExport("csv")}>
++                          Exporter en CSV
++                        </DropdownMenuItem>
++                        <DropdownMenuItem onClick={() => handleExport("excel")}>
++                          Exporter en Excel
++                        </DropdownMenuItem>
++                      </DropdownMenuContent>
++                    </DropdownMenu>
++                  </div>
+                 </div>
+               </CardHeader>
+               <CardContent>
+diff --git a/components/dashboard/movements-management.tsx b/components/dashboard/movements-management.tsx
+index a046266..be4ee7f 100644
+--- a/components/dashboard/movements-management.tsx
++++ b/components/dashboard/movements-management.tsx
+@@ -23,10 +23,17 @@ import { Badge } from "@/components/ui/badge"
+ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+ import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
+ import type { Movement, Card as CardType, Location, Bank, MovementReason } from "@/lib/types"
+-import { Filter, ChevronLeft, ChevronRight, Paperclip } from "lucide-react"
++import { Filter, ChevronLeft, ChevronRight, Paperclip, Download } from "lucide-react"
+ import { getAuthHeaders, authenticatedFetch } from "@/lib/api-client"
+ import { toast } from "@/hooks/use-toast"
+ import { cn } from "@/lib/utils"
++import { exportToCsv, exportToExcel } from "@/lib/export"
++import {
++  DropdownMenu,
++  DropdownMenuContent,
++  DropdownMenuItem,
++  DropdownMenuTrigger,
++} from "@/components/ui/dropdown-menu"
+ 
+ const FIELD_LABELS: Record<string, string> = {
+   bankId: "Banque",
+@@ -806,6 +813,69 @@ export default function MovementsManagement() {
+     }
+   }
+ 
++  // Récupère TOUS les mouvements correspondant aux filtres actuels (sans pagination),
++  // pour l'export CSV/Excel — mêmes filtres que ceux utilisés pour l'impression.
++  const fetchAllFilteredMovements = async (): Promise<Movement[]> => {
++    const params = new URLSearchParams()
++    if (filters.bankId && filters.bankId !== "all") params.append('bankId', filters.bankId)
++    if (filters.cardId && filters.cardId !== "all") params.append('cardId', filters.cardId)
++    if (filters.movementType && filters.movementType !== "all") params.append('type', filters.movementType)
++    if (filters.fromLocationId && filters.fromLocationId !== "all") params.append('fromLocationId', filters.fromLocationId)
++    if (filters.toLocationId && filters.toLocationId !== "all") params.append('toLocationId', filters.toLocationId)
++    if (filters.dateFrom) params.append('dateFrom', filters.dateFrom)
++    if (filters.dateTo) params.append('dateTo', filters.dateTo)
++    if (filters.searchTerm) params.append('searchTerm', filters.searchTerm)
++    params.append('limit', '10000')
++    params.append('page', '1')
++
++    const response = await fetch(`/api/movements?${params.toString()}`, { headers: getAuthHeaders() })
++    const data = await response.json()
++    return data.success && Array.isArray(data.data?.movements) ? data.data.movements : []
++  }
++
++  const buildMovementsExportTable = (movementsToExport: Movement[]) => {
++    const headers = ["Date et Heure", "Banque", "Carte", "Type", "De", "Vers", "Quantité", "Motif", "Document", "Utilisateur"]
++    const rows = movementsToExport.map((movement) => {
++      const card = cards.find((c) => c.id === movement.cardId)
++      return [
++        formatDateTime(movement.createdAt),
++        card ? getBankName(card.bankId) : "N/A",
++        getCardName(movement.cardId),
++        getMovementTypeLabel(movement.movementType),
++        movement.fromLocationId ? getLocationName(movement.fromLocationId) : "-",
++        movement.toLocationId ? getLocationName(movement.toLocationId) : "-",
++        movement.quantity,
++        movement.reason,
++        movement.documentUrl ? "Oui" : "Non",
++        getUserName(movement.userId),
++      ]
++    })
++    return { headers, rows }
++  }
++
++  const handleExportMovements = async (format: "csv" | "excel") => {
++    try {
++      const movementsToExport = await fetchAllFilteredMovements()
++      if (movementsToExport.length === 0) {
++        toast({ title: "Aucune donnée à exporter", description: "Aucun mouvement ne correspond aux filtres actuels.", variant: "destructive" })
++        return
++      }
++
++      const { headers, rows } = buildMovementsExportTable(movementsToExport)
++      const filename = `mouvements_${new Date().toISOString().slice(0, 10)}`
++
++      if (format === "csv") {
++        exportToCsv(filename, headers, rows)
++      } else {
++        await exportToExcel(filename, [{ name: "Mouvements", headers, rows }])
++      }
++      toast({ title: "Export réussi", description: `${movementsToExport.length} mouvement(s) exporté(s).` })
++    } catch (error) {
++      console.error('Error exporting movements:', error)
++      toast({ title: "Erreur", description: "Erreur lors de l'export des mouvements", variant: "destructive" })
++    }
++  }
++
+   const printSingleMovement = (movement: Movement) => {
+     if (!currentUser) return
+     const printWindow = window.open("", "_blank")
+@@ -2204,6 +2274,22 @@ export default function MovementsManagement() {
+                 Imprimer le bordereau
+               </Button>
+             )}
++            <DropdownMenu>
++              <DropdownMenuTrigger asChild>
++                <Button variant="outline" size="default" className="font-medium">
++                  <Download className="h-4 w-4 mr-2" />
++                  Exporter
++                </Button>
++              </DropdownMenuTrigger>
++              <DropdownMenuContent align="end">
++                <DropdownMenuItem onClick={() => handleExportMovements("csv")}>
++                  Exporter en CSV
++                </DropdownMenuItem>
++                <DropdownMenuItem onClick={() => handleExportMovements("excel")}>
++                  Exporter en Excel
++                </DropdownMenuItem>
++              </DropdownMenuContent>
++            </DropdownMenu>
+           </div>
+           
+           <CardTitle>Historique des Mouvements</CardTitle>
+diff --git a/lib/export.ts b/lib/export.ts
+new file mode 100644
+index 0000000..4e8d987
+--- /dev/null
++++ b/lib/export.ts
+@@ -0,0 +1,52 @@
++// Utilitaires d'export CSV / Excel, génération entièrement côté client (aucune route API requise).
++
++type CellValue = string | number
++
++function triggerDownload(blob: Blob, filename: string) {
++  const url = URL.createObjectURL(blob)
++  const link = document.createElement("a")
++  link.href = url
++  link.download = filename
++  document.body.appendChild(link)
++  link.click()
++  document.body.removeChild(link)
++  URL.revokeObjectURL(url)
++}
++
++function escapeCsvCell(value: CellValue): string {
++  const str = String(value ?? "")
++  if (str.includes(",") || str.includes('"') || str.includes("\n")) {
++    return `"${str.replace(/"/g, '""')}"`
++  }
++  return str
++}
++
++/**
++ * Exporte un tableau de lignes en CSV (UTF-8 avec BOM pour un affichage correct des accents dans Excel).
++ */
++export function exportToCsv(filename: string, headers: string[], rows: CellValue[][]) {
++  const lines = [headers, ...rows].map((row) => row.map(escapeCsvCell).join(","))
++  const csvContent = "﻿" + lines.join("\r\n")
++  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
++  triggerDownload(blob, `${filename}.csv`)
++}
++
++/**
++ * Exporte un ou plusieurs onglets en fichier Excel (.xlsx) réel via la librairie xlsx (SheetJS).
++ */
++export async function exportToExcel(
++  filename: string,
++  sheets: Array<{ name: string; headers: string[]; rows: CellValue[][] }>,
++) {
++  const XLSX = await import("xlsx")
++  const workbook = XLSX.utils.book_new()
++
++  for (const sheet of sheets) {
++    const worksheet = XLSX.utils.aoa_to_sheet([sheet.headers, ...sheet.rows])
++    XLSX.utils.book_append_sheet(workbook, worksheet, sheet.name.slice(0, 31))
++  }
++
++  const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" })
++  const blob = new Blob([buffer], { type: "application/octet-stream" })
++  triggerDownload(blob, `${filename}.xlsx`)
++}
+diff --git a/package.json b/package.json
+index a0e86a0..0ed7b8b 100644
+--- a/package.json
++++ b/package.json
+@@ -74,6 +74,7 @@
+     "tailwind-merge": "^2.5.5",
+     "tailwindcss-animate": "^1.0.7",
+     "vaul": "^0.9.9",
++    "xlsx": "^0.18.5",
+     "zod": "3.25.67"
+   },
+   "devDependencies": {

@@ -7,9 +7,11 @@ export interface User {
   lastName: string
   role: string
   isActive: boolean
+  avatarUrl?: string | null
   lastLogin?: Date | null
   createdAt: Date
   updatedAt: Date
+  twoFactorEnabled?: boolean
 }
 
 export interface Bank {
@@ -39,6 +41,8 @@ export interface Card {
   isActive: boolean
   createdAt: Date
   updatedAt: Date
+  bank?: Bank
+  stockLevels?: Array<{ id: string; locationId: string; quantity: number; location?: Location }>
 }
 
 export interface Location {
@@ -61,6 +65,8 @@ export interface Movement {
   quantity: number
   reason: string
   userId: string
+  documentUrl?: string | null
+  documentName?: string | null
   createdAt: Date
 }
 
@@ -81,13 +87,39 @@ export interface SMTPConfig {
   fromName: string
 }
 
+// Permet d'activer/désactiver indépendamment, pour un type de notification
+// donné, le canal in-app et le canal email.
+export interface NotificationChannelToggle {
+  inApp: boolean
+  email: boolean
+}
+
+// Emails liés au cycle de vie d'un compte, envoyés directement à
+// l'utilisateur concerné (pas aux destinataires configurés). N'ont pas
+// d'équivalent in-app : ce sont des emails ponctuels, pas des notifications
+// persistantes.
+export interface AccountEmailSettings {
+  welcomeEmail: boolean
+  passwordResetEmail: boolean
+  passwordChangedEmail: boolean
+  authMethodChangedEmail: boolean
+}
+
 export interface NotificationSettings {
   enabled: boolean
-  lowStockAlerts: boolean
-  movementNotifications: boolean
-  userActivityAlerts: boolean
+  lowStockAlerts: NotificationChannelToggle
+  movementNotifications: NotificationChannelToggle
+  userActivityAlerts: NotificationChannelToggle
+  accountEmails: AccountEmailSettings
   lowStockThreshold: number
   criticalStockThreshold: number
+  // Interrupteurs généraux : s'ils sont désactivés, ils coupent le canal
+  // correspondant pour tous les types de notifications, quels que soient
+  // les réglages individuels ci-dessus. Les emails de compte critiques
+  // (réinitialisation, confirmation de changement de mot de passe,
+  // changement de méthode d'authentification) ne sont volontairement PAS
+  // soumis à l'interrupteur général email : seul leur interrupteur
+  // individuel les contrôle.
   emailNotifications: boolean
   inAppNotifications: boolean
   emailRecipients: string[]
@@ -259,6 +291,13 @@ export interface RolePermissions {
   permissions: Permission[]
   description: string
   isCustom: boolean
+}
+
+export interface MovementReason {
+  id: string
+  label: string
+  isOther: boolean
+  isActive: boolean
 }
 
 export interface AuditLog {

@@ -1,0 +1,103 @@
+diff --git a/app/dashboard/profile/page.tsx b/app/dashboard/profile/page.tsx
+index 02d5553..09bddeb 100644
+--- a/app/dashboard/profile/page.tsx
++++ b/app/dashboard/profile/page.tsx
+@@ -11,6 +11,7 @@ import { Separator } from "@/components/ui/separator"
+ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
+ import { toast } from "@/hooks/use-toast"
+ import { getAuthHeaders, authenticatedFetch } from "@/lib/api-client"
++import { eventBus } from "@/lib/event-bus"
+ 
+ export default function ProfilePage() {
+   const [currentUser, setCurrentUser] = useState<User | null>(null)
+@@ -69,6 +70,7 @@ export default function ProfilePage() {
+         const updatedUser = { ...currentUser, avatarUrl: data.data.avatarUrl }
+         localStorage.setItem('currentUser', JSON.stringify(updatedUser))
+         setCurrentUser(updatedUser)
++        eventBus.emit("user:updated", updatedUser)
+         toast({ title: "Avatar mis à jour", description: "Votre photo de profil a été mise à jour avec succès." })
+       } else {
+         toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
+@@ -95,6 +97,7 @@ export default function ProfilePage() {
+         const updatedUser = { ...currentUser, avatarUrl: null }
+         localStorage.setItem('currentUser', JSON.stringify(updatedUser))
+         setCurrentUser(updatedUser)
++        eventBus.emit("user:updated", updatedUser)
+         toast({ title: "Avatar supprimé", description: "Votre photo de profil a été retirée." })
+       } else {
+         toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
+@@ -121,6 +124,7 @@ export default function ProfilePage() {
+         const updatedUser = { ...currentUser, ...formData }
+         localStorage.setItem('currentUser', JSON.stringify(updatedUser))
+         setCurrentUser(updatedUser)
++        eventBus.emit("user:updated", updatedUser)
+         setIsEditing(false)
+         toast({
+           title: "Profil mis à jour",
+diff --git a/components/dashboard/users-management.tsx b/components/dashboard/users-management.tsx
+index 4d17d5c..d2d3135 100644
+--- a/components/dashboard/users-management.tsx
++++ b/components/dashboard/users-management.tsx
+@@ -8,6 +8,7 @@ import type { User, RolePermissions, UserFilters, Permission, Module, Action } f
+ import { getAuthHeaders, authenticatedFetch } from "@/lib/api-client"
+ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
+ import { toast } from "@/hooks/use-toast"
++import { eventBus } from "@/lib/event-bus"
+ import { cn } from "@/lib/utils"
+ import { Eye, EyeOff } from "lucide-react"
+ import { Button } from "@/components/ui/button"
+@@ -212,7 +213,9 @@ export default function UsersManagement() {
+       const data = await response.json()
+ 
+       if (data.success) {
+-        setSelectedUser({ ...selectedUser, avatarUrl: data.data.avatarUrl })
++        const updatedUser = { ...selectedUser, avatarUrl: data.data.avatarUrl }
++        setSelectedUser(updatedUser)
++        eventBus.emit("user:updated", updatedUser)
+         toast({ title: "Avatar mis à jour", description: `Photo de ${selectedUser.firstName} ${selectedUser.lastName} mise à jour.` })
+         await loadData()
+       } else {
+@@ -237,7 +240,9 @@ export default function UsersManagement() {
+       const data = await response.json()
+ 
+       if (data.success) {
+-        setSelectedUser({ ...selectedUser, avatarUrl: null })
++        const updatedUser = { ...selectedUser, avatarUrl: null }
++        setSelectedUser(updatedUser)
++        eventBus.emit("user:updated", updatedUser)
+         toast({ title: "Avatar supprimé", description: `Photo de ${selectedUser.firstName} ${selectedUser.lastName} retirée.` })
+         await loadData()
+       } else {
+diff --git a/hooks/use-permissions.ts b/hooks/use-permissions.ts
+index f378cee..06699a6 100644
+--- a/hooks/use-permissions.ts
++++ b/hooks/use-permissions.ts
+@@ -1,6 +1,7 @@
+ import { useState, useEffect, useRef, useCallback } from "react"
+ import type { User, Permission, Module, Action } from "@/lib/types"
+ import { authenticatedFetch, clearAuthTokens } from "@/lib/api-client"
++import { eventBus } from "@/lib/event-bus"
+ 
+ interface UserPermissions {
+   user: User | null
+@@ -213,6 +214,20 @@ export function usePermissions(): UserPermissions {
+     loadUserAndPermissions()
+   }, [])
+ 
++  // Répercute immédiatement les changements de profil (avatar, nom...) faits par
++  // l'utilisateur courant, sans attendre un rechargement complet de la page.
++  useEffect(() => {
++    const unsubscribe = eventBus.on("user:updated", (updatedUser: User) => {
++      setUser((prev) => {
++        if (!prev || prev.id !== updatedUser.id) return prev
++        const merged = { ...prev, ...updatedUser }
++        localStorage.setItem('currentUser', JSON.stringify(merged))
++        return merged
++      })
++    })
++    return unsubscribe
++  }, [])
++
+   const hasPermission = useCallback((module: Module, action: Action): boolean => {
+     if (!user || permissions.length === 0) {
+       return false

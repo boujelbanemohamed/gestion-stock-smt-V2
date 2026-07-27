@@ -1,0 +1,13 @@
+diff --git a/app/dashboard/page.tsx b/app/dashboard/page.tsx
+index 45c90bc..d59115b 100644
+--- a/app/dashboard/page.tsx
++++ b/app/dashboard/page.tsx
+@@ -39,7 +39,7 @@ export default function DashboardPage() {
+ 
+       // Charger les stats avec filtre de date
+       const statsUrl = params.toString() ? `/api/stats?${params.toString()}` : '/api/stats'
+-      const statsResponse = await fetch(statsUrl)
++      const statsResponse = await fetch(statsUrl, { headers: getAuthHeaders() })
+       const statsData = await statsResponse.json()
+       
+       if (statsData.success) {

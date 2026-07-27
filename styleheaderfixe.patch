@@ -1,0 +1,28 @@
+diff --git a/app/dashboard/layout.tsx b/app/dashboard/layout.tsx
+index 02741e4..fe3efbd 100644
+--- a/app/dashboard/layout.tsx
++++ b/app/dashboard/layout.tsx
+@@ -311,9 +311,9 @@ export default function DashboardLayout({
+       </div>
+ 
+       {/* Main Content */}
+-      <div className="ml-72 mr-4 mt-4 flex flex-col">
+-        {/* Header */}
+-        <header className="mb-4 rounded-2xl border border-slate-200 bg-white px-6 py-4 shadow-lg">
++      <div className="ml-72 mr-4 flex flex-col">
++        {/* Header flottant, fixe comme la barre latérale */}
++        <header className="fixed left-72 right-4 top-4 z-10 rounded-2xl border border-slate-200 bg-white px-6 py-4 shadow-lg">
+           <div className="flex items-center justify-between">
+             <div>
+               <h2 className="text-xl font-semibold text-slate-900">
+@@ -352,8 +352,8 @@ export default function DashboardLayout({
+           </div>
+         </header>
+ 
+-        {/* Page Content */}
+-        <main className="flex-1 p-6">{children}</main>
++        {/* Page Content (mt pour ne pas passer sous l'en-tête fixe) */}
++        <main className="flex-1 p-6 mt-28">{children}</main>
+       </div>
+     </div>
+   )

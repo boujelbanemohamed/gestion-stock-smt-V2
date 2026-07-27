@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import type { ApiResponse } from "@/lib/api-types"
 import * as nodemailer from "nodemailer"
+import { requireAdmin } from "@/lib/auth-middleware"
 
 // POST /api/config/test-smtp - Tester la configuration SMTP
 
@@ -9,6 +10,9 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
+  const auth = requireAdmin(request)
+  if (!auth.authorized) return auth.response
+
   try {
     const body = await request.json()
     const { smtp, testEmail } = body
