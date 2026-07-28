@@ -300,6 +300,44 @@ export interface MovementReason {
   isActive: boolean
 }
 
+// Inventaire physique d'une banque : campagne de comptage sur le terrain.
+export type InventoryStatus = "in_progress" | "completed" | "adjusted" | "cancelled"
+
+export interface InventoryLine {
+  id: string
+  inventoryId: string
+  cardId: string
+  locationId: string
+  /** Stock théorique figé à l'ouverture de l'inventaire. */
+  expectedQuantity: number
+  /** null tant que la ligne n'a pas été comptée. */
+  countedQuantity: number | null
+  notes?: string | null
+  card?: { id: string; name: string; type: string; subType: string; subSubType: string }
+  location?: { id: string; name: string }
+}
+
+export interface Inventory {
+  id: string
+  reference: string
+  bankId: string
+  status: InventoryStatus
+  notes?: string | null
+  startedAt: Date
+  completedAt?: Date | null
+  adjustedAt?: Date | null
+  startedById: string
+  bank?: { id: string; name: string; code: string; address?: string }
+  startedBy?: { id: string; firstName: string; lastName: string; email: string }
+  lines?: InventoryLine[]
+  /** Champs calculés renvoyés par l'API pour la liste et le rapport. */
+  totalLines?: number
+  countedLines?: number
+  discrepancyLines?: number
+  totalExpected?: number
+  totalCounted?: number
+}
+
 export interface AuditLog {
   id: string
   timestamp: Date
