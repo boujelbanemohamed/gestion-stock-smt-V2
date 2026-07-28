@@ -333,6 +333,38 @@ export default function MovementsManagement() {
     })
   }
 
+  // Décrit en clair le mouvement de stock qu'entraînera la suppression, pour que
+  // l'utilisateur sache exactement quelle quantité part de quel emplacement.
+  // La formulation suit à la lettre ce que fait DELETE /api/movements/[id] :
+  // annuler une entrée retire à la destination, annuler une sortie rend à la
+  // source, annuler un transfert fait les deux (retour destination -> source).
+  const decrireAnnulation = (movement: Movement): string => {
+    // Le verbe et le participe s'accordent avec la quantité, sinon on lit
+    // « 1 carte vont être retirées ».
+    const pluriel = movement.quantity > 1
+    const s = pluriel ? "s" : ""
+    const sujet = `${movement.quantity} carte${s} ${pluriel ? "vont" : "va"} être`
+    const emplacement = (id: string) => `« ${getLocationName(id)} »`
+
+    switch (movement.movementType) {
+      case "entry":
+        return movement.toLocationId
+          ? `${sujet} retirée${s} de ${emplacement(movement.toLocationId)}.`
+          : `${sujet} retirée${s} de l'emplacement de destination.`
+      case "exit":
+        return movement.fromLocationId
+          ? `${sujet} remise${s} dans ${emplacement(movement.fromLocationId)}.`
+          : `${sujet} remise${s} à l'emplacement d'origine.`
+      case "transfer":
+        return movement.fromLocationId && movement.toLocationId
+          ? `${sujet} transférée${s} de ${emplacement(movement.toLocationId)} ` +
+              `vers ${emplacement(movement.fromLocationId)}.`
+          : `${sujet} replacée${s} à l'emplacement d'origine.`
+      default:
+        return `Le stock des emplacements concernés sera réajusté de ${movement.quantity} carte${s}.`
+    }
+  }
+
   const getMovementTypeLabel = (type: string) => {
     switch (type) {
       case "entry":
@@ -2761,9 +2793,14 @@ export default function MovementsManagement() {
                     </div>
                   </div>
                 )}
+                {movementToDelete && (
+                  <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                    <div className="font-semibold">Effet sur le stock</div>
+                    <p className="mt-1">{decrireAnnulation(movementToDelete)}</p>
+                  </div>
+                )}
                 <p>
-                  Le stock des emplacements concernés sera réajusté pour annuler ce mouvement. Si
-                  cette annulation devait rendre un stock négatif, la suppression sera refusée.
+                  Si cette annulation devait rendre un stock négatif, la suppression sera refusée.
                 </p>
               </div>
             </AlertDialogDescription>

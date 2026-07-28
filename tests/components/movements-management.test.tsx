@@ -183,6 +183,52 @@ describe("MovementsManagement", () => {
     expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit)?.method === "DELETE")).toBe(false)
   })
 
+  // Le pop-up doit dire quelle quantité part de quel emplacement, sans quoi
+  // l'utilisateur confirme sans savoir ce que la suppression va faire au stock.
+  // Les trois formulations doivent correspondre à ce que fait réellement l'API :
+  // entrée -> retrait à la destination, sortie -> retour à la source,
+  // transfert -> retour de la destination vers la source.
+  it.each([
+    [
+      "une ENTRÉE : retrait à la destination",
+      { movementType: "entry", quantity: 23, fromLocationId: null, toLocationId: "loc-1" },
+      /23 cartes vont être retirées de « Coffre Principal »/i,
+    ],
+    [
+      "une SORTIE : retour à la source",
+      { movementType: "exit", quantity: 15, fromLocationId: "loc-1", toLocationId: null },
+      /15 cartes vont être remises dans « Coffre Principal »/i,
+    ],
+    [
+      "un TRANSFERT : retour de la destination vers la source",
+      { movementType: "transfer", quantity: 10, fromLocationId: "loc-1", toLocationId: "loc-2" },
+      /10 cartes vont être transférées de « Coffre Secondaire » vers « Coffre Principal »/i,
+    ],
+  ])("annonce l'effet exact sur le stock pour %s", async (_libelle, champs, attendu) => {
+    setupFetchMock([{ ...movementA, ...champs }])
+    const user = userEvent.setup()
+    render(<MovementsManagement />)
+    await screen.findByText("Carte Débit Standard")
+
+    await user.click(screen.getByRole("button", { name: /supprimer le mouvement/i }))
+
+    const dialog = await screen.findByRole("alertdialog")
+    expect(within(dialog).getByText("Effet sur le stock")).toBeInTheDocument()
+    expect(within(dialog).getByText(attendu)).toBeInTheDocument()
+  })
+
+  it("met la quantité au singulier quand il n'y a qu'une seule carte", async () => {
+    setupFetchMock([{ ...movementA, quantity: 1, movementType: "entry", toLocationId: "loc-1" }])
+    const user = userEvent.setup()
+    render(<MovementsManagement />)
+    await screen.findByText("Carte Débit Standard")
+
+    await user.click(screen.getByRole("button", { name: /supprimer le mouvement/i }))
+
+    const dialog = await screen.findByRole("alertdialog")
+    expect(within(dialog).getByText(/1 carte va être retirée de « Coffre Principal »/i)).toBeInTheDocument()
+  })
+
   it("annule la suppression sans rien envoyer si l'utilisateur renonce", async () => {
     const fetchMock = setupFetchMock()
     const user = userEvent.setup()
