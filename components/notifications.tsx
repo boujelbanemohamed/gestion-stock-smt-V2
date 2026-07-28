@@ -203,7 +203,11 @@ export default function NotificationsDropdown() {
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
+      {/* 320px (w-80) ne suffisaient pas : la date et les deux actions ne
+          tenaient pas sur une ligne et « Supprimer » était tronqué. On élargit,
+          en plafonnant à la largeur de l'écran pour rester utilisable sur
+          mobile, où 28rem dépasseraient. */}
+      <DropdownMenuContent align="end" className="w-[min(28rem,calc(100vw-2rem))]">
         <DropdownMenuLabel className="flex items-center justify-between">
           <span>Notifications</span>
           {unreadCount > 0 && (
@@ -229,10 +233,13 @@ export default function NotificationsDropdown() {
                       <p className="text-sm font-medium text-slate-900">{notification.title}</p>
                       {!notification.isRead && <div className="h-2 w-2 rounded-full bg-blue-600 ml-2 mt-1" />}
                     </div>
-                    <p className="text-xs text-slate-600 mt-1">{notification.message}</p>
-                    <div className="flex items-center justify-between mt-2">
+                    <p className="text-xs text-slate-600 mt-1 break-words">{notification.message}</p>
+                    {/* flex-wrap : filet de sécurité si le libellé d'une action
+                        s'allonge ou si l'écran est très étroit — la ligne passe
+                        au-dessous au lieu de déborder. */}
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mt-2">
                       <p className="text-xs text-slate-400">{formatDate(notification.createdAt)}</p>
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center gap-2">
                         {!notification.isRead && (
                           <Button
                             variant="ghost"
