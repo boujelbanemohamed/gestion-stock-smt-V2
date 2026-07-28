@@ -75,3 +75,7 @@ Thumbs.db
 # Les règles précédentes ne couvraient ni .env.production ni .env.production.backup.*
 .env*
 !.env.example
+
+# Sauvegardes creees par la commande patch
+*.orig
+*.rej
