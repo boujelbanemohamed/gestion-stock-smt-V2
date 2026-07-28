@@ -5,8 +5,15 @@ import * as React from 'react'
 
 import type { ToastActionElement, ToastProps } from '@/components/ui/toast'
 
-const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 1000000
+// Toutes les notifications de l'application passent par ce hook. Avec une
+// limite de 1, une action qui en déclenche deux (par exemple « stock régularisé »
+// suivi d'un avertissement) n'en affichait qu'une seule : la précédente était
+// remplacée avant d'avoir pu être lue.
+const TOAST_LIMIT = 3
+// Délai entre la fermeture d'une notification et son retrait de l'état. La
+// valeur d'origine (1 000 000 ms, soit ~17 min) est celle du modèle shadcn ;
+// elle gardait en mémoire des notifications déjà invisibles.
+const TOAST_REMOVE_DELAY = 5000
 
 type ToasterToast = ToastProps & {
   id: string
@@ -188,4 +195,14 @@ function useToast() {
   }
 }
 
-export { useToast, toast }
+/**
+ * Vide immédiatement la file de notifications. L'état est un singleton de
+ * module : sans cette remise à zéro, les notifications d'un test restent
+ * affichées dans le suivant (elles ne se ferment qu'au bout de quelques
+ * secondes). Utilisé par la configuration de test, pas par l'application.
+ */
+function clearToasts() {
+  dispatch({ type: 'REMOVE_TOAST' })
+}
+
+export { useToast, toast, clearToasts }

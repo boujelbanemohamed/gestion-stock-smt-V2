@@ -1,4 +1,14 @@
 import "@testing-library/jest-dom/vitest"
+import { afterEach } from "vitest"
+
+import { clearToasts } from "./hooks/use-toast"
+
+// Les notifications vivent dans un état de module partagé par tous les tests
+// d'un même fichier : une notification laissée ouverte réapparaîtrait dans le
+// test suivant et rendrait ambigus les `findByText`.
+afterEach(() => {
+  clearToasts()
+})
 
 // Remplace toute implémentation native de localStorage (celle de jsdom, ou
 // celle, expérimentale et parfois incomplète selon la version de Node,

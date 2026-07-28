@@ -124,17 +124,24 @@ describe("StatisticsPage", () => {
   })
 
   it("n'affiche aucun résultat si l'API renvoie une erreur", async () => {
-    setupFetchMock({ calculateResponse: { success: false, error: "Calcul impossible" } })
+    setupFetchMock({ calculateResponse: { success: false, error: "Période invalide" } })
     const user = userEvent.setup()
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
-    render(<StatisticsPage />)
+    render(
+      <>
+        <StatisticsPage />
+        <Toaster />
+      </>,
+    )
     await screen.findByLabelText("Emplacement De *")
 
     await selectOption(user, "Emplacement De *", locationA.name)
     await selectOption(user, "Emplacement Vers *", locationB.name)
     await user.click(screen.getByRole("button", { name: /calculer/i }))
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining("Calcul impossible")))
+    // L'erreur remonte dans une notification de la plateforme : le titre est
+    // fixe, le détail vient de l'API.
+    expect(await screen.findByText("Calcul impossible")).toBeInTheDocument()
+    expect(screen.getByText("Période invalide")).toBeInTheDocument()
     expect(screen.queryByText("Résultats du Calcul")).not.toBeInTheDocument()
   })
 

@@ -27,8 +27,11 @@ import type { Location, Bank, LocationImportRow, LocationFilters } from "@/lib/t
 import { ListSkeleton } from "@/components/ui/loading-skeleton"
 import { getAuthHeaders } from "@/lib/api-client"
 import { Printer, Building2, MapPin } from "lucide-react"
+import { toast } from "@/hooks/use-toast"
+import { useConfirmation } from "@/hooks/use-confirmation"
 
 export default function LocationsManagement() {
+  const { demanderConfirmation, dialogueConfirmation } = useConfirmation()
   const searchParams = useSearchParams()
   const [locations, setLocations] = useState<Location[]>([])
   const [banks, setBanks] = useState<Bank[]>([])
@@ -541,7 +544,7 @@ export default function LocationsManagement() {
         })
         const data = await response.json()
         if (!data.success) {
-          alert(data.error || 'Erreur lors de la mise à jour')
+          toast({ title: "Mise à jour impossible", description: data.error, variant: "destructive" })
           return
         }
       } else {
@@ -552,17 +555,26 @@ export default function LocationsManagement() {
         })
         const data = await response.json()
         if (!data.success) {
-          alert(data.error || 'Erreur lors de la création')
+          toast({ title: "Création impossible", description: data.error, variant: "destructive" })
           return
         }
       }
 
+      toast({
+        title: editingLocation ? "Emplacement mis à jour" : "Emplacement créé",
+        description: `${formData.name} a été enregistré.`,
+        variant: "success",
+      })
       await loadData()
       resetForm()
       setIsDialogOpen(false)
     } catch (error) {
       console.error('Error saving location:', error)
-      alert('Erreur lors de la sauvegarde')
+      toast({
+        title: "Enregistrement impossible",
+        description: "Une erreur est survenue pendant la sauvegarde de l'emplacement.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -589,25 +601,34 @@ export default function LocationsManagement() {
     const location = locations.find(l => l.id === id)
     if (!location) return
 
-    const confirmMessage = `⚠️ ATTENTION : SUPPRESSION DÉFINITIVE ⚠️\n\nÊtes-vous sûr de vouloir supprimer définitivement l'emplacement "${location.name}" ?\n\nCette action est IRRÉVERSIBLE et supprimera :\n• L'emplacement de la base de données\n• Toutes les données associées\n\nCette action ne peut pas être annulée !`
-    
-    if (confirm(confirmMessage)) {
-      try {
-        const response = await fetch(`/api/locations/${id}`, {
-          method: 'DELETE',
-          headers: getAuthHeaders()
-        })
-        const data = await response.json()
-        if (data.success) {
-          alert('✅ Emplacement supprimé définitivement avec succès')
-          await loadData()
-        } else {
-          alert(`❌ Erreur lors de la suppression : ${data.error || 'Erreur inconnue'}`)
-        }
-      } catch (error) {
-        console.error('Error deleting location:', error)
-        alert('❌ Erreur lors de la suppression')
+    const confirme = await demanderConfirmation({
+      title: `Supprimer définitivement « ${location.name} » ?`,
+      description:
+        "L'emplacement et toutes les données associées seront supprimés de la base. Cette action est irréversible.",
+      confirmLabel: "Supprimer définitivement",
+      variant: "danger",
+    })
+    if (!confirme) return
+
+    try {
+      const response = await fetch(`/api/locations/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      })
+      const data = await response.json()
+      if (data.success) {
+        toast({ title: "Emplacement supprimé", description: location.name, variant: "success" })
+        await loadData()
+      } else {
+        toast({ title: "Suppression impossible", description: data.error, variant: "destructive" })
       }
+    } catch (error) {
+      console.error('Error deleting location:', error)
+      toast({
+        title: "Suppression impossible",
+        description: "Une erreur est survenue pendant la suppression de l'emplacement.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -616,20 +637,44 @@ export default function LocationsManagement() {
     if (!location) return
 
     const action = location.isActive ? "désactiver" : "activer"
-    if (confirm(`Êtes-vous sûr de vouloir ${action} cet emplacement ?`)) {
-      try {
-        const response = await fetch(`/api/locations/${id}`, {
-          method: 'PUT',
-          headers: getAuthHeaders(),
-          body: JSON.stringify({ isActive: !location.isActive })
+    const confirme = await demanderConfirmation({
+      title: location.isActive ? "Désactiver cet emplacement ?" : "Activer cet emplacement ?",
+      description: location.isActive
+        ? `« ${location.name} » ne pourra plus être choisi dans les mouvements tant qu'il sera désactivé.`
+        : `« ${location.name} » redeviendra disponible dans les mouvements.`,
+      confirmLabel: location.isActive ? "Désactiver" : "Activer",
+      variant: location.isActive ? "danger" : "default",
+    })
+    if (!confirme) return
+
+    try {
+      const response = await fetch(`/api/locations/${id}`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ isActive: !location.isActive })
+      })
+      const data = await response.json()
+      if (data.success) {
+        toast({
+          title: location.isActive ? "Emplacement désactivé" : "Emplacement activé",
+          description: location.name,
+          variant: "success",
         })
-        const data = await response.json()
-        if (data.success) {
-          await loadData()
-        }
-      } catch (error) {
-        console.error('Error toggling location status:', error)
+        await loadData()
+      } else {
+        toast({
+          title: `Impossible de ${action} l'emplacement`,
+          description: data.error,
+          variant: "destructive",
+        })
       }
+    } catch (error) {
+      console.error('Error toggling location status:', error)
+      toast({
+        title: `Impossible de ${action} l'emplacement`,
+        description: "Une erreur est survenue pendant la mise à jour du statut.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -1437,6 +1482,8 @@ export default function LocationsManagement() {
           )}
         </CardContent>
       </Card>
+
+      {dialogueConfirmation}
     </div>
   )
 }

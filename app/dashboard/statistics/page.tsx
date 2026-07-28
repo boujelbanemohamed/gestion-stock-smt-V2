@@ -133,7 +133,11 @@ export default function StatisticsPage() {
   const handleCalculate = async () => {
     // Validation : les emplacements De et Vers doivent être sélectionnés
     if (filters.fromLocationId === "all" || filters.toLocationId === "all") {
-      alert("Veuillez sélectionner les emplacements 'De' et 'Vers' pour effectuer le calcul")
+      toast({
+        title: "Emplacements requis",
+        description: "Sélectionnez les emplacements « De » et « Vers » pour effectuer le calcul.",
+        variant: "destructive",
+      })
       return
     }
 
@@ -156,12 +160,16 @@ export default function StatisticsPage() {
       if (data.success) {
         setResult(data.data)
       } else {
-        alert(`Erreur: ${data.error}`)
+        toast({ title: "Calcul impossible", description: data.error, variant: "destructive" })
         setResult(null)
       }
     } catch (error) {
       console.error('Error calculating statistics:', error)
-      alert('Erreur lors du calcul des statistiques')
+      toast({
+        title: "Calcul impossible",
+        description: "Une erreur est survenue pendant le calcul des statistiques.",
+        variant: "destructive",
+      })
       setResult(null)
     } finally {
       setLoading(false)
@@ -567,7 +575,11 @@ export default function StatisticsPage() {
         }
       } catch (error) {
         console.error('Error loading config for print:', error)
-        alert('Erreur lors du chargement de la configuration pour l\'impression')
+        toast({
+          title: "Impression impossible",
+          description: "La configuration nécessaire à l'impression n'a pas pu être chargée.",
+          variant: "destructive",
+        })
       }
     }
 
@@ -614,7 +626,11 @@ export default function StatisticsPage() {
         { name: "Détails", headers: detailsHeaders, rows: detailsRows },
       ])
     }
-    toast({ title: "Export réussi", description: "Les statistiques ont été exportées avec succès." })
+    toast({
+      title: "Export réussi",
+      description: "Les statistiques ont été exportées avec succès.",
+      variant: "success",
+    })
   }
 
   return (

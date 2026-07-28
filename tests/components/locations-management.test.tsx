@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import LocationsManagement from "@/components/dashboard/locations-management"
+import { annulerConfirmation, repondreConfirmation } from "../helpers/dialogue-confirmation"
 
 const mockSearchParams = new URLSearchParams()
 vi.mock("next/navigation", () => ({
@@ -133,13 +134,13 @@ describe("LocationsManagement", () => {
 
   it("ne supprime pas l'emplacement si l'utilisateur annule la confirmation", async () => {
     const fetchMock = setupFetchMock()
-    vi.spyOn(window, "confirm").mockReturnValue(false)
     const user = userEvent.setup()
     render(<LocationsManagement />)
     await screen.findByText("Banque Centrale")
 
     await expandBankGroup(user, "Banque Centrale")
     await user.click(await screen.findByRole("button", { name: /supprimer/i }))
+    await annulerConfirmation(user)
 
     expect(fetchMock).not.toHaveBeenCalledWith(
       expect.stringContaining(`/api/locations/${locationA.id}`),
@@ -149,14 +150,13 @@ describe("LocationsManagement", () => {
 
   it("supprime l'emplacement après confirmation", async () => {
     const fetchMock = setupFetchMock()
-    vi.spyOn(window, "confirm").mockReturnValue(true)
-    vi.spyOn(window, "alert").mockImplementation(() => {})
     const user = userEvent.setup()
     render(<LocationsManagement />)
     await screen.findByText("Banque Centrale")
 
     await expandBankGroup(user, "Banque Centrale")
     await user.click(await screen.findByRole("button", { name: /supprimer/i }))
+    await repondreConfirmation(user, /^supprimer définitivement$/i)
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -168,13 +168,13 @@ describe("LocationsManagement", () => {
 
   it("bascule le statut actif/inactif après confirmation", async () => {
     const fetchMock = setupFetchMock()
-    vi.spyOn(window, "confirm").mockReturnValue(true)
     const user = userEvent.setup()
     render(<LocationsManagement />)
     await screen.findByText("Banque Centrale")
 
     await expandBankGroup(user, "Banque Centrale")
     await user.click(await screen.findByRole("button", { name: /désactiver/i }))
+    await repondreConfirmation(user, /^désactiver$/i)
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(

@@ -877,7 +877,11 @@ export default function MovementsManagement() {
       printWindow.document.close()
     } catch (error) {
       console.error('Error loading movements for print:', error)
-      alert('Erreur lors du chargement des mouvements pour l\'impression')
+      toast({
+        title: "Impression impossible",
+        description: "Les mouvements n'ont pas pu être chargés pour l'impression.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -937,10 +941,18 @@ export default function MovementsManagement() {
       } else {
         await exportToExcel(filename, [{ name: "Mouvements", headers, rows }])
       }
-      toast({ title: "Export réussi", description: `${movementsToExport.length} mouvement(s) exporté(s).` })
+      toast({
+        title: "Export réussi",
+        description: `${movementsToExport.length} mouvement(s) exporté(s).`,
+        variant: "success",
+      })
     } catch (error) {
       console.error('Error exporting movements:', error)
-      toast({ title: "Erreur", description: "Erreur lors de l'export des mouvements", variant: "destructive" })
+      toast({
+        title: "Export impossible",
+        description: "Une erreur est survenue pendant l'export des mouvements.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -1190,12 +1202,13 @@ export default function MovementsManagement() {
       toast({
         title: "Mouvement supprimé",
         description: "Le stock a été réajusté en conséquence.",
+        variant: "success",
       })
     } catch (error) {
       console.error('Error deleting movement:', error)
       toast({
-        title: "Erreur",
-        description: "Erreur lors de la suppression du mouvement",
+        title: "Suppression impossible",
+        description: "Une erreur est survenue pendant la suppression du mouvement.",
         variant: "destructive",
       })
     } finally {
@@ -1449,7 +1462,8 @@ export default function MovementsManagement() {
         if (successCount > 0) {
           toast({
             title: "Mouvement créé",
-            description: `${successCount} mouvement(s) créé(s) avec succès`,
+            description: `${successCount} mouvement(s) créé(s) avec succès.`,
+            variant: "success",
           })
         }
       } else {
@@ -1472,8 +1486,8 @@ export default function MovementsManagement() {
     } catch (error) {
       console.error('Error creating movements:', error)
       toast({
-        title: "Erreur",
-        description: "Erreur lors de la création des mouvements",
+        title: "Création impossible",
+        description: "Une erreur est survenue pendant la création des mouvements.",
         variant: "destructive",
       })
     }
@@ -1767,12 +1781,20 @@ export default function MovementsManagement() {
   const generateBulkMovements = () => {
     // Vérifier que les prérequis sont remplis
     if (!formData.bankId || !formData.fromLocationId) {
-      alert("Veuillez sélectionner une banque et un emplacement source (De)")
+      toast({
+        title: "Sélection incomplète",
+        description: "Choisissez une banque et un emplacement source « De » avant de générer.",
+        variant: "destructive",
+      })
       return
     }
 
     if (formData.movementType !== "exit" && formData.movementType !== "transfer") {
-      alert("La génération en masse est disponible uniquement pour les mouvements de type Sortie et Transfert")
+      toast({
+        title: "Génération indisponible",
+        description: "La génération en masse ne concerne que les mouvements de type Sortie et Transfert.",
+        variant: "destructive",
+      })
       return
     }
 
@@ -1800,7 +1822,11 @@ export default function MovementsManagement() {
       }
 
       if (cardsWithStock.length === 0) {
-        alert("Aucune carte avec stock disponible trouvée dans cet emplacement")
+        toast({
+          title: "Aucune carte à générer",
+          description: "Aucune carte de cet emplacement ne dispose de stock disponible.",
+          variant: "destructive",
+        })
         setIsGeneratingBulk(false)
         return
       }
@@ -1818,10 +1844,18 @@ export default function MovementsManagement() {
 
       // Afficher un message de confirmation
       const totalCardsNow = formData.cardQuantities.length + newCards.length
-      alert(`${totalCardsGenerated} carte(s) avec stock disponible ${wasEmpty ? 'sélectionnée(s)' : 'ajoutée(s)'} automatiquement avec leur stock complet.\n\nTotal: ${totalCardsNow} carte(s) sélectionnée(s).\n\nVous pouvez maintenant modifier les quantités si nécessaire.`)
+      toast({
+        title: `${totalCardsGenerated} carte(s) ${wasEmpty ? 'sélectionnée(s)' : 'ajoutée(s)'}`,
+        description: `Chaque carte a été reprise avec la totalité de son stock disponible. Total : ${totalCardsNow} carte(s) sélectionnée(s). Les quantités restent modifiables.`,
+        variant: "success",
+      })
     } catch (error) {
       console.error('Error generating bulk movements:', error)
-      alert('Erreur lors de la génération en masse des mouvements')
+      toast({
+        title: "Génération impossible",
+        description: "Une erreur est survenue pendant la génération en masse des mouvements.",
+        variant: "destructive",
+      })
     } finally {
       setIsGeneratingBulk(false)
     }

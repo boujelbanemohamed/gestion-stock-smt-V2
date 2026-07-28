@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import UsersManagement from "@/components/dashboard/users-management"
 import { Toaster } from "@/components/ui/toaster"
@@ -93,8 +93,12 @@ describe("UsersManagement - création, édition et statut", () => {
   it("crée un nouvel utilisateur avec succès", async () => {
     const fetchMock = setupFetchMock()
     const user = userEvent.setup()
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
-    render(<UsersManagement />)
+    render(
+      <>
+        <Toaster />
+        <UsersManagement />
+      </>,
+    )
     await screen.findByText(targetUser.email)
 
     await user.click(screen.getByRole("button", { name: /ajouter un utilisateur/i }))
@@ -118,8 +122,39 @@ describe("UsersManagement - création, édition et statut", () => {
       role: "viewer",
       isActive: true,
     })
-    expect(alertSpy).toHaveBeenCalled()
+    expect(await screen.findByText("Utilisateur créé")).toBeInTheDocument()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+
+  // Le mot de passe généré doit rester lisible le temps d'être recopié : il a
+  // sa propre fenêtre, il ne disparaît pas comme une notification.
+  it("présente le mot de passe généré dans une fenêtre dédiée, copiable", async () => {
+    setupFetchMock({
+      postResponse: { success: true, data: { ...targetUser, id: "u-new" }, generatedPassword: "Xy7!mQ2r" },
+    })
+    // userEvent.setup() installe son propre presse-papiers dans jsdom : on lit
+    // ce qui y a été écrit plutôt que d'espionner l'API.
+    const user = userEvent.setup()
+    render(
+      <>
+        <Toaster />
+        <UsersManagement />
+      </>,
+    )
+    await screen.findByText(targetUser.email)
+
+    await user.click(screen.getByRole("button", { name: /ajouter un utilisateur/i }))
+    await user.type(screen.getByLabelText("Email *"), "new.user@example.com")
+    await user.type(screen.getByLabelText("Prénom *"), "Paul")
+    await user.type(screen.getByLabelText("Nom *"), "Martin")
+    await user.click(screen.getByRole("button", { name: "Ajouter" }))
+
+    const fenetre = await screen.findByRole("dialog")
+    expect(within(fenetre).getByText("Xy7!mQ2r")).toBeInTheDocument()
+
+    await user.click(within(fenetre).getByRole("button", { name: /copier le mot de passe/i }))
+    expect(await navigator.clipboard.readText()).toBe("Xy7!mQ2r")
+    expect(await screen.findByText("Mot de passe copié.")).toBeInTheDocument()
   })
 
   it("modifie un utilisateur existant", async () => {

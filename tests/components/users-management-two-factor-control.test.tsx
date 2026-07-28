@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import UsersManagement from "@/components/dashboard/users-management"
+import { repondreConfirmation } from "../helpers/dialogue-confirmation"
 
 // jsdom n'implémente pas ces APIs de pointeur utilisées par Radix Select ;
 // sans ce polyfill, ouvrir le menu déroulant lève une TypeError.
@@ -49,7 +50,6 @@ const targetUser = {
 describe("UsersManagement - contrôle super admin du type d'authentification", () => {
   beforeEach(() => {
     mockCurrentUserRole = "admin"
-    vi.stubGlobal("confirm", vi.fn(() => true))
   })
 
   afterEach(() => {
@@ -103,6 +103,7 @@ describe("UsersManagement - contrôle super admin du type d'authentification", (
 
     await user.click(await screen.findByRole("button", { name: /modifier/i }))
     await user.click(await screen.findByRole("button", { name: /réinitialiser la 2fa/i }))
+    await repondreConfirmation(user, /^réinitialiser$/i)
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(

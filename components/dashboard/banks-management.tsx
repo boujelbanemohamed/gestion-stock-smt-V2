@@ -25,8 +25,11 @@ import { ListSkeleton } from "@/components/ui/loading-skeleton"
 import type { Bank, BankFilters, BankImportRow } from "@/lib/types"
 import { ChevronDown, ChevronRight, Download, Upload, Search, Filter, Printer } from "lucide-react"
 import { getAuthHeaders } from "@/lib/api-client"
+import { toast } from "@/hooks/use-toast"
+import { useConfirmation } from "@/hooks/use-confirmation"
 
 export default function BanksManagement() {
+  const { demanderConfirmation, dialogueConfirmation } = useConfirmation()
   const searchParams = useSearchParams()
   const [banks, setBanks] = useState<Bank[]>([])
   const [locations, setLocations] = useState<any[]>([])
@@ -187,7 +190,7 @@ export default function BanksManagement() {
         })
         const data = await response.json()
         if (!data.success) {
-          alert(data.error || 'Erreur lors de la mise à jour')
+          toast({ title: "Mise à jour impossible", description: data.error, variant: "destructive" })
           return
         }
       } else {
@@ -198,17 +201,26 @@ export default function BanksManagement() {
         })
         const data = await response.json()
         if (!data.success) {
-          alert(data.error || 'Erreur lors de la création')
+          toast({ title: "Création impossible", description: data.error, variant: "destructive" })
           return
         }
       }
 
+      toast({
+        title: editingBank ? "Banque mise à jour" : "Banque créée",
+        description: `${formData.name} a été enregistrée.`,
+        variant: "success",
+      })
       await loadBanks()
       resetForm()
       setIsDialogOpen(false)
     } catch (error) {
       console.error('Error saving bank:', error)
-      alert('Erreur lors de la sauvegarde')
+      toast({
+        title: "Enregistrement impossible",
+        description: "Une erreur est survenue pendant la sauvegarde de la banque.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -241,22 +253,34 @@ export default function BanksManagement() {
   }
 
   const handleDelete = async (id: string) => {
-    if (confirm("Êtes-vous sûr de vouloir supprimer cette banque ?")) {
-      try {
-        const response = await fetch(`/api/banks/${id}`, {
-          method: 'DELETE',
-          headers: getAuthHeaders()
-        })
-        const data = await response.json()
-        if (data.success) {
-          await loadBanks()
-        } else {
-          alert(data.error || 'Erreur lors de la suppression')
-        }
-      } catch (error) {
-        console.error('Error deleting bank:', error)
-        alert('Erreur lors de la suppression')
+    const banque = banks.find((b) => b.id === id)
+    const confirme = await demanderConfirmation({
+      title: "Supprimer cette banque ?",
+      description: `${banque?.name ?? "Cette banque"} sera définitivement supprimée.`,
+      confirmLabel: "Supprimer",
+      variant: "danger",
+    })
+    if (!confirme) return
+
+    try {
+      const response = await fetch(`/api/banks/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      })
+      const data = await response.json()
+      if (data.success) {
+        toast({ title: "Banque supprimée", variant: "success" })
+        await loadBanks()
+      } else {
+        toast({ title: "Suppression impossible", description: data.error, variant: "destructive" })
       }
+    } catch (error) {
+      console.error('Error deleting bank:', error)
+      toast({
+        title: "Suppression impossible",
+        description: "Une erreur est survenue pendant la suppression de la banque.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -266,20 +290,42 @@ export default function BanksManagement() {
       ? "Êtes-vous sûr de vouloir désactiver cette banque ? Vous ne pourrez plus ajouter de cartes, d'emplacements ou effectuer de mouvements affiliés à cette banque."
       : "Êtes-vous sûr de vouloir activer cette banque ?"
 
-    if (confirm(message)) {
-      try {
-        const response = await fetch(`/api/banks/${bank.id}`, {
-          method: 'PUT',
-          headers: getAuthHeaders(),
-          body: JSON.stringify({ isActive: !bank.isActive })
+    const confirme = await demanderConfirmation({
+      title: bank.isActive ? "Désactiver cette banque ?" : "Activer cette banque ?",
+      description: message,
+      confirmLabel: bank.isActive ? "Désactiver" : "Activer",
+      variant: bank.isActive ? "danger" : "default",
+    })
+    if (!confirme) return
+
+    try {
+      const response = await fetch(`/api/banks/${bank.id}`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ isActive: !bank.isActive })
+      })
+      const data = await response.json()
+      if (data.success) {
+        toast({
+          title: bank.isActive ? "Banque désactivée" : "Banque activée",
+          description: bank.name,
+          variant: "success",
         })
-        const data = await response.json()
-        if (data.success) {
-          await loadBanks()
-        }
-      } catch (error) {
-        console.error('Error toggling bank status:', error)
+        await loadBanks()
+      } else {
+        toast({
+          title: `Impossible de ${action} la banque`,
+          description: data.error,
+          variant: "destructive",
+        })
       }
+    } catch (error) {
+      console.error('Error toggling bank status:', error)
+      toast({
+        title: `Impossible de ${action} la banque`,
+        description: "Une erreur est survenue pendant la mise à jour du statut.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -1034,6 +1080,8 @@ export default function BanksManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {dialogueConfirmation}
     </div>
   )
 }

@@ -24,8 +24,11 @@ import type { Card as CardData, Bank, CardFilters, CardImportRow, CardDetails } 
 import { ChevronDown, ChevronRight, Download, Upload, Search, Filter, Printer } from "lucide-react"
 import { getAuthHeaders } from "@/lib/api-client"
 import { ListSkeleton } from "@/components/ui/loading-skeleton"
+import { toast } from "@/hooks/use-toast"
+import { useConfirmation } from "@/hooks/use-confirmation"
 
 export default function CardsManagement() {
+  const { demanderConfirmation, dialogueConfirmation } = useConfirmation()
   const [cards, setCards] = useState<CardData[]>([])
   const [banks, setBanks] = useState<Bank[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -168,7 +171,7 @@ export default function CardsManagement() {
         })
         const data = await response.json()
         if (!data.success) {
-          alert(data.error || 'Erreur lors de la mise à jour')
+          toast({ title: "Mise à jour impossible", description: data.error, variant: "destructive" })
           return
         }
       } else {
@@ -183,17 +186,26 @@ export default function CardsManagement() {
         })
         const data = await response.json()
         if (!data.success) {
-          alert(data.error || 'Erreur lors de la création')
+          toast({ title: "Création impossible", description: data.error, variant: "destructive" })
           return
         }
       }
 
+      toast({
+        title: editingCard ? "Carte mise à jour" : "Carte créée",
+        description: `${formData.name} a été enregistrée.`,
+        variant: "success",
+      })
       await loadData()
       resetForm()
       setIsDialogOpen(false)
     } catch (error) {
       console.error('Error saving card:', error)
-      alert('Erreur lors de la sauvegarde')
+      toast({
+        title: "Enregistrement impossible",
+        description: "Une erreur est survenue pendant la sauvegarde de la carte.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -234,27 +246,41 @@ export default function CardsManagement() {
     const totalStock = stockLevels.reduce((sum: number, level: any) => sum + level.quantity, 0)
 
     if (totalStock > 0) {
-      alert(`⚠️ Impossible de supprimer cette carte.\n\nElle contient encore ${totalStock} unité(s) en stock dans les emplacements.\n\nVeuillez d'abord transférer ou sortir ce stock avant de supprimer la carte.`)
+      toast({
+        title: "Impossible de supprimer cette carte",
+        description: `Elle contient encore ${totalStock} unité(s) en stock dans les emplacements. Transférez ou sortez ce stock avant de supprimer la carte.`,
+        variant: "destructive",
+      })
       return
     }
 
-    if (confirm("Êtes-vous sûr de vouloir supprimer cette carte ?")) {
-      try {
-        const response = await fetch(`/api/cards/${id}`, {
-          method: 'DELETE',
-          headers: getAuthHeaders(),
-        })
-        const data = await response.json()
-        if (data.success) {
-          alert('✅ Carte supprimée avec succès')
-          await loadData()
-        } else {
-          alert(`❌ ${data.error || 'Erreur lors de la suppression'}`)
-        }
-      } catch (error) {
-        console.error('Error deleting card:', error)
-        alert('❌ Erreur lors de la suppression')
+    const confirme = await demanderConfirmation({
+      title: "Supprimer cette carte ?",
+      description: `${card.name} sera définitivement supprimée.`,
+      confirmLabel: "Supprimer",
+      variant: "danger",
+    })
+    if (!confirme) return
+
+    try {
+      const response = await fetch(`/api/cards/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      })
+      const data = await response.json()
+      if (data.success) {
+        toast({ title: "Carte supprimée", description: card.name, variant: "success" })
+        await loadData()
+      } else {
+        toast({ title: "Suppression impossible", description: data.error, variant: "destructive" })
       }
+    } catch (error) {
+      console.error('Error deleting card:', error)
+      toast({
+        title: "Suppression impossible",
+        description: "Une erreur est survenue pendant la suppression de la carte.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -1495,6 +1521,8 @@ export default function CardsManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {dialogueConfirmation}
     </div>
   )
 }

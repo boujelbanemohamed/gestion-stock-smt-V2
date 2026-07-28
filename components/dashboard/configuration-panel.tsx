@@ -14,14 +14,14 @@ import type { AppConfig, MovementReason } from "@/lib/types"
 import { getAuthHeaders } from "@/lib/api-client"
 import { applyTheme, storeTheme, type Theme } from "@/lib/theme"
 import { toast } from "@/hooks/use-toast"
+import { useConfirmation } from "@/hooks/use-confirmation"
 import { Mail, Bell, Eye, Shield, Save, Building2, Tag, Trash2, Plus } from "lucide-react"
 
 export default function ConfigurationPanel() {
+  const { demanderConfirmation, dialogueConfirmation } = useConfirmation()
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [isSaving, setIsSaving] = useState(false)
-  const [saveMessage, setSaveMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const [isTestingSmtp, setIsTestingSmtp] = useState(false)
-  const [smtpTestMessage, setSmtpTestMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const [emailPreviewOpen, setEmailPreviewOpen] = useState(false)
   const [selectedEmailTemplate, setSelectedEmailTemplate] = useState<
     "welcome" | "lowStock" | "movement" | "userActivity" | "passwordReset" | "passwordChanged" | "authMethodChanged"
@@ -56,7 +56,7 @@ export default function ConfigurationPanel() {
   const handleSaveReasonLabel = async (reasonId: string) => {
     const label = (reasonLabels[reasonId] || "").trim()
     if (!label) {
-      toast({ title: "Erreur", description: "Le libellé ne peut pas être vide", variant: "destructive" })
+      toast({ title: "Libellé requis", description: "Le libellé du motif ne peut pas être vide.", variant: "destructive" })
       return
     }
     setSavingReasonId(reasonId)
@@ -68,14 +68,18 @@ export default function ConfigurationPanel() {
       })
       const data = await response.json()
       if (data.success) {
-        toast({ title: "Motif mis à jour", description: `"${label}" enregistré avec succès` })
+        toast({ title: "Motif mis à jour", description: `« ${label} » enregistré.`, variant: "success" })
         await loadReasons()
       } else {
-        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
+        toast({ title: "Mise à jour impossible", description: data.error, variant: "destructive" })
       }
     } catch (error) {
       console.error('Error updating movement reason:', error)
-      toast({ title: "Erreur", description: "Erreur lors de la mise à jour du motif", variant: "destructive" })
+      toast({
+        title: "Mise à jour impossible",
+        description: "Une erreur est survenue pendant la mise à jour du motif.",
+        variant: "destructive",
+      })
     } finally {
       setSavingReasonId(null)
     }
@@ -83,7 +87,13 @@ export default function ConfigurationPanel() {
 
   const handleDeleteReason = async (reason: MovementReason) => {
     if (reason.isOther) return
-    if (!confirm(`Supprimer le motif "${reason.label}" ?`)) return
+    const confirme = await demanderConfirmation({
+      title: "Supprimer ce motif ?",
+      description: `« ${reason.label} » ne sera plus proposé dans les mouvements.`,
+      confirmLabel: "Supprimer",
+      variant: "danger",
+    })
+    if (!confirme) return
 
     setDeletingReasonId(reason.id)
     try {
@@ -93,14 +103,18 @@ export default function ConfigurationPanel() {
       })
       const data = await response.json()
       if (data.success) {
-        toast({ title: "Motif supprimé", description: `"${reason.label}" a été supprimé` })
+        toast({ title: "Motif supprimé", description: `« ${reason.label} »`, variant: "success" })
         await loadReasons()
       } else {
-        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
+        toast({ title: "Suppression impossible", description: data.error, variant: "destructive" })
       }
     } catch (error) {
       console.error('Error deleting movement reason:', error)
-      toast({ title: "Erreur", description: "Erreur lors de la suppression du motif", variant: "destructive" })
+      toast({
+        title: "Suppression impossible",
+        description: "Une erreur est survenue pendant la suppression du motif.",
+        variant: "destructive",
+      })
     } finally {
       setDeletingReasonId(null)
     }
@@ -120,14 +134,18 @@ export default function ConfigurationPanel() {
       const data = await response.json()
       if (data.success) {
         setNewReasonLabel("")
-        toast({ title: "Motif créé", description: `"${label}" a été ajouté` })
+        toast({ title: "Motif créé", description: `« ${label} »`, variant: "success" })
         await loadReasons()
       } else {
-        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
+        toast({ title: "Création impossible", description: data.error, variant: "destructive" })
       }
     } catch (error) {
       console.error('Error creating movement reason:', error)
-      toast({ title: "Erreur", description: "Erreur lors de la création du motif", variant: "destructive" })
+      toast({
+        title: "Création impossible",
+        description: "Une erreur est survenue pendant la création du motif.",
+        variant: "destructive",
+      })
     } finally {
       setIsAddingReason(false)
     }
@@ -226,18 +244,24 @@ export default function ConfigurationPanel() {
       const data = await response.json()
       
       if (data.success) {
-        setSaveMessage({ type: "success", text: "Configuration enregistrée avec succès" })
+        toast({ title: "Configuration enregistrée", variant: "success" })
         // Applique et mémorise immédiatement le thème choisi, sans attendre un rechargement.
         storeTheme(config.display.theme as Theme)
         applyTheme(config.display.theme as Theme)
       } else {
-        setSaveMessage({ type: "error", text: data.error || "Erreur lors de l'enregistrement" })
+        toast({
+          title: "Enregistrement impossible",
+          description: data.error,
+          variant: "destructive",
+        })
       }
-      setTimeout(() => setSaveMessage(null), 3000)
     } catch (error) {
       console.error('Error saving config:', error)
-      setSaveMessage({ type: "error", text: "Erreur lors de l'enregistrement" })
-      setTimeout(() => setSaveMessage(null), 3000)
+      toast({
+        title: "Enregistrement impossible",
+        description: "Une erreur est survenue pendant l'enregistrement de la configuration.",
+        variant: "destructive",
+      })
     } finally {
       setIsSaving(false)
     }
@@ -247,8 +271,7 @@ export default function ConfigurationPanel() {
     if (!config) return
 
     setIsTestingSmtp(true)
-    setSmtpTestMessage(null)
-    
+
     try {
       const response = await fetch('/api/config/test-smtp', {
         method: 'POST',
@@ -262,25 +285,25 @@ export default function ConfigurationPanel() {
       const data = await response.json()
       
       if (data.success) {
-        setSmtpTestMessage({ 
-          type: "success", 
-          text: "Email de test envoyé avec succès ! Vérifiez votre boîte de réception." 
+        toast({
+          title: "Email de test envoyé",
+          description: "Vérifiez votre boîte de réception.",
+          variant: "success",
         })
       } else {
-        setSmtpTestMessage({ 
-          type: "error", 
-          text: data.error || "Erreur lors du test SMTP. Vérifiez votre configuration." 
+        toast({
+          title: "Test SMTP en échec",
+          description: data.error || "Vérifiez votre configuration SMTP.",
+          variant: "destructive",
         })
       }
-      
-      setTimeout(() => setSmtpTestMessage(null), 5000)
     } catch (error) {
       console.error('Error testing SMTP:', error)
-      setSmtpTestMessage({ 
-        type: "error", 
-        text: "Erreur lors du test SMTP. Vérifiez votre configuration." 
+      toast({
+        title: "Test SMTP en échec",
+        description: "Vérifiez votre configuration SMTP.",
+        variant: "destructive",
       })
-      setTimeout(() => setSmtpTestMessage(null), 5000)
     } finally {
       setIsTestingSmtp(false)
     }
@@ -646,16 +669,6 @@ export default function ConfigurationPanel() {
         </Button>
       </div>
 
-      {saveMessage && (
-        <div
-          className={`p-4 rounded-lg ${
-            saveMessage.type === "success" ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800"
-          }`}
-        >
-          {saveMessage.text}
-        </div>
-      )}
-
       <Tabs defaultValue="general" className="space-y-6">
         <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-6">
           <TabsTrigger value="general" className="gap-2">
@@ -946,18 +959,6 @@ export default function ConfigurationPanel() {
                 </Button>
               </div>
 
-              {/* Message de résultat du test SMTP */}
-              {smtpTestMessage && (
-                <div
-                  className={`p-3 rounded-md text-sm ${
-                    smtpTestMessage.type === "success" 
-                      ? "bg-green-50 text-green-800 border border-green-200" 
-                      : "bg-red-50 text-red-800 border border-red-200"
-                  }`}
-                >
-                  {smtpTestMessage.text}
-                </div>
-              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1793,6 +1794,8 @@ export default function ConfigurationPanel() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {dialogueConfirmation}
     </div>
   )
 }

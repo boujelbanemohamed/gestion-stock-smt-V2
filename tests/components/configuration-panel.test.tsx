@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import ConfigurationPanel from "@/components/dashboard/configuration-panel"
+import { Toaster } from "@/components/ui/toaster"
+import { repondreConfirmation } from "../helpers/dialogue-confirmation"
 
 // jsdom n'implémente pas ces APIs de pointeur utilisées par Radix Select ;
 // sans ce polyfill, ouvrir le menu déroulant lève une TypeError.
@@ -103,7 +105,12 @@ describe("ConfigurationPanel", () => {
   it("modifie le nom de l'entreprise et enregistre la configuration générale", async () => {
     const fetchMock = setupFetchMock()
     const user = userEvent.setup()
-    render(<ConfigurationPanel />)
+    render(
+      <>
+        <ConfigurationPanel />
+        <Toaster />
+      </>,
+    )
     await screen.findByRole("tab", { name: /général/i })
 
     fireEvent.change(screen.getByLabelText("Nom de l'entreprise"), { target: { value: "Nouvelle Entreprise SA" } })
@@ -113,7 +120,9 @@ describe("ConfigurationPanel", () => {
     const body = JSON.parse((findPutConfigCall(fetchMock)![1] as RequestInit).body as string)
     expect(body.general.companyName).toBe("Nouvelle Entreprise SA")
 
-    expect(await screen.findByText("Configuration enregistrée avec succès")).toBeInTheDocument()
+    // Le bandeau vert propre à cet écran a laissé place à la notification
+    // commune à toute la plateforme.
+    expect(await screen.findByText("Configuration enregistrée")).toBeInTheDocument()
   })
 
   it("désactive le bouton de test SMTP tant que le serveur et l'utilisateur ne sont pas renseignés", async () => {
@@ -127,7 +136,12 @@ describe("ConfigurationPanel", () => {
   it("envoie un email de test SMTP une fois le serveur et l'utilisateur renseignés", async () => {
     const fetchMock = setupFetchMock()
     const user = userEvent.setup()
-    render(<ConfigurationPanel />)
+    render(
+      <>
+        <ConfigurationPanel />
+        <Toaster />
+      </>,
+    )
     await user.click(await screen.findByRole("tab", { name: /smtp/i }))
 
     fireEvent.change(screen.getByLabelText("Serveur SMTP"), { target: { value: "smtp.mailtrap.io" } })
@@ -139,7 +153,7 @@ describe("ConfigurationPanel", () => {
       const testCall = fetchMock.mock.calls.find((c) => c[0] === "/api/config/test-smtp")
       expect(testCall).toBeTruthy()
     })
-    expect(await screen.findByText(/email de test envoyé avec succès/i)).toBeInTheDocument()
+    expect(await screen.findByText("Email de test envoyé")).toBeInTheDocument()
   })
 
   it("affiche l'aide Gmail quand le serveur SMTP contient 'gmail'", async () => {
@@ -250,7 +264,6 @@ describe("ConfigurationPanel", () => {
   it("supprime un motif après confirmation, mais interdit la suppression du motif protégé Autre", async () => {
     const fetchMock = setupFetchMock()
     const user = userEvent.setup()
-    vi.spyOn(window, "confirm").mockReturnValue(true)
     render(<ConfigurationPanel />)
     await user.click(await screen.findByRole("tab", { name: /motifs/i }))
 
@@ -261,6 +274,7 @@ describe("ConfigurationPanel", () => {
     const entryInput = screen.getByDisplayValue(reasonEntry.label)
     const entryRow = entryInput.closest("div") as HTMLElement
     await user.click(within(entryRow).getAllByRole("button")[1])
+    await repondreConfirmation(user, /^supprimer$/i)
 
     await waitFor(() => {
       const deleteCall = fetchMock.mock.calls.find(

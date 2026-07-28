@@ -92,13 +92,17 @@ export default function ProfilePage() {
         localStorage.setItem('currentUser', JSON.stringify(updatedUser))
         setCurrentUser(updatedUser)
         eventBus.emit("user:updated", updatedUser)
-        toast({ title: "Avatar mis à jour", description: "Votre photo de profil a été mise à jour avec succès." })
+        toast({ title: "Avatar mis à jour", description: "Votre photo de profil a été mise à jour avec succès.", variant: "success" })
       } else {
-        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
+        toast({ title: "Téléversement impossible", description: data.error, variant: "destructive" })
       }
     } catch (error) {
       console.error('Error uploading avatar:', error)
-      toast({ title: "Erreur", description: "Erreur lors du téléversement de l'avatar", variant: "destructive" })
+      toast({
+        title: "Téléversement impossible",
+        description: "Une erreur est survenue pendant l'envoi de votre photo.",
+        variant: "destructive",
+      })
     } finally {
       setIsUploadingAvatar(false)
     }
@@ -119,13 +123,17 @@ export default function ProfilePage() {
         localStorage.setItem('currentUser', JSON.stringify(updatedUser))
         setCurrentUser(updatedUser)
         eventBus.emit("user:updated", updatedUser)
-        toast({ title: "Avatar supprimé", description: "Votre photo de profil a été retirée." })
+        toast({ title: "Avatar supprimé", description: "Votre photo de profil a été retirée.", variant: "success" })
       } else {
-        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
+        toast({ title: "Suppression impossible", description: data.error, variant: "destructive" })
       }
     } catch (error) {
       console.error('Error removing avatar:', error)
-      toast({ title: "Erreur", description: "Erreur lors de la suppression de l'avatar", variant: "destructive" })
+      toast({
+        title: "Suppression impossible",
+        description: "Une erreur est survenue pendant la suppression de votre photo.",
+        variant: "destructive",
+      })
     } finally {
       setIsUploadingAvatar(false)
     }
@@ -150,19 +158,20 @@ export default function ProfilePage() {
         toast({
           title: "Profil mis à jour",
           description: "Vos informations ont été sauvegardées avec succès.",
+          variant: "success",
         })
       } else {
         toast({
-          title: "Erreur",
-          description: "Impossible de mettre à jour le profil.",
+          title: "Mise à jour impossible",
+          description: "Vos informations n'ont pas pu être enregistrées.",
           variant: "destructive",
         })
       }
     } catch (error) {
       console.error('Error updating profile:', error)
       toast({
-        title: "Erreur",
-        description: "Erreur lors de la mise à jour du profil.",
+        title: "Mise à jour impossible",
+        description: "Une erreur est survenue pendant la mise à jour du profil.",
         variant: "destructive",
       })
     }
@@ -173,8 +182,8 @@ export default function ProfilePage() {
 
     if (passwordData.newPassword !== passwordData.confirmPassword) {
       toast({
-        title: "Erreur",
-        description: "Les mots de passe ne correspondent pas.",
+        title: "Mots de passe différents",
+        description: "La confirmation ne correspond pas au nouveau mot de passe.",
         variant: "destructive",
       })
       return
@@ -182,7 +191,7 @@ export default function ProfilePage() {
 
     if (passwordData.newPassword.length < 6) {
       toast({
-        title: "Erreur",
+        title: "Mot de passe trop court",
         description: "Le mot de passe doit contenir au moins 6 caractères.",
         variant: "destructive",
       })
@@ -206,19 +215,20 @@ export default function ProfilePage() {
         toast({
           title: "Mot de passe modifié",
           description: "Votre mot de passe a été mis à jour avec succès.",
+          variant: "success",
         })
       } else {
         toast({
-          title: "Erreur",
-          description: "Impossible de modifier le mot de passe.",
+          title: "Modification impossible",
+          description: "Le mot de passe n'a pas pu être modifié.",
           variant: "destructive",
         })
       }
     } catch (error) {
       console.error('Error changing password:', error)
       toast({
-        title: "Erreur",
-        description: "Erreur lors du changement de mot de passe.",
+        title: "Modification impossible",
+        description: "Une erreur est survenue pendant le changement de mot de passe.",
         variant: "destructive",
       })
     }
@@ -235,11 +245,15 @@ export default function ProfilePage() {
         setManualSecret(data.data.secret)
         setTwoFactorStep("qr")
       } else {
-        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
+        toast({ title: "Activation impossible", description: data.error, variant: "destructive" })
       }
     } catch (error) {
       console.error('Error starting 2FA setup:', error)
-      toast({ title: "Erreur", description: "Erreur lors de la préparation de la double authentification", variant: "destructive" })
+      toast({
+        title: "Activation impossible",
+        description: "La double authentification n'a pas pu être préparée.",
+        variant: "destructive",
+      })
     } finally {
       setIsTwoFactorLoading(false)
     }
@@ -269,13 +283,22 @@ export default function ProfilePage() {
         toast({
           title: "Double authentification activée",
           description: "Conservez vos codes de secours dans un endroit sûr.",
+          variant: "success",
         })
       } else {
-        toast({ title: "Erreur", description: data.error || "Code incorrect", variant: "destructive" })
+        toast({
+          title: "Code incorrect",
+          description: data.error,
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error('Error enabling 2FA:', error)
-      toast({ title: "Erreur", description: "Erreur lors de l'activation de la double authentification", variant: "destructive" })
+      toast({
+        title: "Activation impossible",
+        description: "La double authentification n'a pas pu être activée.",
+        variant: "destructive",
+      })
     } finally {
       setIsTwoFactorLoading(false)
     }
@@ -314,13 +337,21 @@ export default function ProfilePage() {
         eventBus.emit("user:updated", updatedUser)
         setIsDisablingTwoFactor(false)
         setDisablePassword("")
-        toast({ title: "Double authentification désactivée" })
+        toast({ title: "Double authentification désactivée", variant: "success" })
       } else {
-        toast({ title: "Erreur", description: data.error || "Mot de passe incorrect", variant: "destructive" })
+        toast({
+          title: "Désactivation impossible",
+          description: data.error || "Mot de passe incorrect.",
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error('Error disabling 2FA:', error)
-      toast({ title: "Erreur", description: "Erreur lors de la désactivation de la double authentification", variant: "destructive" })
+      toast({
+        title: "Désactivation impossible",
+        description: "La double authentification n'a pas pu être désactivée.",
+        variant: "destructive",
+      })
     } finally {
       setIsTwoFactorLoading(false)
     }

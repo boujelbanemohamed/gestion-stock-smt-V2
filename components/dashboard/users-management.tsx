@@ -10,8 +10,9 @@ import { getAuthHeaders, authenticatedFetch } from "@/lib/api-client"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { toast } from "@/hooks/use-toast"
 import { eventBus } from "@/lib/event-bus"
+import { useConfirmation } from "@/hooks/use-confirmation"
 import { cn } from "@/lib/utils"
-import { Eye, EyeOff } from "lucide-react"
+import { Copy, Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -32,6 +33,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 
+// Messages réutilisés par la création et la modification d'un rôle : les deux
+// formulaires doivent refuser une saisie incomplète avec exactement les mêmes mots.
+const CHAMPS_ROLE_REQUIS = "Renseignez le nom et la description du rôle."
+const PERMISSION_REQUISE = "Sélectionnez au moins une permission."
+
 // Liste des permissions disponibles
 const ALL_PERMISSIONS: Permission[] = [
   "dashboard:view",
@@ -45,6 +51,7 @@ const ALL_PERMISSIONS: Permission[] = [
 ]
 
 export default function UsersManagement() {
+  const { demanderConfirmation, dialogueConfirmation } = useConfirmation()
   const { user: currentUser, hasPermission, isLoading: permissionsLoading } = usePermissions()
   const isSuperAdmin = Boolean(currentUser?.role && ["admin", "super_admin"].includes(currentUser.role.toLowerCase()))
   const searchParams = useSearchParams()
@@ -57,6 +64,10 @@ export default function UsersManagement() {
   const [selectedRole, setSelectedRole] = useState<RolePermissions | null>(null)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [isUpdatingRole, setIsUpdatingRole] = useState(false)
+  // Mot de passe généré à la création d'un compte : présenté dans une fenêtre
+  // dédiée, car il doit rester affiché le temps d'être recopié.
+  const [generatedPassword, setGeneratedPassword] = useState<{ user: string; password: string } | null>(null)
+  const [passwordCopied, setPasswordCopied] = useState(false)
   // Pré-rempli dès le premier rendu avec ?q=... (recherche globale) pour éviter
   // qu'un premier fetch non filtré ne parte en parallèle de celui, filtré, déclenché
   // par un effet séparé (l'un des deux résultats écrasant l'autre selon l'ordre de retour réseau).
@@ -184,17 +195,25 @@ export default function UsersManagement() {
 
       const data = await response.json()
       if (!data.success) {
-        alert(data.error || 'Erreur lors de la création')
+        toast({ title: "Création impossible", description: data.error, variant: "destructive" })
         return
       }
 
-      // Afficher le mot de passe généré si pas d'email envoyé
+      toast({
+        title: "Utilisateur créé",
+        description: formData.sendEmail
+          ? "Les informations de connexion ont été envoyées par email."
+          : `${formData.firstName} ${formData.lastName} a été ajouté.`,
+        variant: "success",
+      })
+
+      // Le mot de passe généré doit être recopié : il ne peut pas tenir dans une
+      // notification qui disparaît au bout de quelques secondes.
       if (!formData.sendEmail && data.generatedPassword) {
-        alert(`Utilisateur créé avec succès !\n\nMot de passe généré: ${data.generatedPassword}\n\nVeuillez noter ce mot de passe et le communiquer à l'utilisateur.`)
-      } else if (formData.sendEmail) {
-        alert('Utilisateur créé avec succès ! Les informations de connexion ont été envoyées par email.')
-      } else {
-        alert('Utilisateur créé avec succès !')
+        setGeneratedPassword({
+          user: `${formData.firstName} ${formData.lastName}`,
+          password: data.generatedPassword,
+        })
       }
 
       setIsAddDialogOpen(false)
@@ -202,7 +221,11 @@ export default function UsersManagement() {
       await loadData()
     } catch (error) {
       console.error('Error adding user:', error)
-      alert('Erreur lors de la création')
+      toast({
+        title: "Création impossible",
+        description: "Une erreur est survenue pendant la création de l'utilisateur.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -226,14 +249,22 @@ export default function UsersManagement() {
         const updatedUser = { ...selectedUser, avatarUrl: data.data.avatarUrl }
         setSelectedUser(updatedUser)
         eventBus.emit("user:updated", updatedUser)
-        toast({ title: "Avatar mis à jour", description: `Photo de ${selectedUser.firstName} ${selectedUser.lastName} mise à jour.` })
+        toast({
+          title: "Avatar mis à jour",
+          description: `Photo de ${selectedUser.firstName} ${selectedUser.lastName} mise à jour.`,
+          variant: "success",
+        })
         await loadData()
       } else {
-        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
+        toast({ title: "Téléversement impossible", description: data.error, variant: "destructive" })
       }
     } catch (error) {
       console.error('Error uploading avatar:', error)
-      toast({ title: "Erreur", description: "Erreur lors du téléversement de l'avatar", variant: "destructive" })
+      toast({
+        title: "Téléversement impossible",
+        description: "Une erreur est survenue pendant l'envoi de l'avatar.",
+        variant: "destructive",
+      })
     } finally {
       setIsUploadingAvatar(false)
     }
@@ -253,14 +284,22 @@ export default function UsersManagement() {
         const updatedUser = { ...selectedUser, avatarUrl: null }
         setSelectedUser(updatedUser)
         eventBus.emit("user:updated", updatedUser)
-        toast({ title: "Avatar supprimé", description: `Photo de ${selectedUser.firstName} ${selectedUser.lastName} retirée.` })
+        toast({
+          title: "Avatar supprimé",
+          description: `Photo de ${selectedUser.firstName} ${selectedUser.lastName} retirée.`,
+          variant: "success",
+        })
         await loadData()
       } else {
-        toast({ title: "Erreur", description: data.error || "Erreur inconnue", variant: "destructive" })
+        toast({ title: "Suppression impossible", description: data.error, variant: "destructive" })
       }
     } catch (error) {
       console.error('Error removing avatar:', error)
-      toast({ title: "Erreur", description: "Erreur lors de la suppression de l'avatar", variant: "destructive" })
+      toast({
+        title: "Suppression impossible",
+        description: "Une erreur est survenue pendant la suppression de l'avatar.",
+        variant: "destructive",
+      })
     } finally {
       setIsUploadingAvatar(false)
     }
@@ -321,7 +360,7 @@ export default function UsersManagement() {
 
       const data = await response.json()
       if (!data.success) {
-        toast({ title: "Erreur", description: data.error || "Erreur lors de la mise à jour", variant: "destructive" })
+        toast({ title: "Mise à jour impossible", description: data.error, variant: "destructive" })
         return
       }
 
@@ -332,12 +371,17 @@ export default function UsersManagement() {
       toast({
         title: "Utilisateur mis à jour",
         description: passwordChanged
-          ? "Les informations et le mot de passe ont été mis à jour avec succès."
-          : "Les informations ont été mises à jour avec succès.",
+          ? "Les informations et le mot de passe ont été mis à jour."
+          : "Les informations ont été mises à jour.",
+        variant: "success",
       })
     } catch (error) {
       console.error('Error updating user:', error)
-      toast({ title: "Erreur", description: "Erreur lors de la mise à jour", variant: "destructive" })
+      toast({
+        title: "Mise à jour impossible",
+        description: "Une erreur est survenue pendant la mise à jour de l'utilisateur.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -364,22 +408,36 @@ export default function UsersManagement() {
   }
 
   const handleDeleteUser = async (userId: string) => {
-    if (confirm("Êtes-vous sûr de vouloir désactiver cet utilisateur ?")) {
-      try {
-        const response = await fetch(`/api/users/${userId}`, {
-          method: 'DELETE',
-          headers: getAuthHeaders(),
-        })
-        const data = await response.json()
-        if (data.success) {
-          await loadData()
-        } else {
-          alert(data.error || 'Erreur lors de la suppression')
-        }
-      } catch (error) {
-        console.error('Error deleting user:', error)
-        alert('Erreur lors de la suppression')
+    const utilisateur = users.find((u) => u.id === userId)
+    const confirme = await demanderConfirmation({
+      title: "Désactiver cet utilisateur ?",
+      description: utilisateur
+        ? `${utilisateur.firstName} ${utilisateur.lastName} ne pourra plus se connecter à la plateforme.`
+        : "L'utilisateur ne pourra plus se connecter à la plateforme.",
+      confirmLabel: "Désactiver",
+      variant: "danger",
+    })
+    if (!confirme) return
+
+    try {
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      })
+      const data = await response.json()
+      if (data.success) {
+        toast({ title: "Utilisateur désactivé", variant: "success" })
+        await loadData()
+      } else {
+        toast({ title: "Désactivation impossible", description: data.error, variant: "destructive" })
       }
+    } catch (error) {
+      console.error('Error deleting user:', error)
+      toast({
+        title: "Désactivation impossible",
+        description: "Une erreur est survenue pendant la désactivation de l'utilisateur.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -413,7 +471,7 @@ export default function UsersManagement() {
       })
       const data = await response.json()
       if (!data.success) {
-        toast({ title: "Erreur", description: data.error || "Erreur lors de la mise à jour", variant: "destructive" })
+        toast({ title: "Mise à jour impossible", description: data.error, variant: "destructive" })
         return
       }
 
@@ -424,10 +482,15 @@ export default function UsersManagement() {
         description: editTwoFactorEnabled
           ? "L'utilisateur devra utiliser la double authentification à sa prochaine connexion."
           : "L'utilisateur pourra se connecter avec son mot de passe seul.",
+        variant: "success",
       })
     } catch (error) {
       console.error('Error updating two-factor requirement:', error)
-      toast({ title: "Erreur", description: "Erreur lors de la mise à jour du type d'authentification", variant: "destructive" })
+      toast({
+        title: "Mise à jour impossible",
+        description: "Le type d'authentification n'a pas pu être modifié.",
+        variant: "destructive",
+      })
     } finally {
       setIsSavingTwoFactor(false)
     }
@@ -437,9 +500,13 @@ export default function UsersManagement() {
   // devra en reconfigurer un nouveau à sa prochaine connexion. Réservé au super admin.
   const handleResetTwoFactor = async () => {
     if (!selectedUser) return
-    if (!confirm(`Réinitialiser la configuration 2FA de ${selectedUser.firstName} ${selectedUser.lastName} ? L'utilisateur devra reconfigurer une nouvelle application d'authentification.`)) {
-      return
-    }
+    const confirme = await demanderConfirmation({
+      title: "Réinitialiser la configuration 2FA ?",
+      description: `${selectedUser.firstName} ${selectedUser.lastName} devra reconfigurer une nouvelle application d'authentification à sa prochaine connexion.`,
+      confirmLabel: "Réinitialiser",
+      variant: "danger",
+    })
+    if (!confirme) return
 
     setIsResettingTwoFactor(true)
     try {
@@ -449,7 +516,7 @@ export default function UsersManagement() {
       })
       const data = await response.json()
       if (!data.success) {
-        toast({ title: "Erreur", description: data.error || "Erreur lors de la réinitialisation", variant: "destructive" })
+        toast({ title: "Réinitialisation impossible", description: data.error, variant: "destructive" })
         return
       }
 
@@ -457,10 +524,15 @@ export default function UsersManagement() {
       toast({
         title: "Configuration 2FA réinitialisée",
         description: "L'utilisateur devra configurer une nouvelle application d'authentification à sa prochaine connexion.",
+        variant: "success",
       })
     } catch (error) {
       console.error('Error resetting two-factor config:', error)
-      toast({ title: "Erreur", description: "Erreur lors de la réinitialisation de la configuration 2FA", variant: "destructive" })
+      toast({
+        title: "Réinitialisation impossible",
+        description: "La configuration 2FA n'a pas pu être réinitialisée.",
+        variant: "destructive",
+      })
     } finally {
       setIsResettingTwoFactor(false)
     }
@@ -481,17 +553,21 @@ export default function UsersManagement() {
 
   const handleAddRole = async () => {
     if (!roleFormData.role || !roleFormData.description) {
-      alert("Veuillez remplir tous les champs obligatoires")
+      toast({ title: "Champs obligatoires", description: CHAMPS_ROLE_REQUIS, variant: "destructive" })
       return
     }
 
     if (roleFormData.permissions.length === 0) {
-      alert("Veuillez sélectionner au moins une permission")
+      toast({ title: "Permission requise", description: PERMISSION_REQUISE, variant: "destructive" })
       return
     }
 
     if (rolePermissions.some((r) => r.role.toLowerCase() === roleFormData.role.toLowerCase())) {
-      alert("Un rôle avec ce nom existe déjà")
+      toast({
+        title: "Nom déjà utilisé",
+        description: "Un rôle portant ce nom existe déjà.",
+        variant: "destructive",
+      })
       return
     }
 
@@ -509,16 +585,21 @@ export default function UsersManagement() {
 
       const data = await response.json()
       if (!data.success) {
-        alert(data.error || 'Erreur lors de la création du rôle')
+        toast({ title: "Création impossible", description: data.error, variant: "destructive" })
         return
       }
 
+      toast({ title: "Rôle créé", description: roleFormData.role, variant: "success" })
       setIsAddRoleDialogOpen(false)
       resetRoleForm()
       await loadData()
     } catch (error) {
       console.error('Error creating role:', error)
-      alert('Erreur lors de la création du rôle')
+      toast({
+        title: "Création impossible",
+        description: "Une erreur est survenue pendant la création du rôle.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -526,12 +607,12 @@ export default function UsersManagement() {
     if (!selectedRole) return
 
     if (!roleFormData.role || !roleFormData.description) {
-      alert("Veuillez remplir tous les champs obligatoires")
+      toast({ title: "Champs obligatoires", description: CHAMPS_ROLE_REQUIS, variant: "destructive" })
       return
     }
 
     if (roleFormData.permissions.length === 0) {
-      alert("Veuillez sélectionner au moins une permission")
+      toast({ title: "Permission requise", description: PERMISSION_REQUISE, variant: "destructive" })
       return
     }
 
@@ -556,10 +637,12 @@ export default function UsersManagement() {
 
       const data = await response.json()
       if (!data.success) {
-        alert(data.error || 'Erreur lors de la mise à jour du rôle')
+        toast({ title: "Mise à jour impossible", description: data.error, variant: "destructive" })
+        setIsUpdatingRole(false)
         return
       }
 
+      toast({ title: "Rôle mis à jour", description: roleFormData.role, variant: "success" })
       setIsEditRoleDialogOpen(false)
       setSelectedRole(null)
       resetRoleForm()
@@ -571,7 +654,11 @@ export default function UsersManagement() {
       }, 100)
     } catch (error) {
       console.error('Error updating role:', error)
-      alert('Erreur lors de la mise à jour du rôle')
+      toast({
+        title: "Mise à jour impossible",
+        description: "Une erreur est survenue pendant la mise à jour du rôle.",
+        variant: "destructive",
+      })
       setIsUpdatingRole(false)
     }
   }
@@ -581,34 +668,53 @@ export default function UsersManagement() {
     if (!role) return
 
     if (!role.isCustom) {
-      alert("Impossible de supprimer un rôle prédéfini")
+      toast({
+        title: "Suppression impossible",
+        description: "Un rôle prédéfini ne peut pas être supprimé.",
+        variant: "destructive",
+      })
       return
     }
 
     const usersWithRole = users.filter((u) => u.role === role.role)
     if (usersWithRole.length > 0) {
-      alert(`Impossible de supprimer ce rôle car ${usersWithRole.length} utilisateur(s) l'utilisent`)
+      toast({
+        title: "Suppression impossible",
+        description: `${usersWithRole.length} utilisateur(s) utilisent encore ce rôle.`,
+        variant: "destructive",
+      })
       return
     }
 
-    if (confirm(`Êtes-vous sûr de vouloir supprimer le rôle "${role.role}" ?`)) {
-      try {
-        const response = await fetch(`/api/roles/${roleId}`, {
-          method: 'DELETE',
-          headers: getAuthHeaders(),
-        })
+    const confirme = await demanderConfirmation({
+      title: "Supprimer ce rôle ?",
+      description: `Le rôle « ${role.role} » sera définitivement supprimé.`,
+      confirmLabel: "Supprimer",
+      variant: "danger",
+    })
+    if (!confirme) return
 
-        const data = await response.json()
-        if (!data.success) {
-          alert(data.error || 'Erreur lors de la suppression du rôle')
-          return
-        }
+    try {
+      const response = await fetch(`/api/roles/${roleId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      })
 
-        await loadData()
-      } catch (error) {
-        console.error('Error deleting role:', error)
-        alert('Erreur lors de la suppression du rôle')
+      const data = await response.json()
+      if (!data.success) {
+        toast({ title: "Suppression impossible", description: data.error, variant: "destructive" })
+        return
       }
+
+      toast({ title: "Rôle supprimé", description: role.role, variant: "success" })
+      await loadData()
+    } catch (error) {
+      console.error('Error deleting role:', error)
+      toast({
+        title: "Suppression impossible",
+        description: "Une erreur est survenue pendant la suppression du rôle.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -1466,6 +1572,56 @@ export default function UsersManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={generatedPassword !== null}
+        onOpenChange={(ouvert) => {
+          if (!ouvert) {
+            setGeneratedPassword(null)
+            setPasswordCopied(false)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Mot de passe généré</DialogTitle>
+            <DialogDescription>
+              Notez ce mot de passe et communiquez-le à {generatedPassword?.user}. Il ne sera plus affiché
+              après la fermeture de cette fenêtre.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 rounded-md border bg-muted px-3 py-2 font-mono text-sm break-all">
+              {generatedPassword?.password}
+            </code>
+            <Button
+              variant="outline"
+              size="icon"
+              aria-label="Copier le mot de passe"
+              onClick={async () => {
+                if (!generatedPassword) return
+                await navigator.clipboard.writeText(generatedPassword.password)
+                setPasswordCopied(true)
+              }}
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+          {passwordCopied && <p className="text-sm text-emerald-700">Mot de passe copié.</p>}
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                setGeneratedPassword(null)
+                setPasswordCopied(false)
+              }}
+            >
+              Fermer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {dialogueConfirmation}
     </div>
   )
 }

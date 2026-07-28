@@ -228,10 +228,14 @@ export default function LogsPanel() {
       } else {
         await exportToExcel(filename, [{ name: "Logs", headers, rows }])
       }
-      toast({ title: "Export réussi", description: `${filteredLogs.length} log(s) exporté(s).` })
+      toast({ title: "Export réussi", description: `${filteredLogs.length} log(s) exporté(s).`, variant: "success" })
     } catch (error) {
       console.error('Error exporting logs:', error)
-      toast({ title: "Erreur", description: "Erreur lors de l'export des logs", variant: "destructive" })
+      toast({
+        title: "Export impossible",
+        description: "Une erreur est survenue pendant l'export des logs.",
+        variant: "destructive",
+      })
     }
   }
 

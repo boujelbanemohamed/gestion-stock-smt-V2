@@ -414,8 +414,12 @@ describe("MovementsManagement", () => {
   it("génère en masse les mouvements pour les cartes en stock dans l'emplacement source", async () => {
     setupFetchMock()
     const user = userEvent.setup()
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
-    render(<MovementsManagement />)
+    render(
+      <>
+        <Toaster />
+        <MovementsManagement />
+      </>,
+    )
     await screen.findByText("Carte Débit Standard")
 
     const dialog = await openNewMovementDialog(user)
@@ -425,7 +429,9 @@ describe("MovementsManagement", () => {
 
     await user.click(within(dialog).getByRole("button", { name: /générer en masse/i }))
 
-    expect(alertSpy).toHaveBeenCalled()
+    // Le compte rendu s'affiche dans une notification de la plateforme, plus
+    // dans un alert() du navigateur.
+    expect(await screen.findByText("1 carte(s) sélectionnée(s)")).toBeInTheDocument()
     const quantityInput = await within(dialog).findByLabelText(/quantité pour cette carte/i)
     expect(quantityInput).toHaveValue(20)
   })

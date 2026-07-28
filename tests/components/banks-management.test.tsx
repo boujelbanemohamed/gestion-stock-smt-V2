@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import BanksManagement from "@/components/dashboard/banks-management"
+import { annulerConfirmation, repondreConfirmation } from "../helpers/dialogue-confirmation"
 
 const mockSearchParams = new URLSearchParams()
 vi.mock("next/navigation", () => ({
@@ -145,12 +146,12 @@ describe("BanksManagement", () => {
 
   it("ne supprime pas la banque si l'utilisateur annule la confirmation", async () => {
     const fetchMock = setupFetchMock()
-    vi.spyOn(window, "confirm").mockReturnValue(false)
     const user = userEvent.setup()
     render(<BanksManagement />)
     await screen.findByText("Banque Centrale")
 
     await user.click(screen.getByRole("button", { name: /supprimer/i }))
+    await annulerConfirmation(user)
 
     expect(fetchMock).not.toHaveBeenCalledWith(
       expect.stringContaining(`/api/banks/${bankA.id}`),
@@ -160,12 +161,12 @@ describe("BanksManagement", () => {
 
   it("supprime la banque après confirmation", async () => {
     const fetchMock = setupFetchMock()
-    vi.spyOn(window, "confirm").mockReturnValue(true)
     const user = userEvent.setup()
     render(<BanksManagement />)
     await screen.findByText("Banque Centrale")
 
     await user.click(screen.getByRole("button", { name: /supprimer/i }))
+    await repondreConfirmation(user, /^supprimer$/i)
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -177,12 +178,12 @@ describe("BanksManagement", () => {
 
   it("bascule le statut actif/inactif après confirmation", async () => {
     const fetchMock = setupFetchMock()
-    vi.spyOn(window, "confirm").mockReturnValue(true)
     const user = userEvent.setup()
     render(<BanksManagement />)
     await screen.findByText("Banque Centrale")
 
     await user.click(screen.getByRole("button", { name: /désactiver/i }))
+    await repondreConfirmation(user, /^désactiver$/i)
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(

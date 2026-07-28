@@ -124,7 +124,7 @@ export default function InventoriesManagement() {
       const reponse = await authenticatedFetch(`/api/inventories/${inventaire.id}`)
       const json = await reponse.json()
       if (!json.success) {
-        toast({ title: "Erreur", description: json.error, variant: "destructive" })
+        toast({ title: "Ouverture impossible", description: json.error, variant: "destructive" })
         return
       }
       setDetail(json.data)
@@ -134,7 +134,11 @@ export default function InventoriesManagement() {
       }
       setSaisies(initiales)
     } catch (error) {
-      toast({ title: "Erreur", description: "Impossible d'ouvrir l'inventaire", variant: "destructive" })
+      toast({
+        title: "Ouverture impossible",
+        description: "Le détail de l'inventaire n'a pas pu être chargé.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -157,6 +161,7 @@ export default function InventoriesManagement() {
       toast({
         title: "Inventaire ouvert",
         description: `${json.data.reference} — ${json.data.totalLines} ligne(s) à compter.`,
+        variant: "success",
       })
       setDialogueCreation(false)
       setBanqueChoisie("")
@@ -186,7 +191,7 @@ export default function InventoriesManagement() {
         return
       }
       setDetail(json.data)
-      toast({ title: "Comptage enregistré", description: `${json.data.countedLines}/${json.data.totalLines} ligne(s).` })
+      toast({ title: "Comptage enregistré", description: `${json.data.countedLines}/${json.data.totalLines} ligne(s).`, variant: "success" })
       await chargerInventaires()
     } finally {
       setEnregistrement(false)
@@ -203,7 +208,7 @@ export default function InventoriesManagement() {
         toast({ title: "Clôture refusée", description: json.error, variant: "destructive" })
         return
       }
-      toast({ title: "Inventaire clôturé", description: json.message })
+      toast({ title: "Inventaire clôturé", description: json.message, variant: "success" })
       setACloturer(null)
       await chargerInventaires()
       await ouvrirDetail(aCloturer)
@@ -222,7 +227,7 @@ export default function InventoriesManagement() {
         toast({ title: "Régularisation refusée", description: json.error, variant: "destructive" })
         return
       }
-      toast({ title: "Stock régularisé", description: json.message })
+      toast({ title: "Stock régularisé", description: json.message, variant: "success" })
       setARegulariser(null)
       await chargerInventaires()
       await ouvrirDetail(aRegulariser)
@@ -241,7 +246,7 @@ export default function InventoriesManagement() {
         toast({ title: "Suppression refusée", description: json.error, variant: "destructive" })
         return
       }
-      toast({ title: "Inventaire supprimé" })
+      toast({ title: "Inventaire supprimé", variant: "success" })
       setASupprimer(null)
       if (detail?.id === aSupprimer.id) setDetail(null)
       await chargerInventaires()
@@ -280,7 +285,7 @@ export default function InventoriesManagement() {
         ecart(ligne) ?? "",
       ]),
     )
-    toast({ title: "Export réussi", description: `${lignesDetail.length} ligne(s) exportée(s).` })
+    toast({ title: "Export réussi", description: `${lignesDetail.length} ligne(s) exportée(s).`, variant: "success" })
   }
 
   const imprimerRapport = () => {

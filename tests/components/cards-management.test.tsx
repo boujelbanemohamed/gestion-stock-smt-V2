@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import CardsManagement from "@/components/dashboard/cards-management"
+import { Toaster } from "@/components/ui/toaster"
+import { repondreConfirmation } from "../helpers/dialogue-confirmation"
 
 // jsdom n'implémente pas ces APIs de pointeur utilisées par Radix Select.
 if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = () => false
@@ -159,15 +161,22 @@ describe("CardsManagement", () => {
 
   it("empêche la suppression d'une carte qui a encore du stock", async () => {
     const fetchMock = setupFetchMock([{ ...cardA, stockLevels: [{ id: "sl1", locationId: "loc-1", quantity: 5 }] }])
-    vi.spyOn(window, "alert").mockImplementation(() => {})
     const user = userEvent.setup()
-    render(<CardsManagement />)
+    render(
+      <>
+        <CardsManagement />
+        <Toaster />
+      </>,
+    )
     await screen.findByText(/carte\(s\) au total/)
 
     await expandBankGroup(user, "Banque Centrale")
     await user.click(await screen.findByRole("button", { name: /supprimer/i }))
 
-    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining("Impossible de supprimer cette carte"))
+    // Le refus s'affiche dans une notification de la plateforme, plus dans un
+    // alert() du navigateur, et aucune confirmation n'est proposée.
+    expect(await screen.findByText("Impossible de supprimer cette carte")).toBeInTheDocument()
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalledWith(
       expect.stringContaining(`/api/cards/${cardA.id}`),
       expect.objectContaining({ method: "DELETE" }),
@@ -176,14 +185,13 @@ describe("CardsManagement", () => {
 
   it("supprime une carte sans stock après confirmation", async () => {
     const fetchMock = setupFetchMock()
-    vi.spyOn(window, "confirm").mockReturnValue(true)
-    vi.spyOn(window, "alert").mockImplementation(() => {})
     const user = userEvent.setup()
     render(<CardsManagement />)
     await screen.findByText(/carte\(s\) au total/)
 
     await expandBankGroup(user, "Banque Centrale")
     await user.click(await screen.findByRole("button", { name: /supprimer/i }))
+    await repondreConfirmation(user, /^supprimer$/i)
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
