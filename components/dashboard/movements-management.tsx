@@ -2021,38 +2021,6 @@ export default function MovementsManagement() {
                           </Select>
                         </div>
                       </div>
-                      
-                      {/* Bouton Générer en masse */}
-                      {formData.bankId && formData.fromLocationId && (
-                        <div className="grid grid-cols-4 items-center gap-4">
-                          <div className="col-span-4 flex justify-center">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={generateBulkMovements}
-                              disabled={isGeneratingBulk || !formData.bankId || !formData.fromLocationId}
-                              className="w-full sm:w-auto"
-                            >
-                              {isGeneratingBulk ? (
-                                <>
-                                  <svg className="animate-spin h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                  </svg>
-                                  Génération en cours...
-                                </>
-                              ) : (
-                                <>
-                                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                  </svg>
-                                  Générer en masse les mouvements
-                                </>
-                              )}
-                            </Button>
-                          </div>
-                        </div>
-                      )}
                     </>
                   )}
 
@@ -2106,6 +2074,41 @@ export default function MovementsManagement() {
                       Cartes *
                     </Label>
                     <div className="col-span-3">
+                      {/* L'action qui remplit cette liste a sa place juste au-dessus
+                          d'elle, dans la colonne des champs. Auparavant elle était
+                          centrée sur toute la largeur, hors de la grille du formulaire. */}
+                      {formData.bankId && formData.fromLocationId && (
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={generateBulkMovements}
+                            disabled={isGeneratingBulk}
+                            className="border-slate-200 bg-slate-100 text-slate-700 transition-colors hover:border-[#0084a8] hover:bg-[#0084a8] hover:text-white dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                          >
+                            {isGeneratingBulk ? (
+                              <>
+                                <svg className="animate-spin h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Génération en cours...
+                              </>
+                            ) : (
+                              <>
+                                <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                Générer en masse les mouvements
+                              </>
+                            )}
+                          </Button>
+                          <span className="text-xs text-muted-foreground">
+                            Sélectionne toutes les cartes en stock à l'emplacement source.
+                          </span>
+                        </div>
+                      )}
                       {!formData.bankId ? (
                         <p className="text-sm text-gray-500">Sélectionnez d'abord une banque</p>
                       ) : getFilteredCards().length === 0 ? (

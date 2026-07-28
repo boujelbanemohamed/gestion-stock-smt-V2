@@ -430,6 +430,32 @@ describe("MovementsManagement", () => {
     expect(quantityInput).toHaveValue(20)
   })
 
+  // Le bouton agit sur la liste des cartes : sa place est dans ce groupe de
+  // champs, au-dessus de la liste. Auparavant il était centré sur toute la
+  // largeur du formulaire, hors de la grille libellé/champ.
+  it("place le bouton de génération en masse dans le groupe Cartes, avant la liste", async () => {
+    setupFetchMock()
+    const user = userEvent.setup()
+    render(<MovementsManagement />)
+    await screen.findByText("Carte Débit Standard")
+
+    const dialog = await openNewMovementDialog(user)
+    await selectBank(user, dialog)
+    await selectMovementType(user, dialog, "Sortie")
+    await selectFromLocation(user, dialog, locationA.name)
+
+    const bouton = await within(dialog).findByRole("button", { name: /générer en masse/i })
+    const caseCarte = within(dialog).getByLabelText(new RegExp(cardA.name))
+
+    // Même colonne de champs que la liste des cartes...
+    const colonne = bouton.closest("div.col-span-3")
+    expect(colonne).not.toBeNull()
+    expect(colonne).toContainElement(caseCarte)
+
+    // ...et positionné avant elle dans le document.
+    expect(bouton.compareDocumentPosition(caseCarte) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it("téléverse un document justificatif et l'associe au mouvement d'entrée créé", async () => {
     const fetchMock = setupFetchMock()
     const user = userEvent.setup()
