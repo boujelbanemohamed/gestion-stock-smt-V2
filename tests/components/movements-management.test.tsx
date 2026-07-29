@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event"
 import MovementsManagement from "@/components/dashboard/movements-management"
 import { Toaster } from "@/components/ui/toaster"
+import { notifications } from "../helpers/notifications"
 
 const mockSearchParams = new URLSearchParams()
 vi.mock("next/navigation", () => ({
@@ -264,7 +265,7 @@ describe("MovementsManagement", () => {
       expect(deleteCall![0]).toBe(`/api/movements/${movementA.id}`)
     })
 
-    expect(await screen.findByText("Mouvement supprimé")).toBeInTheDocument()
+    expect(await notifications().findByText("Mouvement supprimé")).toBeInTheDocument()
     expect(screen.getByText(/stock a été réajusté/i)).toBeInTheDocument()
   })
 
@@ -285,9 +286,9 @@ describe("MovementsManagement", () => {
     const dialog = await screen.findByRole("alertdialog")
     await user.click(within(dialog).getByRole("button", { name: /supprimer définitivement/i }))
 
-    expect(await screen.findByText("Suppression impossible")).toBeInTheDocument()
+    expect(await notifications().findByText("Suppression impossible")).toBeInTheDocument()
     // Formulation propre au message du serveur (le pop-up en emploie une autre).
-    expect(screen.getByText(/Annuler ce mouvement rendrait/i)).toBeInTheDocument()
+    expect(notifications().getByText(/Annuler ce mouvement rendrait/i)).toBeInTheDocument()
   })
 
   it("affiche une erreur de validation quand aucune carte n'est sélectionnée", async () => {
@@ -431,7 +432,7 @@ describe("MovementsManagement", () => {
 
     // Le compte rendu s'affiche dans une notification de la plateforme, plus
     // dans un alert() du navigateur.
-    expect(await screen.findByText("1 carte(s) sélectionnée(s)")).toBeInTheDocument()
+    expect(await notifications().findByText("1 carte(s) sélectionnée(s)")).toBeInTheDocument()
     const quantityInput = await within(dialog).findByLabelText(/quantité pour cette carte/i)
     expect(quantityInput).toHaveValue(20)
   })

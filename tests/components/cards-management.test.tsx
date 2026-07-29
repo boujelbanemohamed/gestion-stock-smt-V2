@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event"
 import CardsManagement from "@/components/dashboard/cards-management"
 import { Toaster } from "@/components/ui/toaster"
 import { repondreConfirmation } from "../helpers/dialogue-confirmation"
+import { notifications } from "../helpers/notifications"
 
 // jsdom n'implémente pas ces APIs de pointeur utilisées par Radix Select.
 if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = () => false
@@ -175,7 +176,7 @@ describe("CardsManagement", () => {
 
     // Le refus s'affiche dans une notification de la plateforme, plus dans un
     // alert() du navigateur, et aucune confirmation n'est proposée.
-    expect(await screen.findByText("Impossible de supprimer cette carte")).toBeInTheDocument()
+    expect(await notifications().findByText("Impossible de supprimer cette carte")).toBeInTheDocument()
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalledWith(
       expect.stringContaining(`/api/cards/${cardA.id}`),

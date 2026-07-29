@@ -4,7 +4,9 @@ import { type NextRequest } from "next/server"
 export interface LogEntry {
   userId: string
   userEmail: string
-  action: "create" | "update" | "delete" | "login" | "logout" | "view"
+  // « login_failed » est déjà écrit par la route de connexion et par la
+  // vérification 2FA : sans lui dans cette union, `tsc --noEmit` échoue.
+  action: "create" | "update" | "delete" | "login" | "login_failed" | "logout" | "view"
   module: "banks" | "cards" | "locations" | "movements" | "users" | "config" | "roles" | "auth"
   entityType: string
   entityId?: string

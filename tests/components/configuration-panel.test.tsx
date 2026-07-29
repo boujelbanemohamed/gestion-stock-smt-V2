@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event"
 import ConfigurationPanel from "@/components/dashboard/configuration-panel"
 import { Toaster } from "@/components/ui/toaster"
 import { repondreConfirmation } from "../helpers/dialogue-confirmation"
+import { notifications } from "../helpers/notifications"
 
 // jsdom n'implémente pas ces APIs de pointeur utilisées par Radix Select ;
 // sans ce polyfill, ouvrir le menu déroulant lève une TypeError.
@@ -122,7 +123,7 @@ describe("ConfigurationPanel", () => {
 
     // Le bandeau vert propre à cet écran a laissé place à la notification
     // commune à toute la plateforme.
-    expect(await screen.findByText("Configuration enregistrée")).toBeInTheDocument()
+    expect(await notifications().findByText("Configuration enregistrée")).toBeInTheDocument()
   })
 
   it("désactive le bouton de test SMTP tant que le serveur et l'utilisateur ne sont pas renseignés", async () => {
@@ -153,7 +154,7 @@ describe("ConfigurationPanel", () => {
       const testCall = fetchMock.mock.calls.find((c) => c[0] === "/api/config/test-smtp")
       expect(testCall).toBeTruthy()
     })
-    expect(await screen.findByText("Email de test envoyé")).toBeInTheDocument()
+    expect(await notifications().findByText("Email de test envoyé")).toBeInTheDocument()
   })
 
   it("affiche l'aide Gmail quand le serveur SMTP contient 'gmail'", async () => {

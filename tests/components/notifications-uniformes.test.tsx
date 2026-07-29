@@ -6,6 +6,7 @@ import { render, screen } from "@testing-library/react"
 
 import { Toaster } from "@/components/ui/toaster"
 import { toast } from "@/hooks/use-toast"
+import { notifications } from "../helpers/notifications"
 
 const RACINE = join(__dirname, "..", "..")
 const DOSSIERS = ["app", "components", "hooks", "lib"]
@@ -86,15 +87,35 @@ describe("rendu des notifications", () => {
     render(<Toaster />)
 
     toast({ title: "Banque créée", variant: "success" })
-    const succes = await screen.findByText("Banque créée")
+    const succes = await notifications().findByText("Banque créée")
     const cadreSucces = succes.closest("li") as HTMLElement
     expect(cadreSucces.className).toContain("border-emerald-600")
     expect(cadreSucces.querySelector("svg")).toBeTruthy()
 
     toast({ title: "Suppression impossible", variant: "destructive" })
-    const erreur = await screen.findByText("Suppression impossible")
+    const erreur = await notifications().findByText("Suppression impossible")
     const cadreErreur = erreur.closest("li") as HTMLElement
     expect(cadreErreur.className).toContain("border-destructive")
+  })
+
+  // Ce test verrouille le comportement qui a fait échouer la suite sur une
+  // machine plus rapide. Pendant la seconde qui suit l'ouverture d'une
+  // notification, Radix en place une copie masquée destinée aux lecteurs
+  // d'écran, où titre et description sont concaténés. Une recherche par
+  // fragment (expression régulière) y correspond donc AUSSI : elle trouve deux
+  // éléments et lève « Found multiple elements ». Le helper notifications()
+  // doit en trouver un seul, quelle que soit la vitesse de la machine.
+  it("trouve une notification une seule fois, y compris pendant l'annonce vocale", async () => {
+    render(<Toaster />)
+
+    toast({ title: "Suppression impossible", description: "Le stock deviendrait négatif" })
+    await notifications().findByText("Suppression impossible")
+
+    // 100 ms : au cœur de la fenêtre d'annonce (mesurée de ~1 frame à 1000 ms).
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    expect(screen.getAllByText(/stock deviendrait négatif/i).length).toBe(2)
+    expect(notifications().getAllByText(/stock deviendrait négatif/i).length).toBe(1)
   })
 
   it("conserve les retours à la ligne d'une description multiligne", async () => {
@@ -102,7 +123,7 @@ describe("rendu des notifications", () => {
 
     toast({ title: "Import terminé", description: "2 lignes créées\n1 ligne ignorée" })
 
-    const description = await screen.findByText(/1 ligne ignorée/)
+    const description = await notifications().findByText(/1 ligne ignorée/)
     expect(description.className).toContain("whitespace-pre-line")
   })
 })

@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event"
 import UsersManagement from "@/components/dashboard/users-management"
 import { Toaster } from "@/components/ui/toaster"
+import { notifications } from "../helpers/notifications"
 
 // jsdom n'implémente pas ces APIs de pointeur utilisées par Radix Select ;
 // sans ce polyfill, ouvrir le menu déroulant lève une TypeError.
@@ -122,7 +123,7 @@ describe("UsersManagement - création, édition et statut", () => {
       role: "viewer",
       isActive: true,
     })
-    expect(await screen.findByText("Utilisateur créé")).toBeInTheDocument()
+    expect(await notifications().findByText("Utilisateur créé")).toBeInTheDocument()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 

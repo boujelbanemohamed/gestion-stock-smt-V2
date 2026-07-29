@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import StatisticsPage from "@/app/dashboard/statistics/page"
 import { Toaster } from "@/components/ui/toaster"
+import { notifications } from "../helpers/notifications"
 
 // jsdom n'implémente pas ces APIs de pointeur utilisées par Radix Select ;
 // sans ce polyfill, ouvrir le menu déroulant lève une TypeError.
@@ -140,8 +141,8 @@ describe("StatisticsPage", () => {
 
     // L'erreur remonte dans une notification de la plateforme : le titre est
     // fixe, le détail vient de l'API.
-    expect(await screen.findByText("Calcul impossible")).toBeInTheDocument()
-    expect(screen.getByText("Période invalide")).toBeInTheDocument()
+    expect(await notifications().findByText("Calcul impossible")).toBeInTheDocument()
+    expect(notifications().getByText("Période invalide")).toBeInTheDocument()
     expect(screen.queryByText("Résultats du Calcul")).not.toBeInTheDocument()
   })
 
@@ -194,6 +195,6 @@ describe("StatisticsPage", () => {
     await user.click(await screen.findByRole("menuitem", { name: /exporter en csv/i }))
 
     await waitFor(() => expect(capturedBlob).toBeDefined())
-    expect(await screen.findByText("Export réussi")).toBeInTheDocument()
+    expect(await notifications().findByText("Export réussi")).toBeInTheDocument()
   })
 })
