@@ -4,6 +4,8 @@ import type { ApiResponse } from "@/lib/api-types"
 import type { MovementReason } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
 import { requireAuth, requireAdmin } from "@/lib/auth-middleware"
+import { lireMotifParType } from "@/lib/movement-reason-config"
+import { resoudreMotifParType, typeDuMotif } from "@/lib/movement-reason-types"
 
 // GET /api/movement-reasons - Récupérer la liste des motifs de mouvement
 // POST /api/movement-reasons - Créer un nouveau motif (admin uniquement)
@@ -42,9 +44,17 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    // Le type de mouvement de chaque motif vient de la configuration, pas d'une
+    // colonne : on le rattache ici pour que l'écran de configuration et le
+    // formulaire de mouvement n'aient qu'une seule requête à faire.
+    const correspondance = resoudreMotifParType(await lireMotifParType(), reasons)
+
     return NextResponse.json<ApiResponse<MovementReason[]>>({
       success: true,
-      data: reasons as MovementReason[],
+      data: reasons.map((motif) => ({
+        ...motif,
+        movementType: typeDuMotif(correspondance, motif.id),
+      })) as MovementReason[],
     })
   } catch (error) {
     console.error('Error fetching movement reasons:', error)

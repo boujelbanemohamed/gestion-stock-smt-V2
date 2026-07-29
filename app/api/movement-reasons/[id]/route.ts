@@ -4,6 +4,13 @@ import type { ApiResponse } from "@/lib/api-types"
 import type { MovementReason } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
 import { requireAdmin } from "@/lib/auth-middleware"
+import { ecrireMotifParType, lireMotifParType } from "@/lib/movement-reason-config"
+import {
+  attribuerType,
+  estTypeMouvement,
+  resoudreMotifParType,
+  typeDuMotif,
+} from "@/lib/movement-reason-types"
 
 // PUT /api/movement-reasons/[id] - Mettre à jour un motif (admin uniquement)
 // DELETE /api/movement-reasons/[id] - Supprimer un motif (admin uniquement, sauf "Autre")
@@ -34,6 +41,26 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       )
     }
 
+    if (body.movementType !== undefined) {
+      if (body.movementType !== null && !estTypeMouvement(body.movementType)) {
+        return NextResponse.json<ApiResponse>(
+          { success: false, error: "Type de mouvement inconnu" },
+          { status: 400 },
+        )
+      }
+      // "Autre" ouvre une saisie libre : le pré-sélectionner laisserait le champ
+      // vide et obligerait quand même l'utilisateur à écrire le motif.
+      if (reason.isOther && body.movementType !== null) {
+        return NextResponse.json<ApiResponse>(
+          {
+            success: false,
+            error: "Le motif \"Autre\" ne peut pas être associé à un type de mouvement",
+          },
+          { status: 400 },
+        )
+      }
+    }
+
     const updatedReason = await prisma.movementReason.update({
       where: { id: params.id },
       data: {
@@ -42,6 +69,14 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
         // isOther n'est jamais modifiable via l'API : c'est un indicateur système.
       },
     })
+
+    // Attribuer un type le retire d'office au motif qui le portait : un type ne
+    // désigne qu'un seul motif, et un motif ne porte qu'un seul type.
+    let correspondance = await lireMotifParType()
+    if (body.movementType !== undefined) {
+      correspondance = attribuerType(correspondance, updatedReason.id, body.movementType)
+      await ecrireMotifParType(correspondance)
+    }
 
     await logAudit({
       userId: auth.user.id,
@@ -55,9 +90,14 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       status: "success",
     }, request)
 
+    const motifsExistants = await prisma.movementReason.findMany({ select: { id: true, isOther: true } })
+
     return NextResponse.json<ApiResponse<MovementReason>>({
       success: true,
-      data: updatedReason as MovementReason,
+      data: {
+        ...updatedReason,
+        movementType: typeDuMotif(resoudreMotifParType(correspondance, motifsExistants), updatedReason.id),
+      } as MovementReason,
       message: "Motif mis à jour avec succès",
     })
   } catch (error) {
@@ -90,6 +130,13 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     }
 
     await prisma.movementReason.delete({ where: { id: params.id } })
+
+    // Libère le type de mouvement que ce motif portait éventuellement, pour ne
+    // pas laisser dans la configuration un identifiant qui ne désigne plus rien.
+    const correspondance = await lireMotifParType()
+    if (typeDuMotif(correspondance, params.id)) {
+      await ecrireMotifParType(attribuerType(correspondance, params.id, null))
+    }
 
     await logAudit({
       userId: auth.user.id,

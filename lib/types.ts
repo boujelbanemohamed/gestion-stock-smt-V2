@@ -196,6 +196,14 @@ export interface AppConfig {
   notifications: NotificationSettings
   display: DisplaySettings
   security: SecuritySettings
+  // Absent des configurations enregistrées avant cette fonctionnalité : les
+  // lectures passent par normaliserMotifParType(), qui comble le manque.
+  movements?: MovementSettings
+}
+
+export interface MovementSettings {
+  // Motif pré-sélectionné à la création, par type de mouvement.
+  reasonByType: Record<"entry" | "exit" | "transfer", string | null>
 }
 
 export interface BankImportRow {
@@ -298,6 +306,10 @@ export interface MovementReason {
   label: string
   isOther: boolean
   isActive: boolean
+  // Type de mouvement dont ce motif est le motif par défaut, ou null s'il n'en
+  // porte aucun. Il n'existe pas de colonne correspondante : l'API le calcule à
+  // partir de la configuration (voir lib/movement-reason-types.ts).
+  movementType?: "entry" | "exit" | "transfer" | null
 }
 
 // Inventaire physique d'une banque : campagne de comptage sur le terrain.

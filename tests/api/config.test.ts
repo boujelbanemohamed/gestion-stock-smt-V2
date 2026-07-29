@@ -107,6 +107,35 @@ describe("PUT /api/config", () => {
     expect(response.status).toBe(403)
   })
 
+  // Cet écran réécrit tout le JSON à partir d'un état chargé à l'ouverture de la
+  // page. L'attribution d'un type à un motif se fait ailleurs (route des
+  // motifs) : sans cette protection, attribuer un type puis cliquer sur
+  // « Enregistrer » effaçait l'attribution qu'on venait de faire.
+  it("ne laisse pas l'enregistrement global écraser les motifs par type", async () => {
+    vi.mocked(prisma.appConfig.findUnique).mockResolvedValue({
+      id: "singleton",
+      config: { movements: { reasonByType: { entry: null, exit: "r1", transfer: null } } },
+    } as any)
+    vi.mocked(prisma.appConfig.upsert).mockResolvedValue({ id: "singleton", config: {} } as any)
+
+    await PUT(
+      makeRequest("http://localhost/api/config", {
+        method: "PUT",
+        token: adminToken,
+        // Corps périmé : la correspondance y est vide.
+        body: { general: { companyName: "Monetique" }, movements: { reasonByType: {} } },
+      }),
+    )
+
+    const ecrit = vi.mocked(prisma.appConfig.upsert).mock.calls[0][0] as any
+    expect(ecrit.update.config.movements.reasonByType).toEqual({
+      entry: null,
+      exit: "r1",
+      transfer: null,
+    })
+    expect(ecrit.update.config.general).toEqual({ companyName: "Monetique" })
+  })
+
   it("met à jour la configuration et journalise l'action", async () => {
     vi.mocked(prisma.appConfig.upsert).mockResolvedValue({ ...configRecord, config: { general: { companyName: "New Name" } } } as any)
 

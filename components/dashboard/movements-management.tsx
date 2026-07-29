@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -1738,6 +1738,36 @@ export default function MovementsManagement() {
     setMovementErrors([]) // Réinitialiser les erreurs de mouvement
   }
 
+  // Motif à pré-sélectionner pour un type de mouvement, tel que configuré dans
+  // Configuration > Motifs. L'objectif est que l'utilisateur n'ait pas à choisir
+  // le motif : il est coché d'office, et reste modifiable.
+  const motifParDefaut = useCallback(
+    (type: "entry" | "exit" | "transfer") =>
+      movementReasons.find((motif) => motif.movementType === type) ?? null,
+    [movementReasons],
+  )
+
+  // Applique le motif configuré pour un type. Coche réellement la case : c'est
+  // ce que l'ancien pré-remplissage codé en dur oubliait de faire, si bien que
+  // la validation réclamait quand même un motif.
+  const appliquerMotifParDefaut = useCallback(
+    (type: "entry" | "exit" | "transfer") => {
+      const motif = motifParDefaut(type)
+      setSelectedReasonId(motif?.id ?? "")
+      setFormData((prev) => ({ ...prev, reason: motif?.label ?? "" }))
+      setFormErrors((prev) => (prev.reason ? { ...prev, reason: undefined } : prev))
+    },
+    [motifParDefaut],
+  )
+
+  // À l'ouverture du formulaire, les motifs peuvent ne pas être encore chargés :
+  // on pré-sélectionne dès qu'ils arrivent. La condition sur selectedReasonId
+  // garantit qu'un choix déjà fait par l'utilisateur n'est jamais écrasé.
+  useEffect(() => {
+    if (!isDialogOpen || selectedReasonId || movementReasons.length === 0) return
+    appliquerMotifParDefaut(formData.movementType)
+  }, [isDialogOpen, selectedReasonId, movementReasons, formData.movementType, appliquerMotifParDefaut])
+
   // Sélection du motif : à choix unique (cocher un motif décoche les autres).
   // Si le motif "Autre" est choisi, le champ texte devient la source du motif.
   const handleReasonSelect = (reasonId: string) => {
@@ -1999,16 +2029,18 @@ export default function MovementsManagement() {
                     </Label>
                     <Select
                       value={formData.movementType}
-                      onValueChange={(value: "entry" | "exit" | "transfer") =>
+                      onValueChange={(value: "entry" | "exit" | "transfer") => {
                         setFormData({
                           ...formData,
                           movementType: value,
                           fromLocationId: "",
                           toLocationId: "",
-                          // Préremplir le motif pour la sortie
-                          reason: value === "exit" ? "Expédition" : formData.reason
                         })
-                      }
+                        // Le motif configuré pour le nouveau type est appliqué,
+                        // y compris s'il n'y en a aucun : la case est alors
+                        // décochée, pour que le choix reste explicite.
+                        appliquerMotifParDefaut(value)
+                      }}
                     >
                       <SelectTrigger className="col-span-3">
                         <SelectValue />

@@ -5,6 +5,7 @@ import type { AppConfig } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
 import { requireAuth, requireAdmin, isAdminRole } from "@/lib/auth-middleware"
 import { normalizeNotificationSettings } from "@/lib/notification-settings"
+import { normaliserMotifParType } from "@/lib/movement-reason-types"
 
 // GET /api/config - Récupérer la configuration de l'application
 
@@ -152,14 +153,32 @@ export async function PUT(request: NextRequest) {
   try {
     const body = await request.json()
 
+    // La correspondance « type de mouvement -> motif » appartient à l'écran des
+    // motifs, qui l'enregistre par sa propre route. Cet écran-ci réécrit tout le
+    // JSON à partir d'un état chargé à l'ouverture de la page : sans cette
+    // protection, attribuer un type puis cliquer sur « Enregistrer » effacerait
+    // l'attribution qu'on vient de faire. On repart donc toujours de la valeur
+    // stockée, jamais de celle envoyée par le client.
+    const existant = await prisma.appConfig.findUnique({ where: { id: 'singleton' } })
+    const mouvementsStockes = ((existant?.config ?? {}) as Record<string, unknown>).movements ?? {}
+    const config = {
+      ...body,
+      movements: {
+        ...(mouvementsStockes as Record<string, unknown>),
+        reasonByType: normaliserMotifParType(
+          (mouvementsStockes as Record<string, unknown>).reasonByType,
+        ),
+      },
+    }
+
     const updatedConfig = await prisma.appConfig.upsert({
       where: { id: 'singleton' },
       update: {
-        config: body
+        config
       },
       create: {
         id: 'singleton',
-        config: body
+        config
       }
     })
 

@@ -51,7 +51,13 @@ const movementA = {
 
 function setupFetchMock(
   movements: any[] = [movementA],
-  extra: { total?: number; totalPages?: number; postResponse?: unknown; deleteResponse?: unknown } = {},
+  extra: {
+    total?: number
+    totalPages?: number
+    postResponse?: unknown
+    deleteResponse?: unknown
+    reasons?: unknown[]
+  } = {},
 ) {
   const fetchMock = vi.fn((url: string, options?: RequestInit) => {
     if (url.startsWith("/api/movements/") && options?.method === "DELETE") {
@@ -77,7 +83,10 @@ function setupFetchMock(
     if (url.startsWith("/api/locations")) return jsonResponse({ success: true, data: [locationA, locationB] })
     if (url.startsWith("/api/banks")) return jsonResponse({ success: true, data: [bankA] })
     if (url.startsWith("/api/movement-reasons")) {
-      return jsonResponse({ success: true, data: [movementReasonEntry, movementReasonExit, movementReasonOther] })
+      return jsonResponse({
+        success: true,
+        data: extra.reasons ?? [movementReasonEntry, movementReasonExit, movementReasonOther],
+      })
     }
     if (url.startsWith("/api/config")) return jsonResponse({ success: true, data: { general: { logo: "" } } })
     throw new Error(`Unexpected fetch to ${url}`)
@@ -410,6 +419,104 @@ describe("MovementsManagement", () => {
 
     expect(await screen.findByText("Mouvement créé", { exact: true })).toBeInTheDocument()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+
+  // Objectif de la fonctionnalité : l'utilisateur ne saisit plus le motif.
+  // Les motifs typés viennent de Configuration > Motifs.
+  const motifsTypes = [
+    { ...movementReasonEntry, movementType: "entry" },
+    { ...movementReasonExit, movementType: "exit" },
+    movementReasonOther,
+  ]
+
+  it("coche d'office le motif configuré pour le type sélectionné", async () => {
+    setupFetchMock([movementA], { reasons: motifsTypes })
+    const user = userEvent.setup()
+    render(<MovementsManagement />)
+    await screen.findByText("Carte Débit Standard")
+
+    // Le type par défaut est Entrée : son motif doit être coché dès l'ouverture,
+    // sans aucune action de l'utilisateur.
+    const dialog = await openNewMovementDialog(user)
+    await waitFor(() =>
+      expect(within(dialog).getByLabelText(movementReasonEntry.label)).toBeChecked(),
+    )
+
+    await selectMovementType(user, dialog, "Sortie")
+    await waitFor(() => expect(within(dialog).getByLabelText(movementReasonExit.label)).toBeChecked())
+    expect(within(dialog).getByLabelText(movementReasonEntry.label)).not.toBeChecked()
+  })
+
+  it("laisse l'utilisateur remplacer le motif pré-sélectionné", async () => {
+    setupFetchMock([movementA], { reasons: motifsTypes })
+    const user = userEvent.setup()
+    render(<MovementsManagement />)
+    await screen.findByText("Carte Débit Standard")
+
+    const dialog = await openNewMovementDialog(user)
+    await waitFor(() =>
+      expect(within(dialog).getByLabelText(movementReasonEntry.label)).toBeChecked(),
+    )
+
+    await user.click(within(dialog).getByLabelText(movementReasonExit.label))
+
+    expect(within(dialog).getByLabelText(movementReasonExit.label)).toBeChecked()
+    expect(within(dialog).getByLabelText(movementReasonEntry.label)).not.toBeChecked()
+  })
+
+  it("n'en coche aucun pour un type sans motif configuré", async () => {
+    setupFetchMock([movementA], { reasons: motifsTypes })
+    const user = userEvent.setup()
+    render(<MovementsManagement />)
+    await screen.findByText("Carte Débit Standard")
+
+    const dialog = await openNewMovementDialog(user)
+    // Transfert n'a pas de motif attribué : le choix reste explicite.
+    await selectMovementType(user, dialog, "Transfert")
+
+    await waitFor(() =>
+      expect(within(dialog).getByLabelText(movementReasonEntry.label)).not.toBeChecked(),
+    )
+    expect(within(dialog).getByLabelText(movementReasonExit.label)).not.toBeChecked()
+    expect(within(dialog).getByLabelText(movementReasonOther.label)).not.toBeChecked()
+  })
+
+  // Sans motif configuré, l'écran doit se comporter exactement comme avant.
+  it("ne coche rien quand aucun motif ne porte de type", async () => {
+    setupFetchMock([movementA])
+    const user = userEvent.setup()
+    render(<MovementsManagement />)
+    await screen.findByText("Carte Débit Standard")
+
+    const dialog = await openNewMovementDialog(user)
+    await selectMovementType(user, dialog, "Sortie")
+
+    expect(within(dialog).getByLabelText(movementReasonExit.label)).not.toBeChecked()
+  })
+
+  it("enregistre le motif pré-sélectionné avec le mouvement, sans intervention", async () => {
+    const fetchMock = setupFetchMock([movementA], { reasons: motifsTypes })
+    const user = userEvent.setup()
+    render(<MovementsManagement />)
+    await screen.findByText("Carte Débit Standard")
+
+    const dialog = await openNewMovementDialog(user)
+    await selectBank(user, dialog)
+    await selectToLocation(user, dialog, locationA.name)
+    await user.click(within(dialog).getByLabelText(new RegExp(cardA.name)))
+
+    await user.click(within(dialog).getByRole("button", { name: "Enregistrer" }))
+
+    await waitFor(() => {
+      const postCall = fetchMock.mock.calls.find(
+        (c) => c[0] === "/api/movements" && (c[1] as RequestInit)?.method === "POST",
+      )
+      expect(postCall).toBeTruthy()
+      // Le motif est envoyé en TEXTE : c'est cette copie qui fige le bordereau.
+      expect(JSON.parse((postCall![1] as RequestInit).body as string).reason).toBe(
+        movementReasonEntry.label,
+      )
+    })
   })
 
   it("génère en masse les mouvements pour les cartes en stock dans l'emplacement source", async () => {

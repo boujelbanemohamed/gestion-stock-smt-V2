@@ -262,6 +262,66 @@ describe("ConfigurationPanel", () => {
     expect(body).toEqual({ label: "Nouveau libellé" })
   })
 
+  it("permet d'attribuer un type de mouvement à un motif, et l'enregistre aussitôt", async () => {
+    const fetchMock = setupFetchMock()
+    const user = userEvent.setup()
+    render(
+      <>
+        <ConfigurationPanel />
+        <Toaster />
+      </>,
+    )
+    await user.click(await screen.findByRole("tab", { name: /motifs/i }))
+
+    await user.click(
+      await screen.findByRole("combobox", { name: `Type de mouvement pour ${reasonEntry.label}` }),
+    )
+    await user.click(await screen.findByRole("option", { name: "Sortie" }))
+
+    await waitFor(() => {
+      const appel = fetchMock.mock.calls.find(
+        (c) =>
+          c[0] === `/api/movement-reasons/${reasonEntry.id}` && (c[1] as RequestInit)?.method === "PUT",
+      )
+      expect(appel).toBeTruthy()
+      expect(JSON.parse((appel![1] as RequestInit).body as string)).toEqual({ movementType: "exit" })
+    })
+  })
+
+  // La règle demandée : pas plus de motifs typés que de types de mouvement.
+  it("rend indisponible un type déjà attribué à un autre motif", async () => {
+    const autreMotif = { id: "reason-2", label: "Casse", isOther: false, isActive: true }
+    setupFetchMock({
+      reasons: [{ ...reasonEntry, movementType: "exit" }, autreMotif, reasonOther],
+    })
+    const user = userEvent.setup()
+    render(<ConfigurationPanel />)
+    await user.click(await screen.findByRole("tab", { name: /motifs/i }))
+
+    await user.click(
+      await screen.findByRole("combobox", { name: `Type de mouvement pour ${autreMotif.label}` }),
+    )
+
+    expect(await screen.findByRole("option", { name: /Sortie \(déjà attribué\)/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    )
+    expect(screen.getByRole("option", { name: "Entrée" })).not.toHaveAttribute("aria-disabled", "true")
+  })
+
+  it("ne propose aucun type pour le motif « Autre »", async () => {
+    setupFetchMock()
+    const user = userEvent.setup()
+    render(<ConfigurationPanel />)
+    await user.click(await screen.findByRole("tab", { name: /motifs/i }))
+
+    await screen.findByDisplayValue(reasonOther.label)
+    expect(
+      screen.queryByRole("combobox", { name: `Type de mouvement pour ${reasonOther.label}` }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText(/Saisie libre : aucun type/i)).toBeInTheDocument()
+  })
+
   it("supprime un motif après confirmation, mais interdit la suppression du motif protégé Autre", async () => {
     const fetchMock = setupFetchMock()
     const user = userEvent.setup()

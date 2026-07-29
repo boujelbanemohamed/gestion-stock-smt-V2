@@ -15,7 +15,16 @@ import { getAuthHeaders } from "@/lib/api-client"
 import { applyTheme, storeTheme, type Theme } from "@/lib/theme"
 import { toast } from "@/hooks/use-toast"
 import { useConfirmation } from "@/hooks/use-confirmation"
+import {
+  LIBELLE_TYPE_MOUVEMENT,
+  TYPES_MOUVEMENT,
+  type TypeMouvement,
+} from "@/lib/movement-reason-types"
 import { Mail, Bell, Eye, Shield, Save, Building2, Tag, Trash2, Plus } from "lucide-react"
+
+// Radix Select interdit la chaîne vide comme valeur d'option : on utilise donc
+// un marqueur explicite pour « aucun type attribué ».
+const AUCUN_TYPE = "none"
 
 export default function ConfigurationPanel() {
   const { demanderConfirmation, dialogueConfirmation } = useConfirmation()
@@ -33,6 +42,7 @@ export default function ConfigurationPanel() {
   const [isAddingReason, setIsAddingReason] = useState(false)
   const [savingReasonId, setSavingReasonId] = useState<string | null>(null)
   const [deletingReasonId, setDeletingReasonId] = useState<string | null>(null)
+  const [savingReasonTypeId, setSavingReasonTypeId] = useState<string | null>(null)
 
   useEffect(() => {
     loadConfig()
@@ -50,6 +60,45 @@ export default function ConfigurationPanel() {
       }
     } catch (error) {
       console.error('Error loading movement reasons:', error)
+    }
+  }
+
+  // Attribution du type de mouvement. Enregistrée immédiatement, comme le reste
+  // de cet onglet (ajout, suppression) : le bouton « Enregistrer » en haut de
+  // page ne concerne que les autres sections de la configuration.
+  const handleReasonTypeChange = async (reason: MovementReason, valeur: string) => {
+    const movementType = valeur === AUCUN_TYPE ? null : (valeur as TypeMouvement)
+    setSavingReasonTypeId(reason.id)
+    try {
+      const response = await fetch(`/api/movement-reasons/${reason.id}`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ movementType }),
+      })
+      const data = await response.json()
+      if (!data.success) {
+        toast({ title: "Attribution impossible", description: data.error, variant: "destructive" })
+        return
+      }
+      toast({
+        title: movementType ? "Type de mouvement attribué" : "Type de mouvement retiré",
+        description: movementType
+          ? `« ${reason.label} » sera pré-sélectionné pour les mouvements de type ${LIBELLE_TYPE_MOUVEMENT[movementType]}.`
+          : `« ${reason.label} » ne sera plus pré-sélectionné.`,
+        variant: "success",
+      })
+      // Rechargement complet : attribuer un type peut l'avoir retiré à un autre
+      // motif, dont la ligne doit se mettre à jour elle aussi.
+      await loadReasons()
+    } catch (error) {
+      console.error('Error assigning movement type to reason:', error)
+      toast({
+        title: "Attribution impossible",
+        description: "Une erreur est survenue pendant l'enregistrement du type de mouvement.",
+        variant: "destructive",
+      })
+    } finally {
+      setSavingReasonTypeId(null)
     }
   }
 
@@ -1732,18 +1781,57 @@ export default function ConfigurationPanel() {
               <CardTitle>Motifs de mouvement</CardTitle>
               <CardDescription>
                 Gérez la liste des motifs proposés lors de la création d'un mouvement de stock.
-                Le motif "Autre" ne peut pas être supprimé : il permet la saisie libre d'un motif personnalisé.
+                Attribuez un type de mouvement à un motif pour qu'il soit pré-sélectionné automatiquement :
+                l'utilisateur n'aura plus à choisir le motif, tout en gardant la possibilité d'en changer.
+                Chaque type ne peut être attribué qu'à un seul motif.
+                Le motif "Autre" ne peut être ni supprimé, ni associé à un type : il permet la saisie libre d'un motif personnalisé.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {reasons.map((reason) => (
-                <div key={reason.id} className="flex items-center gap-2">
+                <div key={reason.id} className="flex flex-wrap items-center gap-2">
                   <Input
+                    className="min-w-[12rem] flex-1"
                     value={reasonLabels[reason.id] ?? reason.label}
                     onChange={(e) =>
                       setReasonLabels({ ...reasonLabels, [reason.id]: e.target.value })
                     }
                   />
+                  {reason.isOther ? (
+                    <span className="w-[11rem] shrink-0 text-xs text-slate-500">
+                      Saisie libre : aucun type
+                    </span>
+                  ) : (
+                    <Select
+                      value={reason.movementType ?? AUCUN_TYPE}
+                      onValueChange={(valeur) => handleReasonTypeChange(reason, valeur)}
+                      disabled={savingReasonTypeId === reason.id}
+                    >
+                      <SelectTrigger
+                        className="w-[11rem] shrink-0"
+                        aria-label={`Type de mouvement pour ${reason.label}`}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={AUCUN_TYPE}>Aucun type</SelectItem>
+                        {TYPES_MOUVEMENT.map((type) => {
+                          // Un type déjà attribué ailleurs reste visible mais non
+                          // sélectionnable : on ne peut donc pas avoir plus de
+                          // motifs typés que de types de mouvement.
+                          const prisAilleurs = reasons.some(
+                            (autre) => autre.id !== reason.id && autre.movementType === type,
+                          )
+                          return (
+                            <SelectItem key={type} value={type} disabled={prisAilleurs}>
+                              {LIBELLE_TYPE_MOUVEMENT[type]}
+                              {prisAilleurs ? " (déjà attribué)" : ""}
+                            </SelectItem>
+                          )
+                        })}
+                      </SelectContent>
+                    </Select>
+                  )}
                   {reason.isOther && (
                     <span className="whitespace-nowrap rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">
                       Protégé
