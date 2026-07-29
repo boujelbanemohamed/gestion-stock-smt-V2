@@ -102,6 +102,12 @@ export const SCRIPT_PAGINATION = `
     var titre = section.querySelector("h3").textContent;
     var origine = section.querySelector("table");
     var lignes = Array.prototype.slice.call(origine.tBodies[0].rows);
+    // Ce qui sépare le titre du tableau (une description, par exemple) n'a de
+    // sens qu'en tête de section : on le reporte sur le premier morceau.
+    var intro = [];
+    for (var n = section.querySelector("h3").nextSibling; n && n !== origine; n = n.nextSibling) {
+      intro.push(n);
+    }
     var premier = true;
     var i = 0;
 
@@ -111,6 +117,9 @@ export const SCRIPT_PAGINATION = `
       h.className = "section";
       h.textContent = premier ? titre : "Suite du tableau « " + titre + " »";
       bloc.appendChild(h);
+      if (premier) {
+        for (var k = 0; k < intro.length; k += 1) bloc.appendChild(intro[k].cloneNode(true));
+      }
 
       var table = document.createElement("table");
       if (origine.tHead) table.appendChild(origine.tHead.cloneNode(true));

@@ -29,9 +29,12 @@ import { getAuthHeaders } from "@/lib/api-client"
 import { Printer, Building2, MapPin } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 import { useConfirmation } from "@/hooks/use-confirmation"
+import { usePermissions } from "@/hooks/use-permissions"
+import { documentImprimable, enteteHtml } from "@/lib/print-layout"
 
 export default function LocationsManagement() {
   const { demanderConfirmation, dialogueConfirmation } = useConfirmation()
+  const { user: currentUser } = usePermissions()
   const searchParams = useSearchParams()
   const [locations, setLocations] = useState<Location[]>([])
   const [banks, setBanks] = useState<Bank[]>([])
@@ -122,400 +125,126 @@ export default function LocationsManagement() {
     setIsLoading(false)
   }
 
-  // Fonction d'impression par banque
+  // Nom de la personne qui imprime, pour la ligne « Généré le ... par ... ».
+  const nomUtilisateurCourant = () =>
+    currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : "N/A"
+
+  const formatHorodatage = () =>
+    new Date().toLocaleString("fr-FR", {
+      day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+    })
+
+  // Tableau des cartes d'un emplacement. Le stock est une photographie de
+  // l'instant : la base ne conserve pas d'historique, d'où la date en titre.
+  const tableauCartes = (cartes: { card: any; quantity: number }[]) => `
+    <table>
+      <thead><tr>
+        <th>Nom de la carte</th><th>Type</th><th>Sous-type</th>
+        <th>Sous-sous-type</th><th class="num">Stock</th>
+      </tr></thead>
+      <tbody>
+        ${cartes.length > 0
+          ? cartes.map((item) => `<tr>
+              <td>${item.card.name}</td>
+              <td>${item.card?.type ?? '-'}</td>
+              <td>${item.card?.subType ?? '-'}</td>
+              <td>${item.card?.subSubType ?? '-'}</td>
+              <td class="num">${item.quantity}</td>
+            </tr>`).join('')
+          : '<tr><td colspan="5">Aucune carte stockée dans cet emplacement</td></tr>'}
+        <tr class="ligne-total">
+          <td colspan="4">Total</td>
+          <td class="num">${cartes.reduce((somme, item) => somme + item.quantity, 0)}</td>
+        </tr>
+      </tbody>
+    </table>`
+
+  const blocSignatures = `
+    <section>
+      <h3 class="section">Signatures</h3>
+      <div class="ligne-champs">
+        <div class="champ"><p>Signature 1 :</p><div class="trait"></div></div>
+        <div class="champ"><p>Signature 2 :</p><div class="trait"></div></div>
+        <div class="champ"><p>Signature 3 :</p><div class="trait"></div></div>
+      </div>
+    </section>`
+
   const printByBank = (bankId: string) => {
     const bank = banks.find(b => b.id === bankId)
     if (!bank) return
 
-    const bankLocations = locations.filter(l => l.bankId === bankId)
-    let totalCards = 0
-
-    // Calculer le total de cartes pour la banque
-    bankLocations.forEach(location => {
-      const locationCards = cardsByLocation.get(location.id) || []
-      const locationTotal = locationCards.reduce((sum, item) => sum + item.quantity, 0)
-      totalCards += locationTotal
-    })
-
-    const printContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Stock par Banque - ${bank.name}</title>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 20px; }
-          .header-container {
-            display: flex;
-            align-items: center;
-            margin-bottom: 30px;
-            border-bottom: 2px solid #1e293b;
-            padding-bottom: 15px;
-          }
-          .logo-container {
-            flex: 0 0 auto;
-            margin-right: 20px;
-          }
-          .logo-container img {
-            max-height: 80px;
-            max-width: 150px;
-            object-fit: contain;
-          }
-          .header-text {
-            flex: 1;
-            text-align: center;
-          }
-          .header { text-align: center; margin-bottom: 30px; }
-          .company-name { font-size: 20px; font-weight: bold; color: #1f2937; margin-bottom: 10px; }
-          .bank-name { font-size: 24px; font-weight: bold; color: #1f2937; }
-          .date { color: #6b7280; margin-top: 10px; }
-          .location { margin-bottom: 20px; border: 1px solid #e5e7eb; padding: 15px; border-radius: 8px; }
-          .location-name { font-size: 18px; font-weight: bold; color: #374151; margin-bottom: 10px; }
-          .location-address { color: #6b7280; margin-bottom: 5px; }
-          .location-description { color: #6b7280; margin-bottom: 15px; font-style: italic; }
-          .cards-details { margin-top: 15px; }
-          .cards-details h4 { font-size: 16px; color: #374151; margin-bottom: 10px; }
-          .cards-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-          .cards-table th, .cards-table td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
-          .cards-table th { background-color: #f9fafb; font-weight: bold; color: #374151; }
-          .cards-table tr:nth-child(even) { background-color: #f9fafb; }
-          .quantity { text-align: center; font-weight: bold; color: #059669; }
-          .no-cards { color: #6b7280; font-style: italic; margin: 10px 0; }
-          .cards-count { font-size: 16px; color: #059669; font-weight: bold; margin-top: 10px; }
-          .total { margin-top: 30px; padding: 20px; background-color: #f3f4f6; border-radius: 8px; text-align: center; }
-          .total-label { font-size: 18px; color: #374151; }
-          .total-value { font-size: 24px; font-weight: bold; color: #059669; margin-top: 5px; }
-          .signatures { 
-            display: flex; 
-            justify-content: space-around; 
-            margin-top: 60px; 
-            margin-bottom: 20px; 
-            padding-top: 40px;
-            border-top: 1px solid #e5e7eb;
-          }
-          .signature { 
-            flex: 1; 
-            text-align: center; 
-            padding: 0 20px;
-          }
-          .signature-line { 
-            border-top: 1px solid #d1d5db; 
-            margin-top: 60px; 
-            width: 100%;
-          }
-          .signature-label { 
-            margin-top: 8px; 
-            color: #9ca3af; 
-            font-size: 11px; 
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-          }
-          .footer { 
-            margin-top: 20px; 
-            padding: 15px 20px; 
-            background-color: #f3f4f6;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 11px;
-            color: #9ca3af;
-          }
-          .footer-address { flex: 1; }
-          .footer-page { flex: 0 0 auto; }
-          @media print { 
-            body { 
-              margin: 0; 
-              padding-bottom: 120px;
-            }
-            .footer { 
-              position: fixed; 
-              bottom: 0; 
-              left: 0; 
-              right: 0; 
-              width: 100%; 
-              margin: 0;
-              background-color: #f3f4f6;
-              z-index: 1000;
-            }
-            .signatures {
-              page-break-inside: avoid;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header-container">
-          <div class="logo-container">
-            <img src="${logoPath}" alt="Logo Société Monétique Tunisie" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" style="max-height: 80px; max-width: 150px; object-fit: contain;">
-            <div style="display: none; width: 150px; height: 80px; background-color: #1e293b; color: white; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; border-radius: 4px;">
-              SMT
-            </div>
-          </div>
-          <div class="header-text">
-            <div class="company-name">Société Monétique Tunisie</div>
-            <div class="bank-name">${bank.name}</div>
-            <div class="date">Rapport de stock - ${new Date().toLocaleDateString('fr-FR')}</div>
-          </div>
-        </div>
-
-        ${bankLocations.map(location => {
-          const locationCards = cardsByLocation.get(location.id) || []
-          const locationTotal = locationCards.reduce((sum, item) => sum + item.quantity, 0)
-          
-          return `
-            <div class="location">
-              <div class="location-name">${location.name}</div>
-              <div class="location-description">${location.description || 'Aucune description'}</div>
-              
-              ${locationCards.length > 0 ? `
-                <div class="cards-details">
-                  <h4>Cartes stockées dans cet emplacement:</h4>
-                  <table class="cards-table">
-                    <thead>
-                      <tr>
-                        <th>Nom de la carte</th>
-                        <th>Type</th>
-                        <th>Sous-type</th>
-                        <th>Sous-sous-type</th>
-                        <th>Stock</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${locationCards.map(item => `
-                        <tr>
-                          <td>${item.card.name}</td>
-                          <td>${item.card?.type ?? '-'}</td>
-                          <td>${item.card?.subType ?? '-'}</td>
-                          <td>${item.card?.subSubType ?? '-'}</td>
-                          <td class="quantity">${item.quantity}</td>
-                        </tr>
-                      `).join('')}
-                    </tbody>
-                  </table>
-                </div>
-              ` : '<div class="no-cards">Aucune carte stockée dans cet emplacement</div>'}
-              
-              <div class="cards-count">Total: ${locationTotal} cartes disponibles</div>
-            </div>
-          `
-        }).join('')}
-
-        <div class="total">
-          <div class="total-label">Total des cartes pour ${bank.name}</div>
-          <div class="total-value">${totalCards} cartes</div>
-        </div>
-        
-        <div class="signatures">
-          <div class="signature">
-            <div class="signature-line"></div>
-            <div class="signature-label">Signature 1</div>
-          </div>
-          <div class="signature">
-            <div class="signature-line"></div>
-            <div class="signature-label">Signature 2</div>
-          </div>
-          <div class="signature">
-            <div class="signature-line"></div>
-            <div class="signature-label">Signature 3</div>
-          </div>
-        </div>
-        
-        <div class="footer">
-          <div class="footer-address">Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</div>
-          <div class="footer-page">Page 1/1</div>
-        </div>
-      </body>
-      </html>
-    `
-
     const printWindow = window.open('', '_blank')
-    if (printWindow) {
-      printWindow.document.write(printContent)
-      printWindow.document.close()
-      printWindow.focus()
-      printWindow.print()
-    }
+    if (!printWindow) return
+
+    const emplacements = locations.filter(l => l.bankId === bankId)
+    const totalCartes = emplacements.reduce((somme, emplacement) => {
+      const cartes = cardsByLocation.get(emplacement.id) || []
+      return somme + cartes.reduce((total, item) => total + item.quantity, 0)
+    }, 0)
+
+    const sections = emplacements.map((emplacement) => {
+      const cartes = cardsByLocation.get(emplacement.id) || []
+      return `<section>
+        <h3 class="section">${emplacement.name}</h3>
+        ${emplacement.description ? `<p style="margin:0 0 8px; font-size:12px; color:#475569">${emplacement.description}</p>` : ''}
+        ${tableauCartes(cartes)}
+      </section>`
+    }).join('')
+
+    const blocs = `
+      ${enteteHtml(logoPath)}
+      <div class="titre-document"><h2>Rapport de Stock par Banque</h2></div>
+      <div class="info-gauche">
+        <p><strong>Banque :</strong> ${bank.name}</p>
+        <p>Généré le ${formatHorodatage()} par ${nomUtilisateurCourant()}</p>
+        <p><strong>Total :</strong> ${totalCartes} carte${totalCartes > 1 ? 's' : ''} sur ${emplacements.length} emplacement${emplacements.length > 1 ? 's' : ''}</p>
+      </div>
+      ${sections || '<section><h3 class="section">Emplacements</h3><table><tbody><tr><td>Aucun emplacement pour cette banque</td></tr></tbody></table></section>'}
+      <section>
+        <h3 class="section">Récapitulatif</h3>
+        <table><tbody>
+          <tr class="ligne-total"><td>Total des cartes pour ${bank.name}</td><td class="num">${totalCartes}</td></tr>
+        </tbody></table>
+      </section>
+      ${blocSignatures}`
+
+    printWindow.document.write(
+      documentImprimable({ titreOnglet: `Rapport de Stock par Banque - ${bank.name}`, blocs }),
+    )
+    printWindow.document.close()
   }
 
-  // Fonction d'impression par emplacement
   const printByLocation = (locationId: string) => {
     const location = locations.find(l => l.id === locationId)
     if (!location) return
 
-    const bank = banks.find(b => b.id === location.bankId)
-    const locationCards = cardsByLocation.get(locationId) || []
-
-    const printContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Stock par Emplacement - ${location.name}</title>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 20px; }
-          .header-container {
-            display: flex;
-            align-items: center;
-            margin-bottom: 30px;
-            border-bottom: 2px solid #1e293b;
-            padding-bottom: 15px;
-          }
-          .logo-container {
-            flex: 0 0 auto;
-            margin-right: 20px;
-          }
-          .logo-container img {
-            max-height: 80px;
-            max-width: 150px;
-            object-fit: contain;
-          }
-          .header-text {
-            flex: 1;
-            text-align: center;
-          }
-          .header { text-align: center; margin-bottom: 30px; }
-          .company-name { font-size: 20px; font-weight: bold; color: #1f2937; margin-bottom: 10px; }
-          .bank-name { font-size: 20px; color: #6b7280; margin-bottom: 5px; }
-          .location-name { font-size: 24px; font-weight: bold; color: #1f2937; }
-          .location-address { color: #6b7280; margin-top: 10px; }
-          .date { color: #6b7280; margin-top: 10px; }
-          .cards-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          .cards-table th, .cards-table td { border: 1px solid #e5e7eb; padding: 12px; text-align: left; }
-          .cards-table th { background-color: #f9fafb; font-weight: bold; color: #374151; }
-          .cards-table tr:nth-child(even) { background-color: #f9fafb; }
-          .quantity { text-align: center; font-weight: bold; color: #059669; }
-          .total { margin-top: 30px; padding: 20px; background-color: #f3f4f6; border-radius: 8px; text-align: center; }
-          .total-label { font-size: 18px; color: #374151; }
-          .total-value { font-size: 24px; font-weight: bold; color: #059669; margin-top: 5px; }
-          .signatures { 
-            display: flex; 
-            justify-content: space-around; 
-            margin-top: 60px; 
-            margin-bottom: 20px; 
-            padding-top: 40px;
-            border-top: 1px solid #e5e7eb;
-          }
-          .signature { 
-            flex: 1; 
-            text-align: center; 
-            padding: 0 20px;
-          }
-          .signature-line { 
-            border-top: 1px solid #d1d5db; 
-            margin-top: 60px; 
-            width: 100%;
-          }
-          .signature-label { 
-            margin-top: 8px; 
-            color: #9ca3af; 
-            font-size: 11px; 
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-          }
-          .footer { 
-            margin-top: 20px; 
-            padding: 15px 20px; 
-            background-color: #f3f4f6;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 11px;
-            color: #9ca3af;
-          }
-          .footer-address { flex: 1; }
-          .footer-page { flex: 0 0 auto; }
-          @media print { 
-            body { 
-              margin: 0; 
-              padding-bottom: 120px;
-            }
-            .footer { 
-              position: fixed; 
-              bottom: 0; 
-              left: 0; 
-              right: 0; 
-              width: 100%; 
-              margin: 0;
-              background-color: #f3f4f6;
-              z-index: 1000;
-            }
-            .signatures {
-              page-break-inside: avoid;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header-container">
-          <div class="logo-container">
-            <img src="${logoPath}" alt="Logo Société Monétique Tunisie" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" style="max-height: 80px; max-width: 150px; object-fit: contain;">
-            <div style="display: none; width: 150px; height: 80px; background-color: #1e293b; color: white; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; border-radius: 4px;">
-              SMT
-            </div>
-          </div>
-          <div class="header-text">
-            <div class="company-name">Société Monétique Tunisie</div>
-            <div class="bank-name">${bank?.name || 'Banque inconnue'}</div>
-            <div class="location-name">${location.name}</div>
-            <div class="date">Rapport de stock - ${new Date().toLocaleDateString('fr-FR')}</div>
-          </div>
-        </div>
-
-        <table class="cards-table">
-          <thead>
-            <tr>
-              <th>Nom de la carte</th>
-              <th>Type</th>
-              <th>Sous-type</th>
-              <th>Stock disponible</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${locationCards.map(item => `
-              <tr>
-                <td>${item.card.name}</td>
-                <td>${item.card?.type ?? '-'}</td>
-                <td>${item.card?.subType ?? '-'}</td>
-                <td>${item.card?.subSubType ?? '-'}</td>
-                <td class="quantity">${item.quantity}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-
-        <div class="total">
-          <div class="total-label">Total des cartes dans ${location.name}</div>
-          <div class="total-value">${locationCards.reduce((sum, item) => sum + item.quantity, 0)} cartes</div>
-        </div>
-        
-        <div class="signatures">
-          <div class="signature">
-            <div class="signature-line"></div>
-            <div class="signature-label">Signature 1</div>
-          </div>
-          <div class="signature">
-            <div class="signature-line"></div>
-            <div class="signature-label">Signature 2</div>
-          </div>
-          <div class="signature">
-            <div class="signature-line"></div>
-            <div class="signature-label">Signature 3</div>
-          </div>
-        </div>
-        
-        <div class="footer">
-          <div class="footer-address">Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</div>
-          <div class="footer-page">Page 1/1</div>
-        </div>
-      </body>
-      </html>
-    `
-
     const printWindow = window.open('', '_blank')
-    if (printWindow) {
-      printWindow.document.write(printContent)
-      printWindow.document.close()
-      printWindow.focus()
-      printWindow.print()
-    }
+    if (!printWindow) return
+
+    const bank = banks.find(b => b.id === location.bankId)
+    const cartes = cardsByLocation.get(locationId) || []
+    const total = cartes.reduce((somme, item) => somme + item.quantity, 0)
+
+    const blocs = `
+      ${enteteHtml(logoPath)}
+      <div class="titre-document"><h2>Rapport de Stock par Emplacement</h2></div>
+      <div class="info-gauche">
+        <p><strong>Emplacement :</strong> ${location.name}</p>
+        <p><strong>Banque :</strong> ${bank?.name || '-'}</p>
+        ${location.description ? `<p><strong>Description :</strong> ${location.description}</p>` : ''}
+        <p>Généré le ${formatHorodatage()} par ${nomUtilisateurCourant()}</p>
+        <p><strong>Total :</strong> ${total} carte${total > 1 ? 's' : ''}</p>
+      </div>
+      <section>
+        <h3 class="section">Cartes stockées au ${formatHorodatage()}</h3>
+        ${tableauCartes(cartes)}
+      </section>
+      ${blocSignatures}`
+
+    printWindow.document.write(
+      documentImprimable({ titreOnglet: `Rapport de Stock par Emplacement - ${location.name}`, blocs }),
+    )
+    printWindow.document.close()
   }
 
   const { isRefreshing: isSyncRefreshing } = useDataSync(["locations", "banks", "cards"], loadData)
