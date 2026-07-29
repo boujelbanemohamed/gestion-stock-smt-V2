@@ -37,6 +37,7 @@ import type { Movement, Card as CardType, Location, Bank, MovementReason } from 
 import { Filter, ChevronLeft, ChevronRight, Paperclip, Download, Trash2 } from "lucide-react"
 import { getAuthHeaders, authenticatedFetch } from "@/lib/api-client"
 import { toast } from "@/hooks/use-toast"
+import { ADRESSE_SOCIETE, documentImprimable, enteteHtml } from "@/lib/print-layout"
 import { cn } from "@/lib/utils"
 import { exportToCsv, exportToExcel } from "@/lib/export"
 import {
@@ -391,489 +392,215 @@ export default function MovementsManagement() {
     }
   }
 
+  // Impression de la liste filtrée : le détail des mouvements, deux tableaux de
+  // synthèse, puis le destinataire.
   const printMovementSlip = async () => {
     if (!currentUser) return
-    
+
     try {
-      // Charger TOUS les mouvements correspondant aux filtres (sans pagination)
+      // Tous les mouvements correspondant aux filtres, sans pagination.
       const params = new URLSearchParams()
-      
-      if (filters.bankId && filters.bankId !== "all") {
-        params.append('bankId', filters.bankId)
-      }
-      if (filters.cardId && filters.cardId !== "all") {
-        params.append('cardId', filters.cardId)
-      }
-      if (filters.movementType && filters.movementType !== "all") {
-        params.append('type', filters.movementType)
-      }
-      if (filters.fromLocationId && filters.fromLocationId !== "all") {
-        params.append('fromLocationId', filters.fromLocationId)
-      }
-      if (filters.toLocationId && filters.toLocationId !== "all") {
-        params.append('toLocationId', filters.toLocationId)
-      }
-      if (filters.dateFrom) {
-        params.append('dateFrom', filters.dateFrom)
-      }
-      if (filters.dateTo) {
-        params.append('dateTo', filters.dateTo)
-      }
-      if (filters.searchTerm) {
-        params.append('searchTerm', filters.searchTerm)
-      }
-      
-      // Charger tous les résultats (limite élevée pour obtenir tous les mouvements)
+      if (filters.bankId && filters.bankId !== "all") params.append('bankId', filters.bankId)
+      if (filters.cardId && filters.cardId !== "all") params.append('cardId', filters.cardId)
+      if (filters.movementType && filters.movementType !== "all") params.append('type', filters.movementType)
+      if (filters.fromLocationId && filters.fromLocationId !== "all") params.append('fromLocationId', filters.fromLocationId)
+      if (filters.toLocationId && filters.toLocationId !== "all") params.append('toLocationId', filters.toLocationId)
+      if (filters.dateFrom) params.append('dateFrom', filters.dateFrom)
+      if (filters.dateTo) params.append('dateTo', filters.dateTo)
+      if (filters.searchTerm) params.append('searchTerm', filters.searchTerm)
       params.append('limit', '10000')
       params.append('page', '1')
 
-      const movementsResponse = await fetch(`/api/movements?${params.toString()}`, { headers: getAuthHeaders() })
-      const movementsData = await movementsResponse.json()
+      const reponse = await fetch(`/api/movements?${params.toString()}`, { headers: getAuthHeaders() })
+      const donnees = await reponse.json()
+      const mouvements: Movement[] = donnees.success && donnees.data && Array.isArray(donnees.data.movements)
+        ? donnees.data.movements
+        : []
 
-      let movementsToPrint: Movement[] = []
-      if (movementsData.success && movementsData.data) {
-        movementsToPrint = Array.isArray(movementsData.data.movements) 
-          ? movementsData.data.movements 
-          : []
-      }
-      
       const printWindow = window.open("", "_blank")
       if (!printWindow) return
 
-      // Formater la période pour l'affichage
       const formatPeriod = () => {
-        if (filters.dateFrom || filters.dateTo) {
-          const dateFromStr = filters.dateFrom 
-            ? new Date(filters.dateFrom).toLocaleDateString("fr-FR", { day: '2-digit', month: '2-digit', year: 'numeric' })
-            : null
-          const dateToStr = filters.dateTo 
-            ? new Date(filters.dateTo).toLocaleDateString("fr-FR", { day: '2-digit', month: '2-digit', year: 'numeric' })
-            : null
-          
-          if (dateFromStr && dateToStr) {
-            return `Du ${dateFromStr} au ${dateToStr}`
-          } else if (dateFromStr) {
-            return `À partir du ${dateFromStr}`
-          } else if (dateToStr) {
-            return `Jusqu'au ${dateToStr}`
-          }
-        }
+        const debut = filters.dateFrom
+          ? new Date(filters.dateFrom).toLocaleDateString("fr-FR", { day: '2-digit', month: '2-digit', year: 'numeric' })
+          : null
+        const fin = filters.dateTo
+          ? new Date(filters.dateTo).toLocaleDateString("fr-FR", { day: '2-digit', month: '2-digit', year: 'numeric' })
+          : null
+        if (debut && fin) return `Du ${debut} au ${fin}`
+        if (debut) return `À partir du ${debut}`
+        if (fin) return `Jusqu'au ${fin}`
         return "Ensemble de la période"
       }
 
-      const movementsHtml = movementsToPrint
-      .slice()
-      .reverse()
-      .map(
-        (movement) => {
-          // Pour les sorties, afficher le nom et l'adresse de la banque au lieu de l'emplacement destination
-          const card = cards.find(c => c.id === movement.cardId)
-          const bank = card ? banks.find(b => b.id === card.bankId) : null
-          const bankName = bank?.name || "Banque non trouvée"
-          const bankAddress = bank?.address || ""
-          const destination = movement.movementType === 'exit' 
-            ? (bankAddress ? `${bankName}<br/>${bankAddress}` : bankName)
-            : (movement.toLocationId ? getLocationName(movement.toLocationId) : "-")
-          
-          return `
-        <tr>
-          <td style="border: 1px solid #ddd; padding: 8px;">${formatDateTime(movement.createdAt)}</td>
-          <td style="border: 1px solid #ddd; padding: 8px;">${getCardName(movement.cardId)}</td>
-          <td style="border: 1px solid #ddd; padding: 8px;">${getMovementTypeLabel(movement.movementType)}</td>
-          <td style="border: 1px solid #ddd; padding: 8px;">${movement.fromLocationId ? getLocationName(movement.fromLocationId) : "-"}</td>
-          <td style="border: 1px solid #ddd; padding: 8px;" class="destination-cell">${destination}</td>
-          <td style="border: 1px solid #ddd; padding: 8px;">${movement.quantity}</td>
-          <td style="border: 1px solid #ddd; padding: 8px;">${movement.reason}</td>
-          <td style="border: 1px solid #ddd; padding: 8px;">${getUserName(movement.userId)}</td>
-        </tr>
-      `
-        }
-      )
-      .join("")
+      const banqueDeLaCarte = (cardId: string) => {
+        const carte = cards.find(c => c.id === cardId)
+        return carte ? getBankName(carte.bankId) : "N/A"
+      }
 
-      // Calculer les statistiques basées sur les mouvements filtrés
-      // movementsToPrint contient déjà uniquement les mouvements correspondant aux filtres
-      // donc on peut calculer directement sans revérifier les filtres
-      const statsByBank = new Map<string, number>()
-      const statsByCardType = new Map<string, number>()
-      const statsByLocation = new Map<string, number>()
-      const statsByMovementType = new Map<string, number>()
+      // --- Détail des mouvements ---
+      const lignesDetail = mouvements.slice().reverse().map((mouvement) => {
+        const carte = cards.find(c => c.id === mouvement.cardId)
+        const banque = carte ? banks.find(b => b.id === carte.bankId) : undefined
+        const vers = mouvement.movementType === 'exit'
+          ? (banque ? `${banque.name}${banque.address ? ` - ${banque.address}` : ''}` : '-')
+          : (mouvement.toLocationId ? getLocationName(mouvement.toLocationId) : '-')
+        return `<tr>
+          <td>${mouvement.reference || '—'}</td>
+          <td>${formatDateTime(mouvement.createdAt)}</td>
+          <td>${getCardName(mouvement.cardId)}</td>
+          <td>${getMovementTypeLabel(mouvement.movementType)}</td>
+          <td>${mouvement.fromLocationId ? getLocationName(mouvement.fromLocationId) : '-'}</td>
+          <td>${vers}</td>
+          <td class="num">${mouvement.quantity}</td>
+          <td>${mouvement.reason}</td>
+          <td>${getUserName(mouvement.userId)}</td>
+        </tr>`
+      }).join('')
 
-      movementsToPrint.forEach((movement) => {
-        const card = cards.find(c => c.id === movement.cardId)
-        const bank = card ? banks.find(b => b.id === card.bankId) : null
-        const bankName = bank?.name || "Banque inconnue"
-        const cardType = card?.type || "Type inconnu"
-        const fromLocation = movement.fromLocationId ? getLocationName(movement.fromLocationId) : null
-        const toLocation = movement.toLocationId ? getLocationName(movement.toLocationId) : null
-        const movementTypeLabel = getMovementTypeLabel(movement.movementType)
+      // --- Quantités par banque, carte et type de mouvement ---
+      const TYPES: Array<"entry" | "exit" | "transfer"> = ["entry", "exit", "transfer"]
+      const parBanqueEtCarte = new Map<string, Map<string, Record<string, number>>>()
+      for (const mouvement of mouvements) {
+        const banque = banqueDeLaCarte(mouvement.cardId)
+        const carte = getCardName(mouvement.cardId)
+        if (!parBanqueEtCarte.has(banque)) parBanqueEtCarte.set(banque, new Map())
+        const cartes = parBanqueEtCarte.get(banque)!
+        if (!cartes.has(carte)) cartes.set(carte, { entry: 0, exit: 0, transfer: 0 })
+        cartes.get(carte)![mouvement.movementType] += mouvement.quantity
+      }
 
-        // Statistiques par banque - tous les mouvements dans movementsToPrint sont déjà filtrés
-        const bankTotal = statsByBank.get(bankName) || 0
-        statsByBank.set(bankName, bankTotal + movement.quantity)
+      const totauxGeneraux: Record<string, number> = { entry: 0, exit: 0, transfer: 0 }
+      const lignesQuantites = Array.from(parBanqueEtCarte.entries()).map(([banque, cartes]) => {
+        const sousTotal: Record<string, number> = { entry: 0, exit: 0, transfer: 0 }
+        const lignes = Array.from(cartes.entries()).map(([carte, quantites], index) => {
+          for (const type of TYPES) {
+            sousTotal[type] += quantites[type]
+            totauxGeneraux[type] += quantites[type]
+          }
+          const total = TYPES.reduce((somme, type) => somme + quantites[type], 0)
+          const celluleBanque = index === 0
+            ? `<td rowspan="${cartes.size}">${banque}</td>`
+            : ''
+          return `<tr>${celluleBanque}<td>${carte}</td>${
+            TYPES.map((type) => `<td class="num">${quantites[type]}</td>`).join('')
+          }<td class="num"><strong>${total}</strong></td></tr>`
+        }).join('')
+        const totalBanque = TYPES.reduce((somme, type) => somme + sousTotal[type], 0)
+        return lignes + `<tr class="sous-total"><td colspan="2">Sous-total ${banque}</td>${
+          TYPES.map((type) => `<td class="num">${sousTotal[type]}</td>`).join('')
+        }<td class="num">${totalBanque}</td></tr>`
+      }).join('')
 
-        // Statistiques par type de carte - tous les mouvements dans movementsToPrint sont déjà filtrés
-        const cardTypeTotal = statsByCardType.get(cardType) || 0
-        statsByCardType.set(cardType, cardTypeTotal + movement.quantity)
+      const totalGeneral = TYPES.reduce((somme, type) => somme + totauxGeneraux[type], 0)
 
-        // Statistiques par emplacement source (De) - tous les mouvements dans movementsToPrint sont déjà filtrés
-        if (fromLocation) {
-          const fromTotal = statsByLocation.get(`De: ${fromLocation}`) || 0
-          statsByLocation.set(`De: ${fromLocation}`, fromTotal + movement.quantity)
-        }
+      // --- Stock restant, par banque, carte et emplacement ---
+      // Photographie de l'instant : la base ne conserve pas d'historique de
+      // stock, la période filtrée ne s'y applique donc pas. Le titre le dit.
+      // Périmètre : les filtres du document ; à défaut, toutes les banques.
+      const banquesRetenues = filters.bankId && filters.bankId !== "all"
+        ? banks.filter(b => b.id === filters.bankId)
+        : banks
+      const cartesRetenues = cards.filter((carte) =>
+        banquesRetenues.some(b => b.id === carte.bankId) &&
+        (!filters.cardId || filters.cardId === "all" || carte.id === filters.cardId))
 
-        // Statistiques par emplacement destination (Vers) - tous les mouvements dans movementsToPrint sont déjà filtrés
-        if (toLocation) {
-          const toTotal = statsByLocation.get(`Vers: ${toLocation}`) || 0
-          statsByLocation.set(`Vers: ${toLocation}`, toTotal + movement.quantity)
-        }
+      let totalStock = 0
+      const lignesStock = banquesRetenues.map((banque) => {
+        const cartesBanque = cartesRetenues
+          .filter(c => c.bankId === banque.id)
+          .map((carte) => ({
+            carte,
+            niveaux: ((carte as any).stockLevels || [])
+              .filter((n: any) => (n.quantity ?? 0) > 0)
+              .map((n: any) => ({
+                emplacement: getLocationName(n.locationId || n.location?.id),
+                quantite: n.quantity as number,
+              })),
+          }))
+          .filter((entree) => entree.niveaux.length > 0)
 
-        // Statistiques par type de mouvement - tous les mouvements dans movementsToPrint sont déjà filtrés
-        const movementTypeTotal = statsByMovementType.get(movementTypeLabel) || 0
-        statsByMovementType.set(movementTypeLabel, movementTypeTotal + movement.quantity)
-      })
+        if (cartesBanque.length === 0) return ''
 
-      // Générer les tableaux de statistiques HTML
-      const statsByBankHtml = Array.from(statsByBank.entries())
-        .sort((a, b) => b[1] - a[1])
-        .map(([bank, total]) => `
-          <tr>
-            <td style="border: 1px solid #ddd; padding: 8px;">${bank}</td>
-            <td style="border: 1px solid #ddd; padding: 8px; text-align: right; font-weight: bold;">${total.toLocaleString('fr-FR')}</td>
-          </tr>
-        `).join('')
+        const nbLignes = cartesBanque.reduce((somme, e) => somme + e.niveaux.length, 0)
+        let sousTotal = 0
+        let premiereLigneBanque = true
+        const lignes = cartesBanque.map((entree) => entree.niveaux.map((niveau: any, index: number) => {
+          sousTotal += niveau.quantite
+          const celluleBanque = premiereLigneBanque
+            ? `<td rowspan="${nbLignes}">${banque.name}</td>`
+            : ''
+          premiereLigneBanque = false
+          const celluleCarte = index === 0
+            ? `<td rowspan="${entree.niveaux.length}">${entree.carte.name}</td>`
+            : ''
+          return `<tr>${celluleBanque}${celluleCarte}<td>${niveau.emplacement}</td><td class="num">${niveau.quantite}</td></tr>`
+        }).join('')).join('')
 
-      const statsByCardTypeHtml = Array.from(statsByCardType.entries())
-        .sort((a, b) => b[1] - a[1])
-        .map(([cardType, total]) => `
-          <tr>
-            <td style="border: 1px solid #ddd; padding: 8px;">${cardType}</td>
-            <td style="border: 1px solid #ddd; padding: 8px; text-align: right; font-weight: bold;">${total.toLocaleString('fr-FR')}</td>
-          </tr>
-        `).join('')
+        totalStock += sousTotal
+        return lignes + `<tr class="sous-total"><td colspan="3">Sous-total ${banque.name}</td><td class="num">${sousTotal}</td></tr>`
+      }).join('')
 
-      const statsByLocationHtml = Array.from(statsByLocation.entries())
-        .sort((a, b) => b[1] - a[1])
-        .map(([location, total]) => `
-          <tr>
-            <td style="border: 1px solid #ddd; padding: 8px;">${location}</td>
-            <td style="border: 1px solid #ddd; padding: 8px; text-align: right; font-weight: bold;">${total.toLocaleString('fr-FR')}</td>
-          </tr>
-        `).join('')
-
-      const statsByMovementTypeHtml = Array.from(statsByMovementType.entries())
-        .map(([movementType, total]) => `
-          <tr>
-            <td style="border: 1px solid #ddd; padding: 8px;">${movementType}</td>
-            <td style="border: 1px solid #ddd; padding: 8px; text-align: right; font-weight: bold;">${total.toLocaleString('fr-FR')}</td>
-          </tr>
-        `).join('')
-
-      const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Bordereau de Mouvements</title>
-          <style>
-            body {
-              font-family: Arial, sans-serif;
-              padding: 20px;
-            }
-            .header-container {
-              display: flex;
-              align-items: center;
-              margin-bottom: 20px;
-              border-bottom: 2px solid #1e293b;
-              padding-bottom: 15px;
-            }
-            .logo-container {
-              flex: 0 0 auto;
-              margin-right: 20px;
-            }
-            .logo-container img {
-              max-height: 80px;
-              max-width: 150px;
-              object-fit: contain;
-            }
-            .header-text {
-              flex: 1;
-              text-align: center;
-            }
-            h1 {
-              color: #1e293b;
-              margin: 0 0 5px 0;
-              font-size: 24px;
-            }
-            h2 {
-              color: #1e293b;
-              margin: 0;
-              font-size: 18px;
-              font-weight: normal;
-            }
-            .header-info {
-              text-align: center;
-              margin-bottom: 20px;
-              color: #64748b;
-              background-color: #f8fafc;
-              padding: 15px;
-              border-radius: 8px;
-            }
-            .header-info p {
-              margin: 5px 0;
-              font-size: 14px;
-            }
-            .period-info {
-              font-weight: bold;
-              color: #1e293b;
-              font-size: 15px;
-              margin: 10px 0;
-            }
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              margin-top: 20px;
-            }
-            th {
-              background-color: #1e293b;
-              color: white;
-              padding: 12px;
-              text-align: left;
-              border: 1px solid #ddd;
-            }
-            td {
-              padding: 8px;
-              border: 1px solid #ddd;
-            }
-            .destination-cell {
-              font-size: 12px;
-              line-height: 1.3;
-            }
-            .recipient-section {
-              font-size: 11px;
-            }
-            .recipient-section h3 {
-              font-size: 14px;
-            }
-            .recipient-section p {
-              font-size: 11px;
-            }
-            tr:nth-child(even) {
-              background-color: #f8fafc;
-            }
-            .footer {
-              margin-top: 30px;
-              text-align: center;
-              color: #64748b;
-              font-size: 12px;
-            }
-            .stats-section {
-              margin-top: 30px;
-              margin-bottom: 30px;
-            }
-            .stats-section h3 {
-              color: #1e293b;
-              font-size: 18px;
-              margin-bottom: 15px;
-              border-bottom: 2px solid #1e293b;
-              padding-bottom: 8px;
-            }
-            .stats-grid {
-              display: grid;
-              grid-template-columns: repeat(2, 1fr);
-              gap: 20px;
-              margin-top: 20px;
-            }
-            .stats-table {
-              width: 100%;
-              border-collapse: collapse;
-              margin-top: 10px;
-            }
-            .stats-table th {
-              background-color: #1e293b;
-              color: white;
-              padding: 10px;
-              text-align: left;
-              font-size: 14px;
-            }
-            .stats-table td {
-              padding: 8px;
-              border: 1px solid #ddd;
-              font-size: 13px;
-            }
-            .stats-table tr:nth-child(even) {
-              background-color: #f8fafc;
-            }
-            @media print {
-              button {
-                display: none;
-              }
-              .header-container {
-                page-break-inside: avoid;
-              }
-              .stats-section {
-                page-break-inside: avoid;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header-container">
-            <div class="logo-container">
-              <img src="${logoPath}" alt="Logo Société Monétique Tunisie" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" style="max-height: 80px; max-width: 150px; object-fit: contain;">
-              <div style="display: none; width: 150px; height: 80px; background-color: #1e293b; color: white; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; border-radius: 4px;">
-                SMT
-              </div>
-            </div>
-            <div class="header-text">
-              <h1>Société Monétique Tunisie</h1>
-              <h2>Bordereau de Mouvements de Stock</h2>
-            </div>
-          </div>
-          <div class="header-info">
-            <p><strong>Généré le :</strong> ${new Date().toLocaleString("fr-FR", { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-            <p><strong>Généré par :</strong> ${currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : "N/A"}</p>
-            <p class="period-info"><strong>Période :</strong> ${formatPeriod()}</p>
-            <p><strong>Total :</strong> ${movementsToPrint.length} mouvement${movementsToPrint.length > 1 ? 's' : ''}</p>
-          </div>
+      const blocs = `
+        ${enteteHtml(logoPath)}
+        <div class="titre-document"><h2>Bordereau de Mouvements de Stock</h2></div>
+        <div class="info-gauche">
+          <p>Généré le ${formatDateTime(new Date())} par ${currentUser.firstName} ${currentUser.lastName}</p>
+          <p><strong>Période :</strong> ${formatPeriod()}</p>
+          <p><strong>Total :</strong> ${mouvements.length} mouvement${mouvements.length > 1 ? 's' : ''}</p>
+        </div>
+        <section>
+          <h3 class="section">Détails des mouvements</h3>
           <table>
-            <thead>
-              <tr>
-                <th>Date et Heure</th>
-                <th>Carte</th>
-                <th>Type</th>
-                <th>De</th>
-                <th>Vers / Adresse</th>
-                <th>Quantité</th>
-                <th>Motif</th>
-                <th>Bon de mouvement généré par</th>
-              </tr>
-            </thead>
+            <thead><tr>
+              <th>Numéro</th><th>Date et Heure</th><th>Carte</th><th>Type</th><th>De</th>
+              <th>Vers / Adresse</th><th class="num">Quantité</th><th>Motif</th><th>Mouvement effectué par</th>
+            </tr></thead>
+            <tbody>${lignesDetail || '<tr><td colspan="9">Aucun mouvement</td></tr>'}</tbody>
+          </table>
+        </section>
+        <section>
+          <h3 class="section">Quantité des mouvements par banque, carte et type</h3>
+          <table>
+            <thead><tr>
+              <th>Banque</th><th>Carte</th><th class="num">Entrée</th><th class="num">Sortie</th>
+              <th class="num">Transfert</th><th class="num">Total</th>
+            </tr></thead>
             <tbody>
-              ${movementsHtml}
+              ${lignesQuantites || '<tr><td colspan="6">Aucun mouvement</td></tr>'}
+              <tr class="ligne-total"><td colspan="2">Total</td>${
+                TYPES.map((type) => `<td class="num">${totauxGeneraux[type]}</td>`).join('')
+              }<td class="num">${totalGeneral}</td></tr>
             </tbody>
           </table>
-          
-          <!-- Section des statistiques -->
-          <div class="stats-section">
-            <h3>Statistiques des Mouvements</h3>
-            <div class="stats-grid">
-              <!-- Statistiques par banque -->
-              ${statsByBank.size > 0 ? `
-              <div>
-                <h4 style="color: #1e293b; font-size: 16px; margin-bottom: 10px;">Quantité totale par banque</h4>
-                <table class="stats-table">
-                  <thead>
-                    <tr>
-                      <th>Banque</th>
-                      <th style="text-align: right;">Quantité</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${statsByBankHtml}
-                  </tbody>
-                </table>
-              </div>
-              ` : ''}
-              
-              <!-- Statistiques par type de carte -->
-              ${statsByCardType.size > 0 ? `
-              <div>
-                <h4 style="color: #1e293b; font-size: 16px; margin-bottom: 10px;">Quantité totale par type de carte</h4>
-                <table class="stats-table">
-                  <thead>
-                    <tr>
-                      <th>Type de carte</th>
-                      <th style="text-align: right;">Quantité</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${statsByCardTypeHtml}
-                  </tbody>
-                </table>
-              </div>
-              ` : ''}
-              
-              <!-- Statistiques par emplacement -->
-              ${statsByLocation.size > 0 ? `
-              <div>
-                <h4 style="color: #1e293b; font-size: 16px; margin-bottom: 10px;">Quantité totale par emplacement</h4>
-                <table class="stats-table">
-                  <thead>
-                    <tr>
-                      <th>Emplacement</th>
-                      <th style="text-align: right;">Quantité</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${statsByLocationHtml}
-                  </tbody>
-                </table>
-              </div>
-              ` : ''}
-              
-              <!-- Statistiques par type de mouvement -->
-              ${statsByMovementType.size > 0 ? `
-              <div>
-                <h4 style="color: #1e293b; font-size: 16px; margin-bottom: 10px;">Quantité totale par type de mouvement</h4>
-                <table class="stats-table">
-                  <thead>
-                    <tr>
-                      <th>Type de mouvement</th>
-                      <th style="text-align: right;">Quantité</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${statsByMovementTypeHtml}
-                  </tbody>
-                </table>
-              </div>
-              ` : ''}
-            </div>
+        </section>
+        <section>
+          <h3 class="section">Stock restant au ${formatDateTime(new Date())}</h3>
+          <table>
+            <thead><tr>
+              <th>Banque</th><th>Carte</th><th>Emplacement</th><th class="num">Quantité restante</th>
+            </tr></thead>
+            <tbody>
+              ${lignesStock || '<tr><td colspan="4">Aucun stock</td></tr>'}
+              <tr class="ligne-total"><td colspan="3">Total du stock restant</td><td class="num">${totalStock}</td></tr>
+            </tbody>
+          </table>
+        </section>
+        <div class="destinataire">
+          <h3>Destinataire :</h3>
+          <div class="ligne-champs">
+            <div class="champ"><p>Nom :</p><div class="trait"></div></div>
+            <div class="champ"><p>Prénom :</p><div class="trait"></div></div>
           </div>
-          
-          <div class="recipient-section" style="margin-top: 40px; padding: 20px; border-top: 2px solid #1e293b;">
-            <h3 style="color: #1e293b; margin-bottom: 30px;">Destinataire :</h3>
-            
-            <div style="display: flex; flex-wrap: wrap; gap: 30px; margin-bottom: 20px;">
-              <div style="flex: 1; min-width: 200px;">
-                <p style="font-weight: bold; margin-bottom: 5px; color: #374151;">Nom :</p>
-                <div style="border-bottom: 2px solid #1e293b; height: 30px; margin-bottom: 20px;"></div>
-              </div>
-              <div style="flex: 1; min-width: 200px;">
-                <p style="font-weight: bold; margin-bottom: 5px; color: #374151;">Prénom :</p>
-                <div style="border-bottom: 2px solid #1e293b; height: 30px; margin-bottom: 20px;"></div>
-              </div>
-            </div>
-            
-            <div style="display: flex; flex-wrap: wrap; gap: 30px; margin-bottom: 20px;">
-              <div style="flex: 1; min-width: 200px;">
-                <p style="font-weight: bold; margin-bottom: 5px; color: #374151;">Fonction :</p>
-                <div style="border-bottom: 2px solid #1e293b; height: 30px; margin-bottom: 20px;"></div>
-              </div>
-              <div style="flex: 1; min-width: 200px;">
-                <p style="font-weight: bold; margin-bottom: 5px; color: #374151;">Date :</p>
-                <div style="border-bottom: 2px solid #1e293b; height: 30px; margin-bottom: 20px;"></div>
-              </div>
-            </div>
-            
-            <div style="margin-top: 40px; text-align: right;">
-              <p style="font-weight: bold; margin-bottom: 60px; color: #374151;">Signature :</p>
-            </div>
+          <div class="ligne-champs">
+            <div class="champ"><p>Fonction :</p><div class="trait"></div></div>
+            <div class="champ"><p>Date :</p><div class="trait"></div></div>
           </div>
-          
-          <div class="footer">
-            <p>Adresse : Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</p>
-          </div>
-          <script>
-            window.onload = function() {
-              window.print();
-            }
-          </script>
-        </body>
-      </html>
-      `
+        </div>`
 
-      printWindow.document.write(htmlContent)
+      printWindow.document.write(
+        documentImprimable({ titreOnglet: "Bordereau de Mouvements de Stock", blocs }),
+      )
       printWindow.document.close()
     } catch (error) {
       console.error('Error loading movements for print:', error)
@@ -956,219 +683,54 @@ export default function MovementsManagement() {
     }
   }
 
+  // Bordereau d'un mouvement. Le numéro n'est imprimé que si le mouvement en
+  // porte un : ceux enregistrés avant sa mise en place n'en ont pas, et une
+  // ligne « Numéro : » vide ferait croire à une anomalie.
   const printSingleMovement = (movement: Movement) => {
     if (!currentUser) return
+
     const printWindow = window.open("", "_blank")
     if (!printWindow) return
 
-    // Récupérer le nom et l'adresse de la banque pour les sorties
-    const card = cards.find(c => c.id === movement.cardId)
-    const bank = card ? banks.find(b => b.id === card.bankId) : null
-    const bankName = bank?.name || "Banque non trouvée"
-    const bankAddress = bank?.address || ""
-    const destinationInfo = movement.movementType === 'exit' 
-      ? (bankAddress ? `${bankName}<br/>${bankAddress}` : bankName)
-      : (movement.toLocationId ? getLocationName(movement.toLocationId) : "-")
+    const generePar = `${currentUser.firstName} ${currentUser.lastName}`
+    const effectuePar = getUserName(movement.userId)
 
-    const movementHtml = `
-      <tr>
-        <td style="border: 1px solid #ddd; padding: 8px;"><strong>Date et Heure:</strong></td>
-        <td style="border: 1px solid #ddd; padding: 8px;">${formatDateTime(movement.createdAt)}</td>
-      </tr>
-      <tr>
-        <td style="border: 1px solid #ddd; padding: 8px;"><strong>Carte:</strong></td>
-        <td style="border: 1px solid #ddd; padding: 8px;">${getCardName(movement.cardId)}</td>
-      </tr>
-      <tr>
-        <td style="border: 1px solid #ddd; padding: 8px;"><strong>Type de mouvement:</strong></td>
-        <td style="border: 1px solid #ddd; padding: 8px;">${getMovementTypeLabel(movement.movementType)}</td>
-      </tr>
-      <tr>
-        <td style="border: 1px solid #ddd; padding: 8px;"><strong>Emplacement source:</strong></td>
-        <td style="border: 1px solid #ddd; padding: 8px;">${movement.fromLocationId ? getLocationName(movement.fromLocationId) : "-"}</td>
-      </tr>
-      <tr>
-        <td style="border: 1px solid #ddd; padding: 8px;"><strong>${movement.movementType === 'exit' ? 'Banque de destination' : 'Emplacement destination'}:</strong></td>
-        <td style="border: 1px solid #ddd; padding: 8px;" class="destination-cell">${destinationInfo}</td>
-      </tr>
-      <tr>
-        <td style="border: 1px solid #ddd; padding: 8px;"><strong>Quantité:</strong></td>
-        <td style="border: 1px solid #ddd; padding: 8px;">${movement.quantity}</td>
-      </tr>
-      <tr>
-        <td style="border: 1px solid #ddd; padding: 8px;"><strong>Motif:</strong></td>
-        <td style="border: 1px solid #ddd; padding: 8px;">${movement.reason}</td>
-      </tr>
-      <tr>
-        <td style="border: 1px solid #ddd; padding: 8px;"><strong>Bon de mouvement généré par :</strong></td>
-        <td style="border: 1px solid #ddd; padding: 8px;">${getUserName(movement.userId)}</td>
-      </tr>
-    `
+    const blocs = `
+      ${enteteHtml(logoPath)}
+      <div class="titre-document"><h2>Bordereau de Mouvement de Stock</h2></div>
+      <div class="info-gauche">
+        ${movement.reference ? `<p class="numero">Numéro : <strong>${movement.reference}</strong></p>` : ""}
+        <p>Généré le ${formatDateTime(new Date())} par ${generePar}</p>
+        <p>Mouvement effectué par : ${effectuePar}</p>
+      </div>
+      <section>
+        <h3 class="section">Détails du Mouvement</h3>
+        <table><tbody>
+          <tr><td class="libelle">Date et Heure :</td><td class="valeur">${formatDateTime(movement.createdAt)}</td></tr>
+          <tr><td class="libelle">Carte :</td><td class="valeur">${getCardName(movement.cardId)}</td></tr>
+          <tr><td class="libelle">Type de mouvement :</td><td class="valeur">${getMovementTypeLabel(movement.movementType)}</td></tr>
+          <tr><td class="libelle">Emplacement source :</td><td class="valeur">${movement.fromLocationId ? getLocationName(movement.fromLocationId) : "-"}</td></tr>
+          <tr><td class="libelle">Emplacement destination :</td><td class="valeur">${movement.toLocationId ? getLocationName(movement.toLocationId) : "-"}</td></tr>
+          <tr><td class="libelle">Quantité :</td><td class="valeur">${movement.quantity}</td></tr>
+          <tr><td class="libelle">Motif :</td><td class="valeur">${movement.reason}</td></tr>
+        </tbody></table>
+      </section>
+      <div class="destinataire">
+        <h3>Destinataire :</h3>
+        <div class="ligne-champs">
+          <div class="champ"><p>Nom :</p><div class="trait"></div></div>
+          <div class="champ"><p>Prénom :</p><div class="trait"></div></div>
+        </div>
+        <div class="ligne-champs">
+          <div class="champ"><p>Fonction :</p><div class="trait"></div></div>
+          <div class="champ"><p>Date :</p><div class="trait"></div></div>
+        </div>
+        <div class="signature"><p>Signature :</p></div>
+      </div>`
 
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Bordereau de Mouvement - ${movement.id}</title>
-          <style>
-            body {
-              font-family: Arial, sans-serif;
-              padding: 20px;
-              max-width: 800px;
-              margin: 0 auto;
-            }
-            .header-container {
-              display: flex;
-              align-items: center;
-              margin-bottom: 20px;
-              border-bottom: 2px solid #1e293b;
-              padding-bottom: 15px;
-            }
-            .logo-container {
-              flex: 0 0 auto;
-              margin-right: 20px;
-            }
-            .logo-container img {
-              max-height: 80px;
-              max-width: 150px;
-              object-fit: contain;
-            }
-            .header-text {
-              flex: 1;
-              text-align: center;
-            }
-            h1 {
-              color: #1e293b;
-              margin: 0 0 5px 0;
-              font-size: 24px;
-            }
-            h2 {
-              color: #1e293b;
-              margin: 0;
-              font-size: 18px;
-              font-weight: normal;
-            }
-            .header-info {
-              text-align: center;
-              margin-bottom: 30px;
-              color: #64748b;
-              background-color: #f8fafc;
-              padding: 15px;
-              border-radius: 8px;
-            }
-            .header-info p {
-              margin: 5px 0;
-              font-size: 14px;
-            }
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              margin-top: 20px;
-            }
-            td {
-              padding: 12px;
-              border: 1px solid #ddd;
-            }
-            .destination-cell {
-              font-size: 12px;
-              line-height: 1.3;
-            }
-            .recipient-section {
-              font-size: 11px;
-            }
-            .recipient-section h3 {
-              font-size: 14px;
-            }
-            .recipient-section p {
-              font-size: 11px;
-            }
-            td:first-child {
-              background-color: #f8fafc;
-              font-weight: bold;
-              width: 40%;
-            }
-            .footer {
-              margin-top: 30px;
-              text-align: center;
-              color: #64748b;
-              font-size: 12px;
-            }
-            @media print {
-              button {
-                display: none;
-              }
-              .header-container {
-                page-break-inside: avoid;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header-container">
-            <div class="logo-container">
-              <img src="${logoPath}" alt="Logo Société Monétique Tunisie" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" style="max-height: 80px; max-width: 150px; object-fit: contain;">
-              <div style="display: none; width: 150px; height: 80px; background-color: #1e293b; color: white; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; border-radius: 4px;">
-                SMT
-              </div>
-            </div>
-            <div class="header-text">
-              <h1>Société Monétique Tunisie</h1>
-              <h2>Bordereau de Mouvement de Stock</h2>
-            </div>
-          </div>
-          <div class="header-info">
-            <p><strong>Généré le :</strong> ${new Date().toLocaleString("fr-FR", { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-            <p><strong>Généré par :</strong> ${currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : "N/A"}</p>
-          </div>
-          <table>
-            <tbody>
-              ${movementHtml}
-            </tbody>
-          </table>
-          
-          <div class="recipient-section" style="margin-top: 40px; padding: 20px; border-top: 2px solid #1e293b;">
-            <h3 style="color: #1e293b; margin-bottom: 30px;">Destinataire :</h3>
-            
-            <div style="display: flex; flex-wrap: wrap; gap: 30px; margin-bottom: 20px;">
-              <div style="flex: 1; min-width: 200px;">
-                <p style="font-weight: bold; margin-bottom: 5px; color: #374151;">Nom :</p>
-                <div style="border-bottom: 2px solid #1e293b; height: 30px; margin-bottom: 20px;"></div>
-              </div>
-              <div style="flex: 1; min-width: 200px;">
-                <p style="font-weight: bold; margin-bottom: 5px; color: #374151;">Prénom :</p>
-                <div style="border-bottom: 2px solid #1e293b; height: 30px; margin-bottom: 20px;"></div>
-              </div>
-            </div>
-            
-            <div style="display: flex; flex-wrap: wrap; gap: 30px; margin-bottom: 20px;">
-              <div style="flex: 1; min-width: 200px;">
-                <p style="font-weight: bold; margin-bottom: 5px; color: #374151;">Fonction :</p>
-                <div style="border-bottom: 2px solid #1e293b; height: 30px; margin-bottom: 20px;"></div>
-              </div>
-              <div style="flex: 1; min-width: 200px;">
-                <p style="font-weight: bold; margin-bottom: 5px; color: #374151;">Date :</p>
-                <div style="border-bottom: 2px solid #1e293b; height: 30px; margin-bottom: 20px;"></div>
-              </div>
-            </div>
-            
-            <div style="margin-top: 40px; text-align: right;">
-              <p style="font-weight: bold; margin-bottom: 60px; color: #374151;">Signature :</p>
-            </div>
-          </div>
-          
-          <div class="footer">
-            <p>Adresse : Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</p>
-          </div>
-          <script>
-            window.onload = function() {
-              window.print();
-            }
-          </script>
-        </body>
-      </html>
-    `
-
-    printWindow.document.write(htmlContent)
+    printWindow.document.write(
+      documentImprimable({ titreOnglet: "Bordereau de Mouvement de Stock", blocs }),
+    )
     printWindow.document.close()
   }
 
@@ -1494,6 +1056,9 @@ export default function MovementsManagement() {
   }
 
   // Impression d'un bon consolidé pour la génération en masse
+  // Bordereau consolidé d'une génération en masse. Chaque carte donne lieu à un
+  // mouvement distinct, donc à un numéro distinct : ils figurent en regard de
+  // chaque ligne plutôt qu'en tête de document.
   const printBulkSlip = (
     ctx: {
       bankId: string
@@ -1506,13 +1071,16 @@ export default function MovementsManagement() {
     created: Movement[]
   ) => {
     if (!currentUser) return
+    const w = window.open("", "_blank")
+    if (!w) return
+
     const bank = banks.find(b => b.id === ctx.bankId)
-    // Champ "De":
-    // - Pour une SORTIE: afficher l'adresse fixe SMT - MT demandée
-    // - Sinon: afficher nom + adresse de l'emplacement source si disponible
+    // Champ "De" :
+    // - pour une SORTIE, l'adresse fixe de la SMT ;
+    // - sinon, le nom et l'adresse de l'emplacement source si disponibles.
     let fromName = '-'
     if (ctx.movementType === 'exit') {
-      fromName = 'SMT  - Centre urbain Nord, Sana Center, bloc C – 1082, Tunis - Tunisie'
+      fromName = `SMT - ${ADRESSE_SOCIETE} - Tunisie`
     } else if (ctx.movementType !== 'entry' && ctx.fromLocationId) {
       const fromLoc = locations.find(l => l.id === ctx.fromLocationId) as any
       const fromAddress = fromLoc?.address ? ` - ${fromLoc.address}` : ''
@@ -1524,202 +1092,79 @@ export default function MovementsManagement() {
       ? (bankAddress ? `${bank?.name || ''}<br/>${bankAddress}` : (bank?.name || '-'))
       : toName
 
-    const rows = ctx.cardQuantities.map(cq => {
-      const card = cards.find(c => c.id === cq.cardId) as any
-      return `
-        <tr>
-          <td style="border:1px solid #ddd;padding:8px;">${card?.name || '-'}</td>
-          <td style="border:1px solid #ddd;padding:8px;">${card?.type || '-'}</td>
-          <td style="border:1px solid #ddd;padding:8px;">${card?.subType || '-'}</td>
-          <td style="border:1px solid #ddd;padding:8px;">${card?.subSubType || '-'}</td>
-          <td style="border:1px solid #ddd;padding:8px;text-align:right;">${cq.quantity}</td>
-        </tr>
-      `
+    // Le mouvement créé pour une carte porte la référence à imprimer sur sa ligne.
+    const referencePourCarte = (cardId: string) =>
+      created.find((m) => m.cardId === cardId)?.reference || "—"
+
+    const totalQty = ctx.cardQuantities.reduce((somme, cq) => somme + cq.quantity, 0)
+    const lignes = ctx.cardQuantities.map(cq => {
+      const carte = cards.find(c => c.id === cq.cardId)
+      return `<tr>
+        <td>${referencePourCarte(cq.cardId)}</td>
+        <td>${carte?.name || getCardName(cq.cardId)}</td>
+        <td>${carte?.type || '-'}</td>
+        <td>${carte?.subType || '-'}</td>
+        <td>${carte?.subSubType || '-'}</td>
+        <td class="num">${cq.quantity}</td>
+      </tr>`
     }).join('')
 
-    const totalQty = ctx.cardQuantities.reduce((s, cq) => s + (cq.quantity || 0), 0)
+    const signatures = ctx.movementType === 'exit' ? `
+      <section>
+        <table><tbody><tr>
+          <td style="width:50%">
+            <p style="font-weight:bold; margin:0 0 8px">Expéditeur</p>
+            <p style="margin:0 0 4px; color:#6b7280">Nom &amp; Prénom :</p>
+            <div class="trait"></div>
+            <p style="margin:10px 0 4px; color:#6b7280">Signature et Cachet :</p>
+            <div style="height:46px; border:1px dashed #9ca3af"></div>
+          </td>
+          <td style="width:50%">
+            <p style="font-weight:bold; margin:0 0 8px">Destinataire</p>
+            <p style="margin:0 0 4px; color:#6b7280">Nom &amp; Prénom :</p>
+            <div class="trait"></div>
+            <p style="margin:10px 0 4px; color:#6b7280">Signature et Cachet :</p>
+            <div style="height:46px; border:1px dashed #9ca3af"></div>
+          </td>
+        </tr></tbody></table>
+      </section>` : ''
 
-    const w = window.open('', '_blank')
-    if (!w) return
-    
-    // Formater la période pour l'affichage
-    const formatPeriod = () => {
-      if (filters.dateFrom || filters.dateTo) {
-        const dateFromStr = filters.dateFrom 
-          ? new Date(filters.dateFrom).toLocaleDateString("fr-FR", { day: '2-digit', month: '2-digit', year: 'numeric' })
-          : null
-        const dateToStr = filters.dateTo 
-          ? new Date(filters.dateTo).toLocaleDateString("fr-FR", { day: '2-digit', month: '2-digit', year: 'numeric' })
-          : null
-        
-        if (dateFromStr && dateToStr) {
-          return `Du ${dateFromStr} au ${dateToStr}`
-        } else if (dateFromStr) {
-          return `À partir du ${dateFromStr}`
-        } else if (dateToStr) {
-          return `Jusqu'au ${dateToStr}`
-        }
-      }
-      return "Ensemble de la période"
-    }
-    
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8" />
-        <title>Bon de mouvement (Consolidé)</title>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 20px; }
-          .header-container {
-            display: flex;
-            align-items: center;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #1e293b;
-            padding-bottom: 15px;
-          }
-          .logo-container {
-            flex: 0 0 auto;
-            margin-right: 20px;
-          }
-          .logo-container img {
-            max-height: 80px;
-            max-width: 150px;
-            object-fit: contain;
-          }
-          .header-text {
-            flex: 1;
-            text-align: center;
-          }
-          .company-name { font-size: 20px; font-weight: bold; color: #1f2937; margin: 0 0 5px 0; }
-          .bank-name { font-size: 24px; font-weight: bold; color: #1f2937; margin: 0 0 5px 0; }
-          .date { color: #6b7280; margin: 0; }
-          .header-info {
-            text-align: center;
-            margin-bottom: 20px;
-            color: #64748b;
-            background-color: #f8fafc;
-            padding: 15px;
-            border-radius: 8px;
-          }
-          .header-info p {
-            margin: 5px 0;
-            font-size: 14px;
-          }
-          .period-info {
-            font-weight: bold;
-            color: #1e293b;
-            font-size: 15px;
-            margin: 10px 0;
-          }
-          .meta-grid { margin-top: 10px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; color: #374151; }
-          .meta-item { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px 10px; }
-          .meta-label { font-size: 12px; color: #6b7280; display: block; }
-          .meta-value { font-size: 14px; font-weight: 600; }
-          .cards-details { margin-top: 15px; }
-          .cards-details h4 { font-size: 16px; color: #374151; margin-bottom: 10px; }
-          .cards-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-          .cards-table th, .cards-table td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
-          .cards-table th { background-color: #f9fafb; font-weight: bold; color: #374151; }
-          .cards-table tr:nth-child(even) { background-color: #f9fafb; }
-          .quantity { text-align: right; font-weight: bold; color: #059669; }
-          .total { margin-top: 30px; padding: 20px; background-color: #f3f4f6; border-radius: 8px; text-align: center; }
-          .total-label { font-size: 18px; color: #374151; }
-          .total-value { font-size: 24px; font-weight: bold; color: #059669; margin-top: 5px; }
-          .footer { margin-top: 40px; text-align: center; padding: 20px; border-top: 1px solid #e5e7eb; }
-          .footer-address { font-size: 12px; color: #6b7280; }
-          @media print { 
-            body { margin: 0; }
-            .header-container {
-              page-break-inside: avoid;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header-container">
-          <div class="logo-container">
-            <img src="${logoPath}" alt="Logo Société Monétique Tunisie" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" style="max-height: 80px; max-width: 150px; object-fit: contain;">
-            <div style="display: none; width: 150px; height: 80px; background-color: #1e293b; color: white; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; border-radius: 4px;">
-              SMT
-            </div>
-          </div>
-          <div class="header-text">
-            <div class="company-name">Société Monétique Tunisie</div>
-            <div class="bank-name">${bank?.name || ''}</div>
-            <div class="date">Bon de Mouvement de Stock (Consolidé) - ${new Date().toLocaleDateString('fr-FR')}</div>
-          </div>
-        </div>
-        
-        <div class="header-info">
-          <p><strong>Généré le :</strong> ${new Date().toLocaleString("fr-FR", { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-          <p><strong>Généré par :</strong> ${currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : "N/A"}</p>
-          <p class="period-info"><strong>Période :</strong> ${formatPeriod()}</p>
-        </div>
+    const blocs = `
+      ${enteteHtml(logoPath)}
+      <div class="titre-document"><h2>Bordereau de Mouvement de Stock (Consolidé)</h2></div>
+      <div class="info-gauche">
+        <p>Généré le ${formatDateTime(new Date())} par ${currentUser.firstName} ${currentUser.lastName}</p>
+        <p>Mouvement effectué par : ${currentUser.firstName} ${currentUser.lastName}</p>
+      </div>
+      <section>
+        <h3 class="section">Détails du Mouvement</h3>
+        <table><tbody>
+          <tr><td class="libelle">Banque :</td><td class="valeur">${bank?.name || '-'}</td></tr>
+          <tr><td class="libelle">Type :</td><td class="valeur">${getMovementTypeLabel(ctx.movementType)}</td></tr>
+          <tr><td class="libelle">Motif :</td><td class="valeur">${ctx.reason || '-'}</td></tr>
+          <tr><td class="libelle">De :</td><td class="valeur">${fromName}</td></tr>
+          <tr><td class="libelle">Vers / Adresse :</td><td class="valeur">${destinationInfo}</td></tr>
+          <tr><td class="libelle">Total des cartes :</td><td class="valeur">${totalQty}</td></tr>
+        </tbody></table>
+      </section>
+      <section>
+        <h3 class="section">Détails des cartes</h3>
+        <table>
+          <thead><tr>
+            <th>Numéro</th><th>Nom de la carte</th><th>Type</th>
+            <th>Sous-type</th><th>Sous-sous-type</th><th class="num">Quantité</th>
+          </tr></thead>
+          <tbody>
+            ${lignes}
+            <tr class="ligne-total"><td colspan="5">Total des cartes dans le bon</td><td class="num">${totalQty}</td></tr>
+          </tbody>
+        </table>
+      </section>
+      ${signatures}`
 
-        <div class="meta-grid">
-          <div class="meta-item"><span class="meta-label">Type</span><span class="meta-value">${getMovementTypeLabel(ctx.movementType)}</span></div>
-          <div class="meta-item"><span class="meta-label">Motif</span><span class="meta-value">${ctx.reason || '-'}</span></div>
-          <div class="meta-item"><span class="meta-label">De</span><span class="meta-value">${fromName}</span></div>
-          <div class="meta-item"><span class="meta-label">Vers / Adresse</span><span class="meta-value">${destinationInfo}</span></div>
-          <div class="meta-item"><span class="meta-label">Généré par</span><span class="meta-value">${currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : 'N/A'}</span></div>
-          <div class="meta-item"><span class="meta-label">Heure</span><span class="meta-value">${new Date().toLocaleTimeString('fr-FR')}</span></div>
-        </div>
-
-        <div class="cards-details">
-          <h4>Détails des cartes</h4>
-          <table class="cards-table">
-            <thead>
-              <tr>
-                <th>Nom de la carte</th>
-                <th>Type</th>
-                <th>Sous-type</th>
-                <th>Sous-sous-type</th>
-                <th>Quantité</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="total">
-          <div class="total-label">Total des cartes dans le bon</div>
-          <div class="total-value">${totalQty} cartes</div>
-        </div>
-
-        ${ctx.movementType === 'exit' ? `
-        <div style="margin-top: 30px; padding-top: 10px;">
-          <table style="width:100%; border-collapse:collapse;">
-            <tr>
-              <td style="vertical-align:top; width:50%; padding:10px; border:1px solid #e5e7eb;">
-                <div style="font-weight:bold; color:#374151; margin-bottom:8px;">Expéditeur</div>
-                <div style="margin-top:8px; font-size:12px; color:#6b7280;">Nom & Prénom :</div>
-                <div style="height:28px; border-bottom:1px solid #1e293b; margin-bottom:14px;"></div>
-                <div style="margin-top:8px; font-size:12px; color:#6b7280;">Signature et Cachet :</div>
-                <div style="height:50px; border:1px dashed #9ca3af; margin-top:6px;"></div>
-              </td>
-              <td style="vertical-align:top; width:50%; padding:10px; border:1px solid #e5e7eb;">
-                <div style="font-weight:bold; color:#374151; margin-bottom:8px;">Destinataire</div>
-                <div style="margin-top:8px; font-size:12px; color:#6b7280;">Nom & Prénom :</div>
-                <div style="height:28px; border-bottom:1px solid #1e293b; margin-bottom:14px;"></div>
-                <div style="margin-top:8px; font-size:12px; color:#6b7280;">Signature et Cachet :</div>
-                <div style="height:50px; border:1px dashed #9ca3af; margin-top:6px;"></div>
-              </td>
-            </tr>
-          </table>
-        </div>
-        ` : ''}
-
-        <div class="footer">
-          <div class="footer-address">Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</div>
-        </div>
-        <script>window.onload = () => window.print()</script>
-      </body>
-      </html>
-    `
-    w.document.write(html)
+    w.document.write(
+      documentImprimable({ titreOnglet: "Bordereau de Mouvement de Stock (Consolidé)", blocs }),
+    )
     w.document.close()
   }
 
@@ -2637,7 +2082,7 @@ export default function MovementsManagement() {
                 <Input
                   id="filter-search"
                   type="text"
-                  placeholder="Carte, motif, utilisateur..."
+                  placeholder="Numéro, carte, motif, utilisateur..."
                   value={filters.searchTerm}
                   onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })}
                 />
@@ -2689,6 +2134,7 @@ export default function MovementsManagement() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Actions</TableHead>
+                      <TableHead>Numéro</TableHead>
                       <TableHead>Date et Heure</TableHead>
                       <TableHead>Banque</TableHead>
                       <TableHead>Carte</TableHead>
@@ -2730,6 +2176,9 @@ export default function MovementsManagement() {
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
+                        </TableCell>
+                        <TableCell className="text-sm whitespace-nowrap font-mono">
+                          {movement.reference || <span className="text-muted-foreground">—</span>}
                         </TableCell>
                         <TableCell className="text-sm whitespace-nowrap">
                           {formatDateTime(movement.createdAt)}

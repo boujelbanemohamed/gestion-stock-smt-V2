@@ -110,6 +110,11 @@ model Location {
 // Modèle mouvement
 model Movement {
   id             String   @id @default(cuid())
+  // Numéro imprimé sur le bordereau (BM-AAAAMMJJ-XXXXXX). Facultatif : les
+  // mouvements antérieurs à sa mise en place n'en ont pas, et leur bordereau
+  // masque alors la ligne « Numéro ». L'unicité est garantie par la base, pas
+  // par l'application.
+  reference      String?  @unique
   cardId         String
   fromLocationId String?
   toLocationId   String?

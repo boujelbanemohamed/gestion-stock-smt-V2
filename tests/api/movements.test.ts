@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { signAccessToken } from "@/lib/auth"
+import { estReferenceMouvement } from "@/lib/movement-reference"
 
 vi.mock("@/lib/db", () => ({
   prisma: {
@@ -245,6 +246,26 @@ describe("POST /api/movements", () => {
       expect.objectContaining({ data: expect.objectContaining({ action: "create", module: "movements" }) }),
     )
     expect(createMovementNotificationMock).toHaveBeenCalledWith("entry", "Visa Classique", 10)
+  })
+
+  // Le numéro imprimé sur le bordereau est attribué à la création, jamais après.
+  it("attribue une référence de bordereau au mouvement créé", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(userRecord as any)
+    vi.mocked(prisma.card.findUnique).mockResolvedValue({ ...cardRecord, bank: { name: "Amen" }, stockLevels: [] } as any)
+    vi.mocked(prisma.stockLevel.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.stockLevel.aggregate).mockResolvedValue({ _sum: { quantity: 10 } } as any)
+    vi.mocked(prisma.card.update).mockResolvedValue(cardRecord as any)
+    vi.mocked(prisma.movement.create).mockResolvedValue(movement as any)
+
+    await POST(
+      makeRequest("http://localhost/api/movements", {
+        body: { cardId: "card-1", movementType: "entry", quantity: 10, reason: "Réapprovisionnement", toLocationId: "loc-1" },
+      }),
+    )
+
+    const donnees = vi.mocked(prisma.movement.create).mock.calls[0][0].data as { reference?: string }
+    expect(donnees.reference).toBeTypeOf("string")
+    expect(estReferenceMouvement(donnees.reference!)).toBe(true)
   })
 })
 

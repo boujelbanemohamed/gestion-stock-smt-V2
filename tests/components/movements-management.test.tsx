@@ -37,6 +37,7 @@ const movementReasonOther = { id: "reason-other", label: "Autre", isOther: true,
 
 const movementA = {
   id: "mvt-1",
+  reference: "BM-20260115-K7RM2P",
   cardId: "card-1",
   fromLocationId: null,
   toLocationId: "loc-1",
@@ -428,6 +429,41 @@ describe("MovementsManagement", () => {
     { ...movementReasonExit, movementType: "exit" },
     movementReasonOther,
   ]
+
+  it("affiche le numéro de bordereau dans la liste", async () => {
+    setupFetchMock([movementA])
+    render(<MovementsManagement />)
+
+    expect(await screen.findByText("BM-20260115-K7RM2P")).toBeInTheDocument()
+  })
+
+  // Les mouvements antérieurs à la mise en place du numéro n'en ont pas : la
+  // colonne doit le dire, sans laisser une cellule vide qui ferait douter.
+  it("marque d'un tiret un mouvement sans numéro", async () => {
+    const { reference, ...sansReference } = movementA
+    setupFetchMock([sansReference as typeof movementA])
+    render(<MovementsManagement />)
+
+    await screen.findByText("Carte Débit Standard")
+    expect(screen.queryByText("BM-20260115-K7RM2P")).not.toBeInTheDocument()
+    expect(screen.getByText("—")).toBeInTheDocument()
+  })
+
+  it("permet de rechercher par numéro de bordereau", async () => {
+    const fetchMock = setupFetchMock([movementA])
+    const user = userEvent.setup()
+    render(<MovementsManagement />)
+    await screen.findByText("Carte Débit Standard")
+
+    await user.type(screen.getByLabelText("Recherche"), "BM-20260115-K7RM2P")
+
+    await waitFor(() => {
+      const appel = fetchMock.mock.calls.find(
+        (c) => typeof c[0] === "string" && c[0].includes("searchTerm=BM-20260115-K7RM2P"),
+      )
+      expect(appel).toBeTruthy()
+    })
+  })
 
   it("coche d'office le motif configuré pour le type sélectionné", async () => {
     setupFetchMock([movementA], { reasons: motifsTypes })

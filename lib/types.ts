@@ -58,6 +58,9 @@ export interface Location {
 
 export interface Movement {
   id: string
+  // Numéro imprimé sur le bordereau. Absent des mouvements enregistrés avant sa
+  // mise en place : la ligne « Numéro » est alors masquée sur leur bordereau.
+  reference?: string | null
   cardId: string
   fromLocationId?: string
   toLocationId?: string

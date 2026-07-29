@@ -4,6 +4,7 @@ import type { ApiResponse } from "@/lib/api-types"
 import type { Movement } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
 import { verifyAuth, requireAuth } from "@/lib/auth-middleware"
+import { creerAvecReference } from "@/lib/movement-reference"
 import { serverEvents } from "@/lib/server-events"
 import { createLowStockNotification, createMovementNotification } from "@/lib/notification-helper"
 
@@ -73,6 +74,9 @@ export async function GET(request: NextRequest) {
     if (searchTerm) {
       combinedConditions.push({
         OR: [
+          // La référence figure sur le bordereau papier : on doit pouvoir
+          // retrouver le mouvement en la recopiant dans la recherche.
+          { reference: { contains: searchTerm, mode: 'insensitive' } },
           { reason: { contains: searchTerm, mode: 'insensitive' } },
           { card: { name: { contains: searchTerm, mode: 'insensitive' } } },
           { user: {
@@ -303,7 +307,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const newMovement = await prisma.$transaction(async (tx) => {
+    // La référence est tirée au sort : en cas de collision avec une référence
+    // existante, toute la transaction est rejouée avec un nouveau tirage. La
+    // transaction ayant été annulée, aucun ajustement de stock n'est appliqué
+    // deux fois.
+    const newMovement = await creerAvecReference((reference) => prisma.$transaction(async (tx) => {
       // Ajustements selon le type
       if (body.movementType === 'entry') {
         // + stock destination, puis on resynchronise card.quantity sur le vrai total
@@ -350,6 +358,7 @@ export async function POST(request: NextRequest) {
           movementType: body.movementType,
           quantity: body.quantity,
           reason: body.reason || "",
+          reference,
           userId: userId,
           // Document justificatif : uniquement pertinent pour les entrées
           documentUrl: body.movementType === 'entry' ? (body.documentUrl || null) : null,
@@ -375,7 +384,7 @@ export async function POST(request: NextRequest) {
       })
 
       return created
-    })
+    }))
 
     // Logger la création du mouvement
     const movementTypeLabels: Record<string, string> = { entry: "Entrée", exit: "Sortie", transfer: "Transfert" }
