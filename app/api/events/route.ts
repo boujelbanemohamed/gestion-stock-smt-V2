@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server"
-import { verifyAccessToken } from "@/lib/auth"
+import { verifyRealtimeTicket } from "@/lib/auth"
 import { serverEvents } from "@/lib/server-events"
 
 // GET /api/events - Flux SSE (Server-Sent Events) : pousse en temps réel les
@@ -14,17 +14,19 @@ const HEARTBEAT_INTERVAL_MS = 25000
 
 export async function GET(request: NextRequest) {
   // EventSource (API navigateur) ne permet pas d'ajouter un header Authorization :
-  // le token est donc transmis en paramètre de requête, uniquement pour ce endpoint.
-  const token = request.nextUrl.searchParams.get("token")
-  if (!token) {
+  // le client obtient d'abord un ticket de 60s via POST /api/events/ticket
+  // (appelé normalement, avec le vrai token en en-tête), et c'est ce ticket,
+  // jamais le token d'accès, qui voyage ici en paramètre de requête.
+  const ticket = request.nextUrl.searchParams.get("ticket")
+  if (!ticket) {
     return new Response("Authentification requise", { status: 401 })
   }
 
   let userId: string
   try {
-    userId = verifyAccessToken(token).userId
+    userId = verifyRealtimeTicket(ticket).userId
   } catch {
-    return new Response("Token invalide ou expiré", { status: 401 })
+    return new Response("Ticket invalide ou expiré", { status: 401 })
   }
 
   const stream = new ReadableStream({

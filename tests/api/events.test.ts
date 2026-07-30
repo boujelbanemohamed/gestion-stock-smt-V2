@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
-import { signAccessToken } from "@/lib/auth"
+import { signAccessToken, signRealtimeTicket } from "@/lib/auth"
 
 vi.mock("@/lib/email-service", () => ({
   sendUserActivityAlert: vi.fn().mockResolvedValue(undefined),
@@ -8,8 +8,8 @@ vi.mock("@/lib/email-service", () => ({
 
 const { GET } = await import("@/app/api/events/route")
 
-function eventsRequest(token: string | null, controller: AbortController) {
-  const url = token ? `http://localhost/api/events?token=${encodeURIComponent(token)}` : "http://localhost/api/events"
+function eventsRequest(ticket: string | null, controller: AbortController) {
+  const url = ticket ? `http://localhost/api/events?ticket=${encodeURIComponent(ticket)}` : "http://localhost/api/events"
   return new NextRequest(url, { signal: controller.signal })
 }
 
@@ -18,22 +18,26 @@ describe("GET /api/events (SSE)", () => {
     vi.restoreAllMocks()
   })
 
-  it("refuse une requête sans token (401)", async () => {
+  it("refuse une requête sans ticket (401)", async () => {
     const controller = new AbortController()
     const response = await GET(eventsRequest(null, controller))
     expect(response.status).toBe(401)
     controller.abort()
   })
 
-  it("refuse un token invalide (401)", async () => {
+  it("refuse un ticket invalide (401)", async () => {
     const controller = new AbortController()
-    const response = await GET(eventsRequest("bogus-token", controller))
+    const response = await GET(eventsRequest("bogus-ticket", controller))
     expect(response.status).toBe(401)
     controller.abort()
   })
 
-  it("ouvre un flux SSE pour un token valide, avec les en-têtes attendus", async () => {
-    const token = signAccessToken({
+  // Un vrai token d'accès n'a plus cours ici : seul un ticket de
+  // /api/events/ticket (audience distincte) est accepté — sinon un token
+  // d'accès complet (15 minutes) finirait dans les journaux d'accès et les
+  // outils de supervision qui capturent l'URL des requêtes.
+  it("refuse un token d'accès classique, même valide (mauvaise audience)", async () => {
+    const accessToken = signAccessToken({
       userId: "user-1",
       email: "user@example.com",
       firstName: "Jane",
@@ -41,8 +45,16 @@ describe("GET /api/events (SSE)", () => {
       role: "user",
     })
     const controller = new AbortController()
+    const response = await GET(eventsRequest(accessToken, controller))
+    expect(response.status).toBe(401)
+    controller.abort()
+  })
 
-    const response = await GET(eventsRequest(token, controller))
+  it("ouvre un flux SSE pour un ticket valide, avec les en-têtes attendus", async () => {
+    const ticket = signRealtimeTicket("user-1")
+    const controller = new AbortController()
+
+    const response = await GET(eventsRequest(ticket, controller))
 
     expect(response.status).toBe(200)
     expect(response.headers.get("Content-Type")).toBe("text/event-stream")

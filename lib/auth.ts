@@ -237,6 +237,53 @@ export function verifyPasswordResetToken(token: string): PasswordResetPayload {
   }
 }
 
+// Ticket de très courte durée servant uniquement à ouvrir la connexion SSE de
+// /api/events. L'API navigateur EventSource ne permet pas d'en-tête
+// Authorization : un jeton doit donc voyager dans l'URL. Y mettre le vrai
+// jeton d'accès (15 minutes) l'exposerait, pour toute sa durée de vie, à
+// quiconque lit un journal d'accès ou un outil de supervision qui capture les
+// URL complètes. Ce ticket, lui, expire en 60 secondes et ne sert à rien
+// d'autre : même journalisé, il est déjà inutilisable.
+const REALTIME_TICKET_EXPIRES_IN = 60 // secondes
+const REALTIME_TICKET_AUDIENCE = "gestion-stock-smt-realtime"
+
+export interface RealtimeTicketPayload {
+  userId: string
+}
+
+/**
+ * Signe un ticket de courte durée pour ouvrir la connexion SSE d'un utilisateur.
+ */
+export function signRealtimeTicket(userId: string): string {
+  const payload: RealtimeTicketPayload = { userId }
+  return jwt.sign(payload, JWT_SECRET, {
+    expiresIn: REALTIME_TICKET_EXPIRES_IN,
+    issuer: "gestion-stock-smt",
+    audience: REALTIME_TICKET_AUDIENCE,
+  })
+}
+
+/**
+ * Vérifie un ticket de connexion temps réel.
+ * @throws {Error} Si le ticket est invalide, expiré, ou n'est pas un ticket temps réel
+ */
+export function verifyRealtimeTicket(token: string): RealtimeTicketPayload {
+  try {
+    return jwt.verify(token, JWT_SECRET, {
+      issuer: "gestion-stock-smt",
+      audience: REALTIME_TICKET_AUDIENCE,
+    }) as RealtimeTicketPayload
+  } catch (error) {
+    if (error instanceof jwt.TokenExpiredError) {
+      throw new Error("Ticket de connexion temps réel expiré")
+    }
+    if (error instanceof jwt.JsonWebTokenError) {
+      throw new Error("Ticket de connexion temps réel invalide")
+    }
+    throw error
+  }
+}
+
 /**
  * Décode un token sans vérifier sa signature (utilisé uniquement pour des raisons de debugging)
  */

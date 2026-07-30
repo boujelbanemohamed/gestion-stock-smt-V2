@@ -9,6 +9,8 @@ import {
   signPasswordResetToken,
   verifyPasswordResetToken,
   fingerprintPassword,
+  signRealtimeTicket,
+  verifyRealtimeTicket,
 } from "@/lib/auth"
 
 const basePayload = {
@@ -96,6 +98,25 @@ describe("signPasswordResetToken / verifyPasswordResetToken", () => {
     // consommé une première fois, ou changé manuellement) : l'empreinte du
     // nouveau hash ne correspond plus à celle embarquée dans le jeton.
     expect(decoded.passwordFingerprint).not.toBe(fingerprintPassword("hashed-password-v2"))
+  })
+})
+
+describe("signRealtimeTicket / verifyRealtimeTicket", () => {
+  it("vérifie un ticket temps réel et retrouve l'identifiant utilisateur", () => {
+    const ticket = signRealtimeTicket("user-42")
+    const decoded = verifyRealtimeTicket(ticket)
+
+    expect(decoded.userId).toBe("user-42")
+  })
+
+  it("ne peut jamais être accepté comme un token d'accès classique (audience différente)", () => {
+    const ticket = signRealtimeTicket("user-42")
+    expect(() => verifyAccessToken(ticket)).toThrow()
+  })
+
+  it("un vrai token d'accès ne peut pas être utilisé comme ticket temps réel", () => {
+    const accessToken = signAccessToken(basePayload)
+    expect(() => verifyRealtimeTicket(accessToken)).toThrow()
   })
 })
 
