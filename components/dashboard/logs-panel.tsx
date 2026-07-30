@@ -13,7 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { getAuthHeaders } from "@/lib/api-client"
+import { authenticatedFetch } from "@/lib/api-client"
 import { exportToCsv, exportToExcel } from "@/lib/export"
 import { toast } from "@/hooks/use-toast"
 import { Download } from "lucide-react"
@@ -44,7 +44,7 @@ export default function LogsPanel() {
   const loadCurrentUser = async () => {
     try {
       // Pour l'instant, simuler un utilisateur admin
-      const usersResponse = await fetch('/api/users', { headers: getAuthHeaders() })
+      const usersResponse = await authenticatedFetch('/api/users')
       const usersData = await usersResponse.json()
       if (usersData.success && usersData.data.length > 0) {
         const admin = usersData.data.find((u: any) => u.role === 'admin')
@@ -57,7 +57,7 @@ export default function LogsPanel() {
 
   const loadUsers = async () => {
     try {
-      const response = await fetch('/api/users', { headers: getAuthHeaders() })
+      const response = await authenticatedFetch('/api/users')
       const data = await response.json()
       if (data.success) {
         setUsers(data.data || [])
@@ -84,7 +84,7 @@ export default function LogsPanel() {
         url += `&dateTo=${endDate}`
       }
       
-      const response = await fetch(url, { headers: getAuthHeaders() })
+      const response = await authenticatedFetch(url)
       const data = await response.json()
       if (data.success) {
         setLogs(data.data || [])

@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation"
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 import { usePermissions } from "@/hooks/use-permissions"
 import type { User, RolePermissions, UserFilters, Permission, Module, Action } from "@/lib/types"
-import { getAuthHeaders, authenticatedFetch } from "@/lib/api-client"
+import { authenticatedFetch } from "@/lib/api-client"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { toast } from "@/hooks/use-toast"
 import { eventBus } from "@/lib/event-bus"
@@ -119,14 +119,14 @@ export default function UsersManagement() {
       if (filters.status && filters.status !== 'all') params.append('status', filters.status)
       if (filters.searchTerm) params.append('search', filters.searchTerm)
       
-      const usersResponse = await fetch(`/api/users?${params.toString()}`, { headers: getAuthHeaders() })
+      const usersResponse = await authenticatedFetch(`/api/users?${params.toString()}`)
       const usersData = await usersResponse.json()
       if (usersData.success) {
         setUsers(usersData.data || [])
       }
 
       // Charger les rôles
-      const rolesResponse = await fetch('/api/roles', { headers: getAuthHeaders() })
+      const rolesResponse = await authenticatedFetch('/api/roles')
       const rolesData = await rolesResponse.json()
       if (rolesData.success) {
         setRolePermissions(rolesData.data || [])
@@ -179,9 +179,8 @@ export default function UsersManagement() {
     setFormErrors({})
 
     try {
-      const response = await fetch('/api/users', {
+      const response = await authenticatedFetch('/api/users', {
         method: 'POST',
-        headers: getAuthHeaders(),
         body: JSON.stringify({
           email: formData.email,
           firstName: formData.firstName,
@@ -346,9 +345,8 @@ export default function UsersManagement() {
     const passwordChanged = Boolean(formData.password && formData.password.trim() !== "")
 
     try {
-      const response = await fetch(`/api/users/${selectedUser.id}`, {
+      const response = await authenticatedFetch(`/api/users/${selectedUser.id}`, {
         method: 'PUT',
-        headers: getAuthHeaders(),
         body: JSON.stringify({
           email: formData.email,
           firstName: formData.firstName,
@@ -390,9 +388,8 @@ export default function UsersManagement() {
       const user = users.find(u => u.id === userId)
       if (!user) return
 
-      const response = await fetch(`/api/users/${userId}`, {
+      const response = await authenticatedFetch(`/api/users/${userId}`, {
         method: 'PUT',
-        headers: getAuthHeaders(),
         body: JSON.stringify({
           isActive: !user.isActive
         })
@@ -420,9 +417,8 @@ export default function UsersManagement() {
     if (!confirme) return
 
     try {
-      const response = await fetch(`/api/users/${userId}`, {
+      const response = await authenticatedFetch(`/api/users/${userId}`, {
         method: 'DELETE',
-        headers: getAuthHeaders(),
       })
       const data = await response.json()
       if (data.success) {
@@ -464,9 +460,8 @@ export default function UsersManagement() {
 
     setIsSavingTwoFactor(true)
     try {
-      const response = await fetch(`/api/users/${selectedUser.id}/two-factor`, {
+      const response = await authenticatedFetch(`/api/users/${selectedUser.id}/two-factor`, {
         method: 'PATCH',
-        headers: getAuthHeaders(),
         body: JSON.stringify({ enabled: editTwoFactorEnabled }),
       })
       const data = await response.json()
@@ -510,9 +505,8 @@ export default function UsersManagement() {
 
     setIsResettingTwoFactor(true)
     try {
-      const response = await fetch(`/api/users/${selectedUser.id}/two-factor/reset`, {
+      const response = await authenticatedFetch(`/api/users/${selectedUser.id}/two-factor/reset`, {
         method: 'POST',
-        headers: getAuthHeaders(),
       })
       const data = await response.json()
       if (!data.success) {
@@ -572,9 +566,8 @@ export default function UsersManagement() {
     }
 
     try {
-      const response = await fetch('/api/roles', {
+      const response = await authenticatedFetch('/api/roles', {
         method: 'POST',
-        headers: getAuthHeaders(),
         body: JSON.stringify({
           role: roleFormData.role,
           description: roleFormData.description,
@@ -629,9 +622,8 @@ export default function UsersManagement() {
         updateData.role = roleFormData.role
       }
 
-      const response = await fetch(`/api/roles/${selectedRole.id}`, {
+      const response = await authenticatedFetch(`/api/roles/${selectedRole.id}`, {
         method: 'PUT',
-        headers: getAuthHeaders(),
         body: JSON.stringify(updateData)
       })
 
@@ -695,9 +687,8 @@ export default function UsersManagement() {
     if (!confirme) return
 
     try {
-      const response = await fetch(`/api/roles/${roleId}`, {
+      const response = await authenticatedFetch(`/api/roles/${roleId}`, {
         method: 'DELETE',
-        headers: getAuthHeaders(),
       })
 
       const data = await response.json()

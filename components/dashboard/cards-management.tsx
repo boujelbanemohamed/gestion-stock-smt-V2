@@ -22,7 +22,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 import type { Card as CardData, Bank, CardFilters, CardImportRow, CardDetails } from "@/lib/types"
 import { ChevronDown, ChevronRight, Download, Upload, Search, Filter, Printer } from "lucide-react"
-import { getAuthHeaders } from "@/lib/api-client"
+import { authenticatedFetch } from "@/lib/api-client"
 import { ListSkeleton } from "@/components/ui/loading-skeleton"
 import { toast } from "@/hooks/use-toast"
 import { useConfirmation } from "@/hooks/use-confirmation"
@@ -53,7 +53,7 @@ export default function CardsManagement() {
 
   const loadConfig = async () => {
     try {
-      const configResponse = await fetch('/api/config', { headers: getAuthHeaders() })
+      const configResponse = await authenticatedFetch('/api/config')
       const configData = await configResponse.json()
       if (configData.success && configData.data?.general?.logo) {
         setLogoPath(configData.data.general.logo)
@@ -67,7 +67,7 @@ export default function CardsManagement() {
     setIsLoading(true)
     try {
       // Charger TOUTES les cartes pour extraire les types/sous-types (sans filtres)
-      const allCardsResponse = await fetch('/api/cards', { headers: getAuthHeaders() })
+      const allCardsResponse = await authenticatedFetch('/api/cards')
       const allCardsData = await allCardsResponse.json()
       if (allCardsData.success) {
         // Extraire les types uniques de TOUTES les cartes
@@ -88,14 +88,14 @@ export default function CardsManagement() {
       if (filters.lowStock) params.append('lowStock', 'true')
       if (filters.searchTerm) params.append('search', filters.searchTerm)
 
-      const cardsResponse = await fetch(`/api/cards?${params.toString()}`, { headers: getAuthHeaders() })
+      const cardsResponse = await authenticatedFetch(`/api/cards?${params.toString()}`)
       const cardsData = await cardsResponse.json()
       if (cardsData.success) {
         setCards(cardsData.data || [])
       }
 
       // Charger les banques actives
-      const banksResponse = await fetch('/api/banks?status=active', { headers: getAuthHeaders() })
+      const banksResponse = await authenticatedFetch('/api/banks?status=active')
       const banksData = await banksResponse.json()
       if (banksData.success) {
         setBanks(banksData.data || [])
@@ -177,9 +177,8 @@ export default function CardsManagement() {
 
     try {
       if (editingCard) {
-        const response = await fetch(`/api/cards/${editingCard.id}`, {
+        const response = await authenticatedFetch(`/api/cards/${editingCard.id}`, {
           method: 'PUT',
-          headers: getAuthHeaders(),
           body: JSON.stringify({
             ...formData,
             quantity: editingCard.quantity,
@@ -192,9 +191,8 @@ export default function CardsManagement() {
           return
         }
       } else {
-        const response = await fetch('/api/cards', {
+        const response = await authenticatedFetch('/api/cards', {
           method: 'POST',
-          headers: getAuthHeaders(),
           body: JSON.stringify({
             ...formData,
             quantity: 0,
@@ -280,9 +278,8 @@ export default function CardsManagement() {
     if (!confirme) return
 
     try {
-      const response = await fetch(`/api/cards/${id}`, {
+      const response = await authenticatedFetch(`/api/cards/${id}`, {
         method: 'DELETE',
-        headers: getAuthHeaders(),
       })
       const data = await response.json()
       if (data.success) {
@@ -411,9 +408,8 @@ export default function CardsManagement() {
     }
 
     try {
-      const response = await fetch('/api/cards/import', {
+      const response = await authenticatedFetch('/api/cards/import', {
         method: 'POST',
-        headers: getAuthHeaders(),
         body: JSON.stringify({ data: cards })
       })
       const data = await response.json()

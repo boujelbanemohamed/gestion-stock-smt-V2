@@ -15,7 +15,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination"
-import { getAuthHeaders } from "@/lib/api-client"
+import { authenticatedFetch } from "@/lib/api-client"
 import { ArrowLeft, Plus } from "lucide-react"
 
 const MOVEMENTS_PER_PAGE = 20
@@ -70,7 +70,7 @@ export default function CardDetailPage() {
   useEffect(() => {
     const loadCard = async () => {
       try {
-        const response = await fetch(`/api/cards/${cardId}`, { headers: getAuthHeaders() })
+        const response = await authenticatedFetch(`/api/cards/${cardId}`)
         const data = await response.json()
         if (data.success) {
           setCard(data.data)
@@ -91,7 +91,7 @@ export default function CardDetailPage() {
         searchParams.append("cardId", cardId)
         searchParams.append("page", currentPage.toString())
         searchParams.append("limit", MOVEMENTS_PER_PAGE.toString())
-        const response = await fetch(`/api/movements?${searchParams.toString()}`, { headers: getAuthHeaders() })
+        const response = await authenticatedFetch(`/api/movements?${searchParams.toString()}`)
         const data = await response.json()
         if (data.success && data.data) {
           setMovements(data.data.movements || [])

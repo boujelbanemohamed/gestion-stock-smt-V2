@@ -35,7 +35,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 import type { Movement, Card as CardType, Location, Bank, MovementReason } from "@/lib/types"
 import { Filter, ChevronLeft, ChevronRight, Paperclip, Download, Trash2 } from "lucide-react"
-import { getAuthHeaders, authenticatedFetch } from "@/lib/api-client"
+import { authenticatedFetch } from "@/lib/api-client"
 import { toast } from "@/hooks/use-toast"
 import { ADRESSE_SOCIETE, documentImprimable, enteteHtml } from "@/lib/print-layout"
 import { cn } from "@/lib/utils"
@@ -156,7 +156,7 @@ export default function MovementsManagement() {
 
   const loadConfig = async () => {
     try {
-      const configResponse = await fetch('/api/config', { headers: getAuthHeaders() })
+      const configResponse = await authenticatedFetch('/api/config')
       const configData = await configResponse.json()
       if (configData.success && configData.data?.general?.logo) {
         setLogoPath(configData.data.general.logo)
@@ -168,7 +168,7 @@ export default function MovementsManagement() {
 
   const loadMovementReasons = async () => {
     try {
-      const response = await fetch('/api/movement-reasons', { headers: getAuthHeaders() })
+      const response = await authenticatedFetch('/api/movement-reasons')
       const data = await response.json()
       if (data.success) {
         setMovementReasons((data.data || []).filter((r: MovementReason) => r.isActive))
@@ -202,21 +202,21 @@ export default function MovementsManagement() {
   const loadCardsLocationsBanks = async () => {
     try {
       // Charger les cartes
-      const cardsResponse = await fetch('/api/cards', { headers: getAuthHeaders() })
+      const cardsResponse = await authenticatedFetch('/api/cards')
       const cardsData = await cardsResponse.json()
       if (cardsData.success) {
         setCards(cardsData.data || [])
       }
 
       // Charger les emplacements
-      const locationsResponse = await fetch('/api/locations', { headers: getAuthHeaders() })
+      const locationsResponse = await authenticatedFetch('/api/locations')
       const locationsData = await locationsResponse.json()
       if (locationsData.success) {
         setLocations(locationsData.data.filter((l: any) => l.isActive) || [])
       }
 
       // Charger les banques
-      const banksResponse = await fetch('/api/banks?status=active', { headers: getAuthHeaders() })
+      const banksResponse = await authenticatedFetch('/api/banks?status=active')
       const banksData = await banksResponse.json()
       if (banksData.success) {
         setBanks(banksData.data || [])
@@ -262,7 +262,7 @@ export default function MovementsManagement() {
       params.append('limit', movementsPerPage.toString())
 
       // Charger les mouvements avec filtres et pagination
-      const movementsResponse = await fetch(`/api/movements?${params.toString()}`, { headers: getAuthHeaders() })
+      const movementsResponse = await authenticatedFetch(`/api/movements?${params.toString()}`)
       const movementsData = await movementsResponse.json()
       if (movementsData.success && movementsData.data) {
         // S'assurer que movements est toujours un tableau
@@ -411,7 +411,7 @@ export default function MovementsManagement() {
       params.append('limit', '10000')
       params.append('page', '1')
 
-      const reponse = await fetch(`/api/movements?${params.toString()}`, { headers: getAuthHeaders() })
+      const reponse = await authenticatedFetch(`/api/movements?${params.toString()}`)
       const donnees = await reponse.json()
       const mouvements: Movement[] = donnees.success && donnees.data && Array.isArray(donnees.data.movements)
         ? donnees.data.movements
@@ -627,7 +627,7 @@ export default function MovementsManagement() {
     params.append('limit', '10000')
     params.append('page', '1')
 
-    const response = await fetch(`/api/movements?${params.toString()}`, { headers: getAuthHeaders() })
+    const response = await authenticatedFetch(`/api/movements?${params.toString()}`)
     const data = await response.json()
     return data.success && Array.isArray(data.data?.movements) ? data.data.movements : []
   }
@@ -744,7 +744,6 @@ export default function MovementsManagement() {
     try {
       const response = await authenticatedFetch(`/api/movements/${movementToDelete.id}`, {
         method: 'DELETE',
-        headers: getAuthHeaders(),
       })
       const data = await response.json()
 
@@ -983,7 +982,6 @@ export default function MovementsManagement() {
 
         const response = await authenticatedFetch('/api/movements', {
           method: 'POST',
-          headers: getAuthHeaders(),
           body: JSON.stringify(movementData)
         })
 

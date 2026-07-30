@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { getAuthHeaders } from "@/lib/api-client"
+import { authenticatedFetch } from "@/lib/api-client"
 import { useServerEvent } from "@/hooks/use-server-event"
 
 export default function NotificationsDropdown() {
@@ -33,7 +33,7 @@ export default function NotificationsDropdown() {
       const currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null')
       if (currentUser) {
         // Récupérer toutes les notifications
-        const response = await fetch(`/api/notifications?userId=${currentUser.id}`, { headers: getAuthHeaders() })
+        const response = await authenticatedFetch(`/api/notifications?userId=${currentUser.id}`)
         const data = await response.json()
         if (data.success) {
           const allNotifications = data.data.slice(0, 10) // Show last 10 notifications
@@ -57,9 +57,8 @@ export default function NotificationsDropdown() {
 
   const handleMarkAsRead = async (id: string) => {
     try {
-      const response = await fetch(`/api/notifications/${id}`, {
+      const response = await authenticatedFetch(`/api/notifications/${id}`, {
         method: 'PUT',
-        headers: getAuthHeaders(),
         body: JSON.stringify({ isRead: true })
       })
 
@@ -88,9 +87,8 @@ export default function NotificationsDropdown() {
         }
         
         const promises = unreadNotifications.map(notification => 
-          fetch(`/api/notifications/${notification.id}`, {
+          authenticatedFetch(`/api/notifications/${notification.id}`, {
             method: 'PUT',
-            headers: getAuthHeaders(),
             body: JSON.stringify({ isRead: true })
           })
         )
@@ -110,9 +108,8 @@ export default function NotificationsDropdown() {
 
   const handleDeleteNotification = async (id: string) => {
     try {
-      const response = await fetch(`/api/notifications/${id}`, {
+      const response = await authenticatedFetch(`/api/notifications/${id}`, {
         method: 'DELETE',
-        headers: getAuthHeaders(),
       })
       
       if (response.ok) {

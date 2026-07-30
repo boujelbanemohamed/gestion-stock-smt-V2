@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import type { AppConfig, MovementReason } from "@/lib/types"
-import { getAuthHeaders } from "@/lib/api-client"
+import { authenticatedFetch } from "@/lib/api-client"
 import { applyTheme, storeTheme, type Theme } from "@/lib/theme"
 import { toast } from "@/hooks/use-toast"
 import { useConfirmation } from "@/hooks/use-confirmation"
@@ -51,7 +51,7 @@ export default function ConfigurationPanel() {
 
   const loadReasons = async () => {
     try {
-      const response = await fetch('/api/movement-reasons', { headers: getAuthHeaders() })
+      const response = await authenticatedFetch('/api/movement-reasons')
       const data = await response.json()
       if (data.success) {
         const list: MovementReason[] = data.data || []
@@ -70,9 +70,8 @@ export default function ConfigurationPanel() {
     const movementType = valeur === AUCUN_TYPE ? null : (valeur as TypeMouvement)
     setSavingReasonTypeId(reason.id)
     try {
-      const response = await fetch(`/api/movement-reasons/${reason.id}`, {
+      const response = await authenticatedFetch(`/api/movement-reasons/${reason.id}`, {
         method: 'PUT',
-        headers: getAuthHeaders(),
         body: JSON.stringify({ movementType }),
       })
       const data = await response.json()
@@ -110,9 +109,8 @@ export default function ConfigurationPanel() {
     }
     setSavingReasonId(reasonId)
     try {
-      const response = await fetch(`/api/movement-reasons/${reasonId}`, {
+      const response = await authenticatedFetch(`/api/movement-reasons/${reasonId}`, {
         method: 'PUT',
-        headers: getAuthHeaders(),
         body: JSON.stringify({ label }),
       })
       const data = await response.json()
@@ -146,9 +144,8 @@ export default function ConfigurationPanel() {
 
     setDeletingReasonId(reason.id)
     try {
-      const response = await fetch(`/api/movement-reasons/${reason.id}`, {
+      const response = await authenticatedFetch(`/api/movement-reasons/${reason.id}`, {
         method: 'DELETE',
-        headers: getAuthHeaders(),
       })
       const data = await response.json()
       if (data.success) {
@@ -175,9 +172,8 @@ export default function ConfigurationPanel() {
 
     setIsAddingReason(true)
     try {
-      const response = await fetch('/api/movement-reasons', {
+      const response = await authenticatedFetch('/api/movement-reasons', {
         method: 'POST',
-        headers: getAuthHeaders(),
         body: JSON.stringify({ label }),
       })
       const data = await response.json()
@@ -202,7 +198,7 @@ export default function ConfigurationPanel() {
 
   const loadConfig = async () => {
     try {
-      const response = await fetch('/api/config', { headers: getAuthHeaders() })
+      const response = await authenticatedFetch('/api/config')
       const data = await response.json()
       if (data.success && data.data) {
         setConfig(data.data)
@@ -269,9 +265,8 @@ export default function ConfigurationPanel() {
       }
       setConfig(defaultConfig)
       // Sauvegarder la config par défaut
-      await fetch('/api/config', {
+      await authenticatedFetch('/api/config', {
         method: 'PUT',
-        headers: getAuthHeaders(),
         body: JSON.stringify(defaultConfig)
       })
     }
@@ -285,9 +280,8 @@ export default function ConfigurationPanel() {
 
     setIsSaving(true)
     try {
-      const response = await fetch('/api/config', {
+      const response = await authenticatedFetch('/api/config', {
         method: 'PUT',
-        headers: getAuthHeaders(),
         body: JSON.stringify(config)
       })
       const data = await response.json()
@@ -322,9 +316,8 @@ export default function ConfigurationPanel() {
     setIsTestingSmtp(true)
 
     try {
-      const response = await fetch('/api/config/test-smtp', {
+      const response = await authenticatedFetch('/api/config/test-smtp', {
         method: 'POST',
-        headers: getAuthHeaders(),
         body: JSON.stringify({
           smtp: config.smtp,
           testEmail: config.smtp.fromEmail || 'test@example.com'

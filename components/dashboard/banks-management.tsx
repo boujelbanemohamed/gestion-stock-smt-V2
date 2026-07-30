@@ -24,7 +24,7 @@ import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 import { ListSkeleton } from "@/components/ui/loading-skeleton"
 import type { Bank, BankFilters, BankImportRow } from "@/lib/types"
 import { ChevronDown, ChevronRight, Download, Upload, Search, Filter, Printer } from "lucide-react"
-import { getAuthHeaders } from "@/lib/api-client"
+import { authenticatedFetch } from "@/lib/api-client"
 import { toast } from "@/hooks/use-toast"
 import { useConfirmation } from "@/hooks/use-confirmation"
 
@@ -81,7 +81,7 @@ export default function BanksManagement() {
       if (filters.status && filters.status !== 'all') params.append('status', filters.status)
       if (filters.searchTerm) params.append('search', filters.searchTerm)
       
-      const response = await fetch(`/api/banks?${params.toString()}`, { headers: getAuthHeaders() })
+      const response = await authenticatedFetch(`/api/banks?${params.toString()}`)
       const data = await response.json()
 
       if (data.success) {
@@ -93,13 +93,13 @@ export default function BanksManagement() {
       }
 
       // Charger aussi les locations et cartes pour l'affichage des détails
-      const locationsResponse = await fetch('/api/locations', { headers: getAuthHeaders() })
+      const locationsResponse = await authenticatedFetch('/api/locations')
       const locationsData = await locationsResponse.json()
       if (locationsData.success) {
         setLocations(locationsData.data || [])
       }
 
-      const cardsResponse = await fetch('/api/cards', { headers: getAuthHeaders() })
+      const cardsResponse = await authenticatedFetch('/api/cards')
       const cardsData = await cardsResponse.json()
       if (cardsData.success) {
         setCards(cardsData.data || [])
@@ -183,9 +183,8 @@ export default function BanksManagement() {
 
     try {
       if (editingBank) {
-        const response = await fetch(`/api/banks/${editingBank.id}`, {
+        const response = await authenticatedFetch(`/api/banks/${editingBank.id}`, {
           method: 'PUT',
-          headers: getAuthHeaders(),
           body: JSON.stringify({ ...formData, isActive: true })
         })
         const data = await response.json()
@@ -194,9 +193,8 @@ export default function BanksManagement() {
           return
         }
       } else {
-        const response = await fetch('/api/banks', {
+        const response = await authenticatedFetch('/api/banks', {
           method: 'POST',
-          headers: getAuthHeaders(),
           body: JSON.stringify({ ...formData, isActive: true })
         })
         const data = await response.json()
@@ -263,9 +261,8 @@ export default function BanksManagement() {
     if (!confirme) return
 
     try {
-      const response = await fetch(`/api/banks/${id}`, {
+      const response = await authenticatedFetch(`/api/banks/${id}`, {
         method: 'DELETE',
-        headers: getAuthHeaders()
       })
       const data = await response.json()
       if (data.success) {
@@ -299,9 +296,8 @@ export default function BanksManagement() {
     if (!confirme) return
 
     try {
-      const response = await fetch(`/api/banks/${bank.id}`, {
+      const response = await authenticatedFetch(`/api/banks/${bank.id}`, {
         method: 'PUT',
-        headers: getAuthHeaders(),
         body: JSON.stringify({ isActive: !bank.isActive })
       })
       const data = await response.json()
@@ -406,9 +402,8 @@ export default function BanksManagement() {
       }
 
       // Appeler l'API d'import
-      const response = await fetch('/api/banks/import', {
+      const response = await authenticatedFetch('/api/banks/import', {
         method: 'POST',
-        headers: getAuthHeaders(),
         body: JSON.stringify({ data: banks })
       })
 

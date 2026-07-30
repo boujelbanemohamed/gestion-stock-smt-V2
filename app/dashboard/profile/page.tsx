@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { toast } from "@/hooks/use-toast"
-import { getAuthHeaders, authenticatedFetch } from "@/lib/api-client"
+import { authenticatedFetch } from "@/lib/api-client"
 import { eventBus } from "@/lib/event-bus"
 
 export default function ProfilePage() {
@@ -143,9 +143,8 @@ export default function ProfilePage() {
     if (!currentUser) return
 
     try {
-      const response = await fetch(`/api/users/${currentUser.id}`, {
+      const response = await authenticatedFetch(`/api/users/${currentUser.id}`, {
         method: 'PUT',
-        headers: getAuthHeaders(),
         body: JSON.stringify(formData)
       })
 
@@ -199,9 +198,8 @@ export default function ProfilePage() {
     }
 
     try {
-      const response = await fetch(`/api/users/${currentUser.id}`, {
+      const response = await authenticatedFetch(`/api/users/${currentUser.id}`, {
         method: 'PUT',
-        headers: getAuthHeaders(),
         body: JSON.stringify({ password: passwordData.newPassword })
       })
 

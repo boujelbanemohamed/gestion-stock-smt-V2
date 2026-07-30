@@ -25,7 +25,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 import type { Location, Bank, LocationImportRow, LocationFilters } from "@/lib/types"
 import { ListSkeleton } from "@/components/ui/loading-skeleton"
-import { getAuthHeaders } from "@/lib/api-client"
+import { authenticatedFetch } from "@/lib/api-client"
 import { Printer, Building2, MapPin } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 import { useConfirmation } from "@/hooks/use-confirmation"
@@ -74,7 +74,7 @@ export default function LocationsManagement() {
 
   const loadConfig = async () => {
     try {
-      const configResponse = await fetch('/api/config', { headers: getAuthHeaders() })
+      const configResponse = await authenticatedFetch('/api/config')
       const configData = await configResponse.json()
       if (configData.success && configData.data?.general?.logo) {
         setLogoPath(configData.data.general.logo)
@@ -91,7 +91,7 @@ export default function LocationsManagement() {
       if (searchFilters.bankId) params.append('bankId', searchFilters.bankId)
       if (searchTerm) params.append('search', searchTerm)
 
-      const locationsResponse = await fetch(`/api/locations?${params.toString()}`, { headers: getAuthHeaders() })
+      const locationsResponse = await authenticatedFetch(`/api/locations?${params.toString()}`)
       const locationsData = await locationsResponse.json()
       
       if (locationsData.success) {
@@ -107,14 +107,14 @@ export default function LocationsManagement() {
         setCardsByLocation(byLocation)
       }
 
-      const banksResponse = await fetch('/api/banks?status=active', { headers: getAuthHeaders() })
+      const banksResponse = await authenticatedFetch('/api/banks?status=active')
       const banksData = await banksResponse.json()
       if (banksData.success) {
         setBanks(banksData.data || [])
       }
 
       // Charger les cartes
-      const cardsResponse = await fetch('/api/cards', { headers: getAuthHeaders() })
+      const cardsResponse = await authenticatedFetch('/api/cards')
       const cardsData = await cardsResponse.json()
       if (cardsData.success) {
         setCards(cardsData.data || [])
@@ -266,9 +266,8 @@ export default function LocationsManagement() {
 
     try {
       if (editingLocation) {
-        const response = await fetch(`/api/locations/${editingLocation.id}`, {
+        const response = await authenticatedFetch(`/api/locations/${editingLocation.id}`, {
           method: 'PUT',
-          headers: getAuthHeaders(),
           body: JSON.stringify({ ...formData, isActive: true })
         })
         const data = await response.json()
@@ -277,9 +276,8 @@ export default function LocationsManagement() {
           return
         }
       } else {
-        const response = await fetch('/api/locations', {
+        const response = await authenticatedFetch('/api/locations', {
           method: 'POST',
-          headers: getAuthHeaders(),
           body: JSON.stringify({ ...formData, isActive: true })
         })
         const data = await response.json()
@@ -340,9 +338,8 @@ export default function LocationsManagement() {
     if (!confirme) return
 
     try {
-      const response = await fetch(`/api/locations/${id}`, {
+      const response = await authenticatedFetch(`/api/locations/${id}`, {
         method: 'DELETE',
-        headers: getAuthHeaders()
       })
       const data = await response.json()
       if (data.success) {
@@ -377,9 +374,8 @@ export default function LocationsManagement() {
     if (!confirme) return
 
     try {
-      const response = await fetch(`/api/locations/${id}`, {
+      const response = await authenticatedFetch(`/api/locations/${id}`, {
         method: 'PUT',
-        headers: getAuthHeaders(),
         body: JSON.stringify({ isActive: !location.isActive })
       })
       const data = await response.json()
@@ -442,9 +438,8 @@ export default function LocationsManagement() {
       }
 
       try {
-        const response = await fetch('/api/locations/import', {
+        const response = await authenticatedFetch('/api/locations/import', {
           method: 'POST',
-          headers: getAuthHeaders(),
           body: JSON.stringify({ data: rows })
         })
         const data = await response.json()

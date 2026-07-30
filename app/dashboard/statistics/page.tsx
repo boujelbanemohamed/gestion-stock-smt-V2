@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import type { DateRange } from "react-day-picker"
 import type { Bank, Location } from "@/lib/types"
-import { getAuthHeaders } from "@/lib/api-client"
+import { authenticatedFetch } from "@/lib/api-client"
 import { exportToCsv, exportToExcel } from "@/lib/export"
 import {
   DropdownMenu,
@@ -106,7 +106,7 @@ export default function StatisticsPage() {
 
   const loadBanks = async () => {
     try {
-      const response = await fetch('/api/banks', { headers: getAuthHeaders() })
+      const response = await authenticatedFetch('/api/banks')
       const data = await response.json()
       if (data.success) {
         setBanks(data.data || [])
@@ -118,7 +118,7 @@ export default function StatisticsPage() {
 
   const loadAllLocations = async () => {
     try {
-      const response = await fetch('/api/locations', { headers: getAuthHeaders() })
+      const response = await authenticatedFetch('/api/locations')
       const data = await response.json()
       if (data.success) {
         const locations = data.data || []
@@ -143,9 +143,8 @@ export default function StatisticsPage() {
 
     setLoading(true)
     try {
-      const response = await fetch('/api/statistics/calculate', {
+      const response = await authenticatedFetch('/api/statistics/calculate', {
         method: 'POST',
-        headers: getAuthHeaders(),
         body: JSON.stringify({
           dateFrom: dateRange?.from ? dateRange.from.toISOString() : null,
           dateTo: dateRange?.to ? dateRange.to.toISOString() : null,
@@ -193,7 +192,7 @@ export default function StatisticsPage() {
     // Récupérer le logo depuis la configuration
     const loadLogoAndPrint = async () => {
       try {
-        const configResponse = await fetch('/api/config', { headers: getAuthHeaders() })
+        const configResponse = await authenticatedFetch('/api/config')
         const configData = await configResponse.json()
         const logoPath = configData.success && configData.data?.companyLogo 
           ? configData.data.companyLogo 
