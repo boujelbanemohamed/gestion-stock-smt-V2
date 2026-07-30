@@ -26,9 +26,13 @@ import { getAuthHeaders } from "@/lib/api-client"
 import { ListSkeleton } from "@/components/ui/loading-skeleton"
 import { toast } from "@/hooks/use-toast"
 import { useConfirmation } from "@/hooks/use-confirmation"
+import { usePermissions } from "@/hooks/use-permissions"
+import { documentImprimable, enteteHtml } from "@/lib/print-layout"
 
 export default function CardsManagement() {
   const { demanderConfirmation, dialogueConfirmation } = useConfirmation()
+  const { user: currentUser } = usePermissions()
+  const [logoPath, setLogoPath] = useState<string>('/placeholder-logo.png')
   const [cards, setCards] = useState<CardData[]>([])
   const [banks, setBanks] = useState<Bank[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -46,6 +50,18 @@ export default function CardsManagement() {
   const [groupedCards, setGroupedCards] = useState<{ [bankName: string]: CardDetails[] }>({})
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isLoading, setIsLoading] = useState(true)
+
+  const loadConfig = async () => {
+    try {
+      const configResponse = await fetch('/api/config', { headers: getAuthHeaders() })
+      const configData = await configResponse.json()
+      if (configData.success && configData.data?.general?.logo) {
+        setLogoPath(configData.data.general.logo)
+      }
+    } catch (error) {
+      console.error('Error loading config:', error)
+    }
+  }
 
   const loadData = async () => {
     setIsLoading(true)
@@ -122,6 +138,7 @@ export default function CardsManagement() {
   const isRefreshing = isSyncRefreshing || isAutoRefreshing
 
   useEffect(() => {
+    loadConfig()
     loadData()
   }, [filters])
 
@@ -434,529 +451,168 @@ export default function CardsManagement() {
     })
   }
 
+  const nomUtilisateurCourant = () =>
+    currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : "N/A"
+
+  const formatHorodatage = () =>
+    new Date().toLocaleString("fr-FR", {
+      day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+    })
+
+  // Tableau du détail des cartes d'une banque. Chaque ligne porte toutes ses
+  // colonnes (pas de rowspan sur le type) : le paginateur découpe un tableau
+  // trop long ligne à ligne, et une cellule fusionnée n'ayant plus son ancre
+  // en cas de coupure laisserait un tableau incohérent sur la page suivante.
+  const tableauCartesBanque = (bankCards: CardDetails[]) => {
+    const triees = [...bankCards].sort((a, b) => {
+      const cardA = a.card
+      const cardB = b.card
+      if (cardA.type !== cardB.type) return cardA.type.localeCompare(cardB.type)
+      if (cardA.subType !== cardB.subType) return cardA.subType.localeCompare(cardB.subType)
+      if (cardA.subSubType !== cardB.subSubType) return cardA.subSubType.localeCompare(cardB.subSubType)
+      return cardA.name.localeCompare(cardB.name)
+    })
+    const total = triees.reduce((somme, cd) => somme + (cd.card.quantity || 0), 0)
+
+    return `
+      <table>
+        <thead><tr>
+          <th>Type</th><th>Sous-type</th><th>Sous-sous-type</th><th>Nom de la carte</th><th class="num">Quantité</th>
+        </tr></thead>
+        <tbody>
+          ${triees.map((cd) => `<tr>
+              <td>${cd.card.type}</td>
+              <td>${cd.card.subType}</td>
+              <td>${cd.card.subSubType}</td>
+              <td>${cd.card.name}</td>
+              <td class="num">${cd.card.quantity}</td>
+            </tr>`).join('')}
+          <tr class="ligne-total">
+            <td colspan="4">Total</td>
+            <td class="num">${total}</td>
+          </tr>
+        </tbody>
+      </table>`
+  }
+
+  const blocDestinataire = `
+    <div class="destinataire">
+      <h3>Destinataire :</h3>
+      <div class="ligne-champs">
+        <div class="champ"><p>Nom :</p><div class="trait"></div></div>
+        <div class="champ"><p>Prénom :</p><div class="trait"></div></div>
+      </div>
+      <div class="ligne-champs">
+        <div class="champ"><p>Fonction :</p><div class="trait"></div></div>
+        <div class="champ"><p>Date :</p><div class="trait"></div></div>
+      </div>
+    </div>`
+
   const handlePrint = () => {
-    const printContent = Object.entries(groupedCards)
-      .map(([bankName, bankCards]) => {
-        if (bankCards.length === 0) return '' // Ne pas afficher les banques sans cartes
-        
-        // Trier les cartes par type, puis sous-type, puis sous-sous-type, puis nom
-        const sortedCards = [...bankCards].sort((a, b) => {
-          const cardA = a.card
-          const cardB = b.card
-          
-          if (cardA.type !== cardB.type) return cardA.type.localeCompare(cardB.type)
-          if (cardA.subType !== cardB.subType) return cardA.subType.localeCompare(cardB.subType)
-          if (cardA.subSubType !== cardB.subSubType) return cardA.subSubType.localeCompare(cardB.subSubType)
-          return cardA.name.localeCompare(cardB.name)
-        })
-
-        // Grouper par type pour calculer les rowspan
-        const typeGroups: { [type: string]: number } = {}
-        sortedCards.forEach((cardDetail) => {
-          const type = cardDetail.card.type
-          typeGroups[type] = (typeGroups[type] || 0) + 1
-        })
-
-        let content = `<h2>${bankName}</h2>`
-        content += `<table class="cards-table">`
-        content += `<thead><tr><th>Type</th><th>Sous-type</th><th>Sous-sous-type</th><th>Nom de la carte</th><th>Quantité</th></tr></thead>`
-        content += `<tbody>`
-        
-        let currentType = ''
-        let typeRowCount = 0
-        
-        sortedCards.forEach((cardDetail) => {
-          const card = cardDetail.card
-          content += `<tr>`
-          
-          // Afficher la cellule Type uniquement pour la première carte de ce type
-          if (card.type !== currentType) {
-            currentType = card.type
-            typeRowCount = typeGroups[card.type]
-            content += `<td rowspan="${typeRowCount}" class="type-cell">${card.type}</td>`
-          }
-          
-          content += `<td>${card.subType}</td>`
-          content += `<td>${card.subSubType}</td>`
-          content += `<td>${card.name}</td>`
-          content += `<td class="quantity-cell">${card.quantity}</td>`
-          content += `</tr>`
-        })
-        
-        // Calculer le total pour cette banque
-        const bankTotal = sortedCards.reduce((sum, cardDetail) => sum + (cardDetail.card.quantity || 0), 0)
-        
-        // Ajouter la ligne de total
-        content += `<tr class="total-row">`
-        content += `<td colspan="4" style="text-align: right; padding-right: 20px;">TOTAL ${bankName.toUpperCase()}</td>`
-        content += `<td style="text-align: center;">${bankTotal}</td>`
-        content += `</tr>`
-        
-        content += `</tbody></table>`
-        return content
-      })
-      .filter(c => c !== '')
-      .join("")
-
-    const totalCards = Object.values(groupedCards).reduce((sum, cards) => sum + cards.length, 0)
-    const totalQuantity = Object.values(groupedCards).reduce((sum, cards) => 
-      sum + cards.reduce((cardSum, card) => cardSum + (card.card.quantity || 0), 0), 0
+    const banquesAvecCartes = Object.entries(groupedCards).filter(([, bankCards]) => bankCards.length > 0)
+    const totalTypes = banquesAvecCartes.reduce((somme, [, bankCards]) => somme + bankCards.length, 0)
+    const totalQuantite = banquesAvecCartes.reduce(
+      (somme, [, bankCards]) => somme + bankCards.reduce((s, cd) => s + (cd.card.quantity || 0), 0),
+      0,
     )
 
     const printWindow = window.open("", "_blank")
-    if (printWindow) {
-      printWindow.document.write(`
-        <html>
-          <head>
-            <title>Liste des Cartes</title>
-            <style>
-              @page {
-                margin: 2cm 1.5cm;
-              }
-              body { 
-                font-family: Arial, sans-serif; 
-                padding: 0;
-                margin: 0;
-                position: relative;
-                min-height: 100vh;
-              }
-              .header {
-                text-align: center;
-                margin-bottom: 20px;
-                padding-bottom: 10px;
-                border-bottom: 3px solid #1e40af;
-              }
-              .company-name {
-                color: #1e40af;
-                font-size: 1.8em;
-                font-weight: bold;
-                margin: 0;
-              }
-              h1 { 
-                color: #1e40af; 
-                border-bottom: 2px solid #d1d5db; 
-                padding-bottom: 10px; 
-                margin-bottom: 20px;
-                font-size: 1.5em;
-              }
-              h2 { 
-                color: #059669; 
-                margin-top: 30px; 
-                margin-bottom: 15px; 
-                font-size: 1.3em; 
-              }
-              .meta { 
-                color: #6b7280; 
-                font-size: 0.9em; 
-                margin-bottom: 20px; 
-              }
-              .cards-table { 
-                width: 100%; 
-                border-collapse: collapse; 
-                margin-top: 10px; 
-                margin-bottom: 30px;
-              }
-              .cards-table th { 
-                background-color: #1e40af; 
-                color: white; 
-                padding: 12px 8px; 
-                text-align: left; 
-                font-weight: 600;
-                border: 1px solid #1e40af;
-              }
-              .cards-table td { 
-                padding: 10px 8px; 
-                border: 1px solid #d1d5db; 
-              }
-              .cards-table tbody tr:nth-child(even) { 
-                background-color: #f9fafb; 
-              }
-              .type-cell {
-                background-color: #eff6ff;
-                font-weight: 600;
-                color: #1e40af;
-                vertical-align: middle;
-                text-align: center;
-                font-size: 1.05em;
-              }
-              .quantity-cell {
-                text-align: center;
-                font-weight: 600;
-                color: #059669;
-              }
-              .total-row {
-                background-color: #1e40af !important;
-                color: white;
-                font-weight: bold;
-                font-size: 1.1em;
-              }
-              .total-row td {
-                padding: 15px 8px;
-                border: 1px solid #1e40af;
-              }
-              .recipient-section {
-                margin-top: 40px;
-                margin-bottom: 30px;
-                padding: 20px;
-                border: 2px solid #d1d5db;
-                border-radius: 8px;
-                background-color: #f9fafb;
-              }
-              .recipient-section h3 {
-                margin-top: 0;
-                color: #1e40af;
-                font-size: 1.1em;
-                margin-bottom: 15px;
-              }
-              .recipient-fields {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 15px;
-              }
-              .recipient-field {
-                display: flex;
-                align-items: center;
-              }
-              .recipient-field label {
-                font-weight: 600;
-                margin-right: 10px;
-                min-width: 80px;
-              }
-              .recipient-field-line {
-                flex: 1;
-                border-bottom: 1px solid #6b7280;
-                height: 20px;
-              }
-              .signature-field {
-                grid-column: 1 / -1;
-                margin-top: 10px;
-              }
-              .footer {
-                margin-top: 40px;
-                padding-top: 20px;
-                border-top: 2px solid #d1d5db;
-                text-align: center;
-                color: #6b7280;
-                font-size: 0.9em;
-              }
-              @media print {
-                body { padding: 0; }
-                h2 { page-break-after: avoid; }
-                .cards-table { page-break-inside: auto; }
-                .cards-table tr { page-break-inside: avoid; page-break-after: auto; }
-                .cards-table thead { display: table-header-group; }
-                .recipient-section { page-break-inside: avoid; }
-                .footer { 
-                  position: fixed;
-                  bottom: 0;
-                  left: 0;
-                  right: 0;
-                  background: white;
-                }
-              }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <h1 class="company-name">Société Monétique Tunisie</h1>
-            </div>
-            
-            <h1>Inventaire Stock par Type de Cartes</h1>
-            <div class="meta">
-              <p><strong>Généré le:</strong> ${new Date().toLocaleDateString("fr-FR")} à ${new Date().toLocaleTimeString("fr-FR")}</p>
-              <p><strong>Total:</strong> ${totalCards} type(s) de carte(s) • <strong>${totalQuantity}</strong> cartes au total</p>
-            </div>
-            <hr>
-            
-            ${printContent || '<p><em>Aucune carte à afficher</em></p>'}
-            
-            <div class="recipient-section">
-              <h3>Destinataire :</h3>
-              <div class="recipient-fields">
-                <div class="recipient-field">
-                  <label>Nom :</label>
-                  <div class="recipient-field-line"></div>
-                </div>
-                <div class="recipient-field">
-                  <label>Prénom :</label>
-                  <div class="recipient-field-line"></div>
-                </div>
-                <div class="recipient-field">
-                  <label>Fonction :</label>
-                  <div class="recipient-field-line"></div>
-                </div>
-                <div class="recipient-field">
-                  <label>Date :</label>
-                  <div class="recipient-field-line"></div>
-                </div>
-                <div class="recipient-field signature-field">
-                  <label>Signature :</label>
-                  <div class="recipient-field-line"></div>
-                </div>
-              </div>
-            </div>
-            
-            <div class="footer">
-              <p><strong>Adresse :</strong> Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</p>
-            </div>
-          </body>
-        </html>
-      `)
-      printWindow.document.close()
-      printWindow.print()
-    }
+    if (!printWindow) return
+
+    const sections = banquesAvecCartes
+      .map(([bankName, bankCards]) => `
+        <section>
+          <h3 class="section">${bankName}</h3>
+          ${tableauCartesBanque(bankCards)}
+        </section>`)
+      .join('')
+
+    const blocs = `
+      ${enteteHtml(logoPath)}
+      <div class="titre-document"><h2>Détail des Cartes en Stock</h2></div>
+      <div class="info-gauche">
+        <p>Généré le ${formatHorodatage()} par ${nomUtilisateurCourant()}</p>
+        <p><strong>Total :</strong> ${totalTypes} type${totalTypes > 1 ? 's' : ''} de carte${totalTypes > 1 ? 's' : ''} sur ${totalQuantite} carte${totalQuantite > 1 ? 's' : ''} au total</p>
+      </div>
+      ${sections || '<section><h3 class="section">Cartes</h3><table><tbody><tr><td>Aucune carte à afficher</td></tr></tbody></table></section>'}
+      ${blocDestinataire}`
+
+    printWindow.document.write(documentImprimable({ titreOnglet: "Détail des Cartes en Stock", blocs }))
+    printWindow.document.close()
   }
 
   const handlePrintInventory = () => {
-    // Calculer les totaux pour chaque banque
     const inventoryData = Object.entries(groupedCards).map(([bankName, bankCards]) => {
       const totalQuantity = bankCards.reduce((sum, cd) => sum + cd.card.quantity, 0)
-      const lowStockCount = bankCards.filter(cd => cd.card.quantity <= cd.card.minThreshold).length
+      const lowStockCount = bankCards.filter((cd) => cd.card.quantity <= cd.card.minThreshold).length
       const typeBreakdown: { [type: string]: number } = {}
-      
-      bankCards.forEach(cd => {
-        const type = cd.card.type
-        typeBreakdown[type] = (typeBreakdown[type] || 0) + cd.card.quantity
+
+      bankCards.forEach((cd) => {
+        typeBreakdown[cd.card.type] = (typeBreakdown[cd.card.type] || 0) + cd.card.quantity
       })
-      
-      return {
-        bankName,
-        nbTypes: bankCards.length,
-        totalQuantity,
-        lowStockCount,
-        typeBreakdown
-      }
+
+      return { bankName, nbTypes: bankCards.length, totalQuantity, lowStockCount, typeBreakdown }
     })
 
-    // Calculer les totaux généraux
     const grandTotal = {
       nbTypes: Object.values(groupedCards).reduce((sum, cards) => sum + cards.length, 0),
-      totalQuantity: Object.values(groupedCards).reduce((sum, cards) => 
-        sum + cards.reduce((cardSum, cd) => cardSum + cd.card.quantity, 0), 0
+      totalQuantity: Object.values(groupedCards).reduce(
+        (sum, cards) => sum + cards.reduce((cardSum, cd) => cardSum + cd.card.quantity, 0),
+        0,
       ),
-      lowStockCount: Object.values(groupedCards).reduce((sum, cards) => 
-        sum + cards.filter(cd => cd.card.quantity <= cd.card.minThreshold).length, 0
-      )
+      lowStockCount: Object.values(groupedCards).reduce(
+        (sum, cards) => sum + cards.filter((cd) => cd.card.quantity <= cd.card.minThreshold).length,
+        0,
+      ),
     }
 
-    // Générer le contenu HTML
-    const tableRows = inventoryData.map(inv => `
-      <tr>
-        <td style="padding: 12px; border: 1px solid #ddd; font-weight: 600;">${inv.bankName}</td>
-        <td style="padding: 12px; border: 1px solid #ddd; text-align: center;">${inv.nbTypes}</td>
-        <td style="padding: 12px; border: 1px solid #ddd; text-align: center; font-weight: 600; color: #059669;">${inv.totalQuantity}</td>
-        <td style="padding: 12px; border: 1px solid #ddd; text-align: center;">${
-          inv.lowStockCount > 0 
-            ? `<span style="color: #dc2626; font-weight: 600;">${inv.lowStockCount} alerte(s)</span>` 
-            : `<span style="color: #059669;">OK</span>`
-        }</td>
-        <td style="padding: 12px; border: 1px solid #ddd;">
-          ${Object.entries(inv.typeBreakdown).map(([type, qty]) => 
-            `<div style="margin-bottom: 4px;"><strong>${type}:</strong> ${qty}</div>`
-          ).join('')}
-        </td>
-      </tr>
-    `).join('')
+    const lignes = inventoryData
+      .map((inv) => `
+        <tr>
+          <td>${inv.bankName}</td>
+          <td class="num">${inv.nbTypes}</td>
+          <td class="num">${inv.totalQuantity}</td>
+          <td class="num">${
+            inv.lowStockCount > 0
+              ? `<span style="color:#dc2626; font-weight:bold">${inv.lowStockCount} alerte${inv.lowStockCount > 1 ? 's' : ''}</span>`
+              : 'OK'
+          }</td>
+          <td>${Object.entries(inv.typeBreakdown).map(([type, qty]) => `<div>${type} : ${qty}</div>`).join('')}</td>
+        </tr>`)
+      .join('')
 
     const printWindow = window.open("", "_blank")
-    if (printWindow) {
-      printWindow.document.write(`
-        <html>
-          <head>
-            <title>Rapport Inventaire par Banque</title>
-            <style>
-              @page {
-                margin: 2cm 1.5cm;
-              }
-              body { 
-                font-family: Arial, sans-serif; 
-                padding: 20px;
-                margin: 0;
-              }
-              .header {
-                text-align: center;
-                margin-bottom: 30px;
-                padding-bottom: 15px;
-                border-bottom: 3px solid #1e40af;
-              }
-              .company-name {
-                color: #1e40af;
-                font-size: 2em;
-                font-weight: bold;
-                margin: 0 0 10px 0;
-              }
-              h1 {
-                color: #1e40af;
-                font-size: 1.6em;
-                margin: 0;
-              }
-              .meta {
-                color: #6b7280;
-                font-size: 0.95em;
-                margin: 20px 0;
-                text-align: center;
-              }
-              table {
-                width: 100%;
-                border-collapse: collapse;
-                margin: 20px 0;
-              }
-              th {
-                background-color: #1e40af;
-                color: white;
-                padding: 14px 12px;
-                text-align: left;
-                font-weight: 600;
-                border: 1px solid #1e40af;
-                font-size: 0.95em;
-              }
-              td {
-                padding: 12px;
-                border: 1px solid #ddd;
-                font-size: 0.9em;
-              }
-              tbody tr:nth-child(even) {
-                background-color: #f9fafb;
-              }
-              tbody tr:hover {
-                background-color: #f1f5f9;
-              }
-              tfoot tr {
-                background-color: #1e40af;
-                color: white;
-                font-weight: bold;
-                font-size: 1.1em;
-              }
-              tfoot td {
-                padding: 15px 12px;
-                border: 1px solid #1e40af;
-              }
-              .recipient-section {
-                margin-top: 50px;
-                padding: 20px;
-                border: 2px solid #d1d5db;
-                border-radius: 8px;
-                background-color: #f9fafb;
-                page-break-inside: avoid;
-              }
-              .recipient-section h3 {
-                margin-top: 0;
-                color: #1e40af;
-                font-size: 1.2em;
-                margin-bottom: 20px;
-              }
-              .recipient-fields {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 20px;
-              }
-              .recipient-field {
-                display: flex;
-                align-items: center;
-              }
-              .recipient-field label {
-                font-weight: 600;
-                margin-right: 10px;
-                min-width: 100px;
-              }
-              .recipient-field-line {
-                flex: 1;
-                border-bottom: 1px solid #6b7280;
-                height: 25px;
-              }
-              .signature-field {
-                grid-column: 1 / -1;
-                margin-top: 10px;
-              }
-              .footer {
-                margin-top: 40px;
-                padding-top: 20px;
-                border-top: 2px solid #d1d5db;
-                text-align: center;
-                color: #6b7280;
-                font-size: 0.9em;
-              }
-              @media print {
-                body { padding: 0; }
-                .recipient-section { page-break-inside: avoid; }
-              }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <h1 class="company-name">Société Monétique Tunisie</h1>
-              <h1>Rapport d'Inventaire par Banque</h1>
-            </div>
-            
-            <div class="meta">
-              <p><strong>Date de génération:</strong> ${new Date().toLocaleDateString("fr-FR")} à ${new Date().toLocaleTimeString("fr-FR")}</p>
-              <p><strong>Nombre de banques:</strong> ${inventoryData.length} • <strong>Total types de cartes:</strong> ${grandTotal.nbTypes} • <strong>Quantité totale:</strong> ${grandTotal.totalQuantity}</p>
-            </div>
-            
-            <table>
-              <thead>
-                <tr>
-                  <th style="width: 25%;">Banque</th>
-                  <th style="width: 15%; text-align: center;">Nb Types</th>
-                  <th style="width: 15%; text-align: center;">Quantité Totale</th>
-                  <th style="width: 15%; text-align: center;">Stock Faible</th>
-                  <th style="width: 30%;">Répartition par Type</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${tableRows}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td style="text-align: right; padding-right: 20px;">TOTAL GÉNÉRAL</td>
-                  <td style="text-align: center;">${grandTotal.nbTypes}</td>
-                  <td style="text-align: center;">${grandTotal.totalQuantity}</td>
-                  <td style="text-align: center;">${grandTotal.lowStockCount}</td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            </table>
-            
-            <div class="recipient-section">
-              <h3>Informations du Destinataire :</h3>
-              <div class="recipient-fields">
-                <div class="recipient-field">
-                  <label>Nom :</label>
-                  <div class="recipient-field-line"></div>
-                </div>
-                <div class="recipient-field">
-                  <label>Prénom :</label>
-                  <div class="recipient-field-line"></div>
-                </div>
-                <div class="recipient-field">
-                  <label>Fonction :</label>
-                  <div class="recipient-field-line"></div>
-                </div>
-                <div class="recipient-field">
-                  <label>Date :</label>
-                  <div class="recipient-field-line"></div>
-                </div>
-                <div class="recipient-field signature-field">
-                  <label>Signature :</label>
-                  <div class="recipient-field-line"></div>
-                </div>
-              </div>
-            </div>
-            
-            <div class="footer">
-              <p><strong>Adresse :</strong> Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</p>
-            </div>
-            
-            <script>
-              window.onload = function() {
-                window.print();
-              }
-            </script>
-          </body>
-        </html>
-      `)
-      printWindow.document.close()
-    }
+    if (!printWindow) return
+
+    const blocs = `
+      ${enteteHtml(logoPath)}
+      <div class="titre-document"><h2>Rapport d'Inventaire par Banque</h2></div>
+      <div class="info-gauche">
+        <p>Généré le ${formatHorodatage()} par ${nomUtilisateurCourant()}</p>
+        <p><strong>Nombre de banques :</strong> ${inventoryData.length} • <strong>Total types :</strong> ${grandTotal.nbTypes} • <strong>Quantité totale :</strong> ${grandTotal.totalQuantity}</p>
+      </div>
+      <section>
+        <h3 class="section">Détail par banque</h3>
+        <table>
+          <thead><tr>
+            <th>Banque</th><th class="num">Nb types</th><th class="num">Quantité totale</th><th class="num">Stock faible</th><th>Répartition par type</th>
+          </tr></thead>
+          <tbody>
+            ${lignes || '<tr><td colspan="5">Aucune banque à afficher</td></tr>'}
+            <tr class="ligne-total">
+              <td>Total général</td>
+              <td class="num">${grandTotal.nbTypes}</td>
+              <td class="num">${grandTotal.totalQuantity}</td>
+              <td class="num">${grandTotal.lowStockCount}</td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      ${blocDestinataire}`
+
+    printWindow.document.write(documentImprimable({ titreOnglet: "Rapport d'Inventaire par Banque", blocs }))
+    printWindow.document.close()
   }
 
   const toggleBankExpansion = (bankName: string) => {
