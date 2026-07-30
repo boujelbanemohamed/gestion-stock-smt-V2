@@ -855,7 +855,7 @@ export default function CardsManagement() {
                 value={filters.bankId || "all"}
                 onValueChange={(value) => setFilters({ ...filters, bankId: value === "all" ? undefined : value })}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Toutes les banques" />
                 </SelectTrigger>
                 <SelectContent>
@@ -874,7 +874,7 @@ export default function CardsManagement() {
                 value={filters.type || "all"}
                 onValueChange={(value) => setFilters({ ...filters, type: value === "all" ? undefined : value })}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Tous les types" />
                 </SelectTrigger>
                 <SelectContent>
@@ -893,7 +893,7 @@ export default function CardsManagement() {
                 value={filters.subType || "all"}
                 onValueChange={(value) => setFilters({ ...filters, subType: value === "all" ? undefined : value })}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Tous les sous-types" />
                 </SelectTrigger>
                 <SelectContent>
@@ -912,7 +912,7 @@ export default function CardsManagement() {
                 value={filters.lowStock ? "true" : "false"}
                 onValueChange={(value) => setFilters({ ...filters, lowStock: value === "true" })}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
