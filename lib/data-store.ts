@@ -366,7 +366,8 @@ class DataStore {
         theme: "light",
       },
       security: {
-        sessionDuration: 480,
+        idleWarningMinutes: 15,
+        idleLogoutMinutes: 5,
         requireStrongPassword: true,
         minPasswordLength: 8,
         twoFactor: {

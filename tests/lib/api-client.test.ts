@@ -4,6 +4,7 @@ import {
   clearAuthTokens,
   getAuthHeaders,
   isAuthenticated,
+  logout,
   saveAuthTokens,
 } from "@/lib/api-client"
 
@@ -45,6 +46,63 @@ describe("saveAuthTokens / clearAuthTokens / isAuthenticated", () => {
     expect(localStorage.getItem("refreshToken")).toBeNull()
     expect(localStorage.getItem("currentUser")).toBeNull()
     expect(isAuthenticated()).toBe(false)
+  })
+})
+
+describe("logout", () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.unstubAllGlobals()
+    // jsdom n'implémente pas la navigation : on remplace location pour
+    // observer la redirection sans qu'elle lève une erreur "not implemented".
+    Object.defineProperty(window, "location", { value: { href: "" }, writable: true })
+  })
+  afterEach(() => {
+    localStorage.clear()
+    vi.unstubAllGlobals()
+  })
+
+  // Le bug corrigé ici : l'ancienne déconnexion n'effaçait que "currentUser",
+  // en laissant accessToken/refreshToken intacts — revenir en arrière (ou
+  // retaper l'URL du tableau de bord) rouvrait alors la session sans repasser
+  // par l'écran de connexion.
+  it("efface les trois clés de session et redirige vers l'accueil", async () => {
+    saveAuthTokens("access-1", "refresh-1", { id: "u1" })
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await logout()
+
+    expect(localStorage.getItem("accessToken")).toBeNull()
+    expect(localStorage.getItem("refreshToken")).toBeNull()
+    expect(localStorage.getItem("currentUser")).toBeNull()
+    expect(window.location.href).toBe("/")
+  })
+
+  it("journalise la déconnexion côté serveur avec le token courant", async () => {
+    saveAuthTokens("access-1", "refresh-1", { id: "u1" })
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await logout()
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/logout",
+      expect.objectContaining({ method: "POST", headers: expect.objectContaining({ Authorization: "Bearer access-1" }) }),
+    )
+  })
+
+  // Best-effort : même si le serveur est injoignable, la session locale doit
+  // quand même être coupée — sinon un problème réseau empêcherait de se
+  // déconnecter.
+  it("efface quand même la session locale si l'appel serveur échoue", async () => {
+    saveAuthTokens("access-1", "refresh-1", { id: "u1" })
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")))
+
+    await logout()
+
+    expect(localStorage.getItem("accessToken")).toBeNull()
+    expect(window.location.href).toBe("/")
   })
 })
 

@@ -185,7 +185,8 @@ export interface TwoFactorSettings {
 }
 
 export interface SecuritySettings {
-  sessionDuration: number // in minutes
+  idleWarningMinutes: number // Délai d'inactivité avant l'avertissement de déconnexion
+  idleLogoutMinutes: number // Durée du compte à rebours avant déconnexion automatique
   requireStrongPassword: boolean
   minPasswordLength: number
   twoFactor: TwoFactorSettings

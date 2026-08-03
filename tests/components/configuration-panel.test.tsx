@@ -38,7 +38,8 @@ const baseConfig = {
   },
   display: { dateFormat: "DD/MM/YYYY", timeFormat: "24h", numberFormat: "fr-TN", itemsPerPage: 10, theme: "light" },
   security: {
-    sessionDuration: 480,
+    idleWarningMinutes: 15,
+    idleLogoutMinutes: 5,
     requireStrongPassword: true,
     minPasswordLength: 8,
     twoFactor: {

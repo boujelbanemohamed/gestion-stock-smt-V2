@@ -403,7 +403,8 @@ async function main() {
           theme: 'auto'
         },
         security: {
-          sessionDuration: 480,
+          idleWarningMinutes: 15,
+          idleLogoutMinutes: 5,
           requireStrongPassword: true,
           minPasswordLength: 8,
           twoFactor: {

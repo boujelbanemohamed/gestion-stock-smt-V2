@@ -40,6 +40,18 @@ function withNormalizedNotifications(config: any): any {
   }
 }
 
+// Ramène security au format actuel : les configurations enregistrées avant
+// l'introduction du minuteur d'inactivité portaient sessionDuration, un champ
+// jamais branché à la moindre logique, au lieu des deux délais actuels.
+function withSecurityDefaults(config: any): any {
+  if (!config || typeof config !== "object" || !config.security) return config
+  const { sessionDuration, ...security } = config.security
+  return {
+    ...config,
+    security: { idleWarningMinutes: 15, idleLogoutMinutes: 5, ...security },
+  }
+}
+
 export async function GET(request: NextRequest) {
   const auth = requireAuth(request)
   if (!auth.authorized) return auth.response
@@ -97,7 +109,8 @@ export async function GET(request: NextRequest) {
               theme: 'auto'
             },
             security: {
-              sessionDuration: 480,
+              idleWarningMinutes: 15,
+              idleLogoutMinutes: 5,
               requireStrongPassword: true,
               minPasswordLength: 8,
               twoFactor: {
@@ -126,11 +139,10 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    const configNormalise = withSecurityDefaults(withNormalizedNotifications(config.config))
     return NextResponse.json<ApiResponse<AppConfig>>({
       success: true,
-      data: (canSeeSecrets
-        ? withNormalizedNotifications(config.config)
-        : redactForNonAdmin(withNormalizedNotifications(config.config))) as unknown as AppConfig,
+      data: (canSeeSecrets ? configNormalise : redactForNonAdmin(configNormalise)) as unknown as AppConfig,
     })
   } catch (error) {
     console.error('Error fetching config:', error)

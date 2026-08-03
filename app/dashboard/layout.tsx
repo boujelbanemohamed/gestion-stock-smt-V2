@@ -16,7 +16,9 @@ import { Menu, X } from "lucide-react"
 import NotificationsDropdown from "@/components/notifications"
 import GlobalSearch from "@/components/dashboard/global-search"
 import RealtimeBridge from "@/components/dashboard/realtime-bridge"
+import { IdleSessionDialog } from "@/components/dashboard/idle-session-dialog"
 import { useThemeSync } from "@/hooks/use-theme-sync"
+import { authenticatedFetch, logout } from "@/lib/api-client"
 
 type NavigationItem = {
   name: string
@@ -205,6 +207,7 @@ export default function DashboardLayout({
   const { user: currentUser, hasPermission, isLoading } = usePermissions()
   const [navigation, setNavigation] = useState<NavigationItem[]>([])
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [dureesInactivite, setDureesInactivite] = useState({ warningMinutes: 15, logoutMinutes: 5 })
   const pathname = usePathname()
   useThemeSync()
 
@@ -212,6 +215,25 @@ export default function DashboardLayout({
   useEffect(() => {
     setIsMobileMenuOpen(false)
   }, [pathname])
+
+  // Délais du minuteur d'inactivité, réglables dans Configuration > Sécurité.
+  // Repli sur 15/5 minutes tant que la config n'est pas encore chargée.
+  useEffect(() => {
+    authenticatedFetch("/api/config")
+      .then((r) => r.json())
+      .then((data) => {
+        const security = data?.data?.security
+        if (security?.idleWarningMinutes && security?.idleLogoutMinutes) {
+          setDureesInactivite({
+            warningMinutes: security.idleWarningMinutes,
+            logoutMinutes: security.idleLogoutMinutes,
+          })
+        }
+      })
+      .catch(() => {
+        // Repli silencieux sur les valeurs par défaut déjà en place.
+      })
+  }, [])
 
   useEffect(() => {
     if (isLoading) return
@@ -254,16 +276,8 @@ export default function DashboardLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id, isLoading]) // Utiliser currentUser?.id au lieu de currentUser pour éviter les re-renders
 
-  const handleLogout = async () => {
-    try {
-      // Appeler l'API de logout
-      await fetch('/api/auth/logout', { method: 'POST' })
-    } catch (error) {
-      console.error('Logout error:', error)
-    }
-    // Supprimer la session locale
-    localStorage.removeItem('currentUser')
-    window.location.href = "/"
+  const handleLogout = () => {
+    logout()
   }
 
   const getRoleBadgeVariant = (role: string) => {
@@ -294,6 +308,10 @@ export default function DashboardLayout({
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <RealtimeBridge />
+      <IdleSessionDialog
+        warningMinutes={dureesInactivite.warningMinutes}
+        logoutMinutes={dureesInactivite.logoutMinutes}
+      />
 
       {/* Fond assombri derrière le menu mobile ouvert (barre latérale en tiroir) */}
       {isMobileMenuOpen && (

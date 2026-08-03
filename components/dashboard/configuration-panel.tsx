@@ -245,7 +245,8 @@ export default function ConfigurationPanel() {
           theme: "light",
         },
         security: {
-          sessionDuration: 480, // 8 hours
+          idleWarningMinutes: 15,
+          idleLogoutMinutes: 5,
           requireStrongPassword: true,
           minPasswordLength: 8,
           twoFactor: {
@@ -1474,19 +1475,41 @@ export default function ConfigurationPanel() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="sessionDuration">Durée de session (minutes)</Label>
+                <Label htmlFor="idleWarningMinutes">Délai d'inactivité avant avertissement (minutes)</Label>
                 <Input
-                  id="sessionDuration"
+                  id="idleWarningMinutes"
                   type="number"
-                  value={config.security.sessionDuration}
+                  min={1}
+                  value={config.security.idleWarningMinutes}
                   onChange={(e) =>
                     setConfig({
                       ...config,
-                      security: { ...config.security, sessionDuration: Number.parseInt(e.target.value) },
+                      security: { ...config.security, idleWarningMinutes: Number.parseInt(e.target.value) },
                     })
                   }
                 />
-                <p className="text-sm text-slate-500">Durée avant déconnexion automatique</p>
+                <p className="text-sm text-slate-500">
+                  Temps d'inactivité avant l'affichage de l'avertissement de déconnexion
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="idleLogoutMinutes">Compte à rebours avant déconnexion (minutes)</Label>
+                <Input
+                  id="idleLogoutMinutes"
+                  type="number"
+                  min={1}
+                  value={config.security.idleLogoutMinutes}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      security: { ...config.security, idleLogoutMinutes: Number.parseInt(e.target.value) },
+                    })
+                  }
+                />
+                <p className="text-sm text-slate-500">
+                  Durée du compte à rebours affiché dans l'avertissement, avant déconnexion automatique
+                </p>
               </div>
 
               <Separator />

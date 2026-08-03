@@ -168,3 +168,20 @@ export function isAuthenticated(): boolean {
   return getAccessToken() !== null
 }
 
+/**
+ * Déconnexion complète : journalise la déconnexion côté serveur (best-effort,
+ * ne bloque jamais la suite), puis supprime les jetons locaux et redirige.
+ * Fonction unique appelée par le bouton « Déconnexion » et par la
+ * déconnexion automatique pour inactivité — les deux doivent avoir
+ * exactement le même effet.
+ */
+export async function logout(): Promise<void> {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST', headers: getAuthHeaders() })
+  } catch {
+    // La déconnexion locale doit réussir même si l'appel serveur échoue.
+  }
+  clearAuthTokens()
+  window.location.href = '/'
+}
+
