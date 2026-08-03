@@ -26,11 +26,13 @@ function formatDecompte(secondes: number): string {
 export function IdleSessionDialog({
   warningMinutes,
   logoutMinutes,
+  enabled,
 }: {
   warningMinutes: number
   logoutMinutes: number
+  enabled: boolean
 }) {
-  const { secondsLeft, extend } = useIdleSession(warningMinutes, logoutMinutes)
+  const { secondsLeft, extend } = useIdleSession(warningMinutes, logoutMinutes, enabled)
 
   return (
     <AlertDialog open={secondsLeft !== null}>

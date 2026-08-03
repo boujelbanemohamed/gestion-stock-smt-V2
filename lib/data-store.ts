@@ -366,6 +366,7 @@ class DataStore {
         theme: "light",
       },
       security: {
+        idleSessionEnabled: true,
         idleWarningMinutes: 15,
         idleLogoutMinutes: 5,
         requireStrongPassword: true,

@@ -42,11 +42,13 @@ async function refreshAccessToken(): Promise<string | null> {
     })
 
     if (!response.ok) {
-      // Refresh token invalide, déconnecter l'utilisateur
+      // Refresh token invalide : déconnecter l'utilisateur et le renvoyer vers
+      // l'écran de connexion classique (route racine, comme logout()) — pas
+      // "/login", qui n'existe pas dans cette application.
       localStorage.removeItem('accessToken')
       localStorage.removeItem('refreshToken')
       localStorage.removeItem('currentUser')
-      window.location.href = '/login'
+      window.location.href = '/'
       return null
     }
 

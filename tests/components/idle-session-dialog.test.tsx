@@ -38,7 +38,7 @@ describe("IdleSessionDialog", () => {
   })
 
   it("n'affiche rien tant que le délai d'inactivité n'est pas écoulé", async () => {
-    render(<IdleSessionDialog warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />)
+    render(<IdleSessionDialog enabled warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />)
     await avancer(AVERTISSEMENT_MIN - 1)
 
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
@@ -46,7 +46,7 @@ describe("IdleSessionDialog", () => {
   })
 
   it("affiche l'avertissement avec le compte à rebours une fois le délai d'inactivité écoulé", async () => {
-    render(<IdleSessionDialog warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />)
+    render(<IdleSessionDialog enabled warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />)
     await avancer(AVERTISSEMENT_MIN)
 
     const dialogue = screen.getByRole("alertdialog")
@@ -55,7 +55,7 @@ describe("IdleSessionDialog", () => {
   })
 
   it("le compte à rebours diminue avec le temps", async () => {
-    render(<IdleSessionDialog warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />)
+    render(<IdleSessionDialog enabled warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />)
     await avancer(AVERTISSEMENT_MIN)
     await vi.advanceTimersByTimeAsync(30 * 1000)
 
@@ -63,7 +63,7 @@ describe("IdleSessionDialog", () => {
   })
 
   it("déconnecte automatiquement une fois le compte à rebours écoulé", async () => {
-    render(<IdleSessionDialog warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />)
+    render(<IdleSessionDialog enabled warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />)
     await avancer(AVERTISSEMENT_MIN)
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
 
@@ -74,7 +74,7 @@ describe("IdleSessionDialog", () => {
   // Le garde-fou explicitement demandé : un simple mouvement de souris pendant
   // que l'avertissement est affiché ne doit pas le prolonger silencieusement.
   it("ignore un mouvement de souris pendant que l'avertissement est affiché", async () => {
-    render(<IdleSessionDialog warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />)
+    render(<IdleSessionDialog enabled warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />)
     await avancer(AVERTISSEMENT_MIN)
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
 
@@ -85,7 +85,7 @@ describe("IdleSessionDialog", () => {
   })
 
   it("le clic sur « Rester connecté » referme l'avertissement et relance le délai complet", async () => {
-    render(<IdleSessionDialog warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />)
+    render(<IdleSessionDialog enabled warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />)
     await avancer(AVERTISSEMENT_MIN)
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
 
@@ -104,12 +104,37 @@ describe("IdleSessionDialog", () => {
   // (relayée par l'évènement "storage") referme l'avertissement affiché ici,
   // sans qu'il soit nécessaire de cliquer dans CET onglet.
   it("referme l'avertissement quand une activité est signalée par un autre onglet", async () => {
-    render(<IdleSessionDialog warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />)
+    render(<IdleSessionDialog enabled warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />)
     await avancer(AVERTISSEMENT_MIN)
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
 
     localStorage.setItem("lastActivityAt", String(Date.now()))
     fireEvent(window, new StorageEvent("storage", { key: "lastActivityAt" }))
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+  })
+
+  // Réglable dans Configuration > Sécurité : désactiver la fonctionnalité doit
+  // neutraliser complètement le minuteur, même après un très long délai.
+  it("ne fait jamais rien quand la fonctionnalité est désactivée", async () => {
+    render(<IdleSessionDialog enabled={false} warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />)
+    await avancer(AVERTISSEMENT_MIN + DECONNEXION_MIN + 10)
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    expect(logoutMock).not.toHaveBeenCalled()
+  })
+
+  // Si la fonctionnalité est désactivée pendant que l'avertissement est déjà
+  // affiché (ex. un administrateur la désactive depuis un autre onglet), il
+  // doit se refermer immédiatement plutôt que de rester affiché indéfiniment.
+  it("referme un avertissement déjà affiché si la fonctionnalité est désactivée en cours de route", async () => {
+    const { rerender } = render(
+      <IdleSessionDialog enabled warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />,
+    )
+    await avancer(AVERTISSEMENT_MIN)
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
+
+    rerender(<IdleSessionDialog enabled={false} warningMinutes={AVERTISSEMENT_MIN} logoutMinutes={DECONNEXION_MIN} />)
 
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
   })

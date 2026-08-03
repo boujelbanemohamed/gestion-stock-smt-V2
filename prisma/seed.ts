@@ -403,6 +403,7 @@ async function main() {
           theme: 'auto'
         },
         security: {
+          idleSessionEnabled: true,
           idleWarningMinutes: 15,
           idleLogoutMinutes: 5,
           requireStrongPassword: true,

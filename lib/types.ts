@@ -185,6 +185,7 @@ export interface TwoFactorSettings {
 }
 
 export interface SecuritySettings {
+  idleSessionEnabled: boolean // Active ou désactive la déconnexion automatique pour inactivité
   idleWarningMinutes: number // Délai d'inactivité avant l'avertissement de déconnexion
   idleLogoutMinutes: number // Durée du compte à rebours avant déconnexion automatique
   requireStrongPassword: boolean

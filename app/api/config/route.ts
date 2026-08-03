@@ -48,7 +48,7 @@ function withSecurityDefaults(config: any): any {
   const { sessionDuration, ...security } = config.security
   return {
     ...config,
-    security: { idleWarningMinutes: 15, idleLogoutMinutes: 5, ...security },
+    security: { idleSessionEnabled: true, idleWarningMinutes: 15, idleLogoutMinutes: 5, ...security },
   }
 }
 
@@ -109,6 +109,7 @@ export async function GET(request: NextRequest) {
               theme: 'auto'
             },
             security: {
+              idleSessionEnabled: true,
               idleWarningMinutes: 15,
               idleLogoutMinutes: 5,
               requireStrongPassword: true,

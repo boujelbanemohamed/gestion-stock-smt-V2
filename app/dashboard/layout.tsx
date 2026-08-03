@@ -207,7 +207,7 @@ export default function DashboardLayout({
   const { user: currentUser, hasPermission, isLoading } = usePermissions()
   const [navigation, setNavigation] = useState<NavigationItem[]>([])
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
-  const [dureesInactivite, setDureesInactivite] = useState({ warningMinutes: 15, logoutMinutes: 5 })
+  const [dureesInactivite, setDureesInactivite] = useState({ enabled: true, warningMinutes: 15, logoutMinutes: 5 })
   const pathname = usePathname()
   useThemeSync()
 
@@ -217,7 +217,7 @@ export default function DashboardLayout({
   }, [pathname])
 
   // Délais du minuteur d'inactivité, réglables dans Configuration > Sécurité.
-  // Repli sur 15/5 minutes tant que la config n'est pas encore chargée.
+  // Repli sur activé/15/5 minutes tant que la config n'est pas encore chargée.
   useEffect(() => {
     authenticatedFetch("/api/config")
       .then((r) => r.json())
@@ -225,6 +225,7 @@ export default function DashboardLayout({
         const security = data?.data?.security
         if (security?.idleWarningMinutes && security?.idleLogoutMinutes) {
           setDureesInactivite({
+            enabled: security.idleSessionEnabled !== false,
             warningMinutes: security.idleWarningMinutes,
             logoutMinutes: security.idleLogoutMinutes,
           })
@@ -233,6 +234,18 @@ export default function DashboardLayout({
       .catch(() => {
         // Repli silencieux sur les valeurs par défaut déjà en place.
       })
+  }, [])
+
+  // Le panneau Configuration reste monté dans le même layout (pas de rechargement
+  // de page) : sans cet évènement, un changement de durée enregistré depuis cet
+  // onglet ne serait jamais repris ici avant la prochaine navigation complète.
+  useEffect(() => {
+    const onConfigUpdated = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (detail) setDureesInactivite(detail)
+    }
+    window.addEventListener("idle-session-config-updated", onConfigUpdated)
+    return () => window.removeEventListener("idle-session-config-updated", onConfigUpdated)
   }, [])
 
   useEffect(() => {
@@ -309,6 +322,7 @@ export default function DashboardLayout({
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <RealtimeBridge />
       <IdleSessionDialog
+        enabled={dureesInactivite.enabled}
         warningMinutes={dureesInactivite.warningMinutes}
         logoutMinutes={dureesInactivite.logoutMinutes}
       />

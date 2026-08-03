@@ -33,7 +33,7 @@ const CHECK_INTERVAL_MS = 1000
 const ACTIVITY_WRITE_THROTTLE_MS = 5000
 const ACTIVITY_EVENTS = ["mousedown", "mousemove", "keydown", "scroll", "touchstart"] as const
 
-export function useIdleSession(warningMinutes: number, logoutMinutes: number) {
+export function useIdleSession(warningMinutes: number, logoutMinutes: number, enabled: boolean) {
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null)
   const warningActiveRef = useRef(false)
   const lastWriteRef = useRef(0)
@@ -57,7 +57,12 @@ export function useIdleSession(warningMinutes: number, logoutMinutes: number) {
   }, [])
 
   useEffect(() => {
-    if (!warningMinutes || !logoutMinutes) return
+    if (!enabled || !warningMinutes || !logoutMinutes) {
+      // Referme immédiatement un avertissement déjà affiché si la fonctionnalité
+      // vient d'être désactivée (ex. depuis Configuration, dans un autre onglet).
+      setSecondsLeft(null)
+      return
+    }
 
     if (!localStorage.getItem(STORAGE_KEY)) {
       localStorage.setItem(STORAGE_KEY, String(Date.now()))
@@ -103,7 +108,7 @@ export function useIdleSession(warningMinutes: number, logoutMinutes: number) {
       ACTIVITY_EVENTS.forEach((evt) => window.removeEventListener(evt, noteActivity))
       window.removeEventListener("storage", onStorage)
     }
-  }, [warningMinutes, logoutMinutes, noteActivity])
+  }, [enabled, warningMinutes, logoutMinutes, noteActivity])
 
   return { secondsLeft, extend }
 }

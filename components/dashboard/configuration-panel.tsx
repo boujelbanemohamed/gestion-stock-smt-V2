@@ -245,6 +245,7 @@ export default function ConfigurationPanel() {
           theme: "light",
         },
         security: {
+          idleSessionEnabled: true,
           idleWarningMinutes: 15,
           idleLogoutMinutes: 5,
           requireStrongPassword: true,
@@ -292,6 +293,19 @@ export default function ConfigurationPanel() {
         // Applique et mémorise immédiatement le thème choisi, sans attendre un rechargement.
         storeTheme(config.display.theme as Theme)
         applyTheme(config.display.theme as Theme)
+        // Le minuteur d'inactivité vit dans app/dashboard/layout.tsx, qui reste
+        // monté pendant qu'on est sur cette page : sans cet évènement, un
+        // changement de durée ne serait repris qu'à la prochaine navigation
+        // complète (rechargement de page).
+        window.dispatchEvent(
+          new CustomEvent("idle-session-config-updated", {
+            detail: {
+              enabled: config.security.idleSessionEnabled,
+              warningMinutes: config.security.idleWarningMinutes,
+              logoutMinutes: config.security.idleLogoutMinutes,
+            },
+          }),
+        )
       } else {
         toast({
           title: "Enregistrement impossible",
@@ -1474,43 +1488,65 @@ export default function ConfigurationPanel() {
               <CardDescription>Configurez les options de sécurité</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="idleWarningMinutes">Délai d'inactivité avant avertissement (minutes)</Label>
-                <Input
-                  id="idleWarningMinutes"
-                  type="number"
-                  min={1}
-                  value={config.security.idleWarningMinutes}
-                  onChange={(e) =>
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label className="text-base font-semibold">Déconnexion automatique par inactivité</Label>
+                  <p className="text-sm text-slate-500">
+                    Avertit puis déconnecte l'utilisateur après une période d'inactivité
+                  </p>
+                </div>
+                <Switch
+                  checked={config.security.idleSessionEnabled}
+                  onCheckedChange={(checked) =>
                     setConfig({
                       ...config,
-                      security: { ...config.security, idleWarningMinutes: Number.parseInt(e.target.value) },
+                      security: { ...config.security, idleSessionEnabled: checked },
                     })
                   }
                 />
-                <p className="text-sm text-slate-500">
-                  Temps d'inactivité avant l'affichage de l'avertissement de déconnexion
-                </p>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="idleLogoutMinutes">Compte à rebours avant déconnexion (minutes)</Label>
-                <Input
-                  id="idleLogoutMinutes"
-                  type="number"
-                  min={1}
-                  value={config.security.idleLogoutMinutes}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      security: { ...config.security, idleLogoutMinutes: Number.parseInt(e.target.value) },
-                    })
-                  }
-                />
-                <p className="text-sm text-slate-500">
-                  Durée du compte à rebours affiché dans l'avertissement, avant déconnexion automatique
-                </p>
-              </div>
+              {config.security.idleSessionEnabled && (
+                <div className="space-y-4 pl-4 border-l-2 border-slate-200">
+                  <div className="space-y-2">
+                    <Label htmlFor="idleWarningMinutes">Délai d'inactivité avant avertissement (minutes)</Label>
+                    <Input
+                      id="idleWarningMinutes"
+                      type="number"
+                      min={1}
+                      value={config.security.idleWarningMinutes}
+                      onChange={(e) =>
+                        setConfig({
+                          ...config,
+                          security: { ...config.security, idleWarningMinutes: Number.parseInt(e.target.value) },
+                        })
+                      }
+                    />
+                    <p className="text-sm text-slate-500">
+                      Temps d'inactivité avant l'affichage de l'avertissement de déconnexion
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="idleLogoutMinutes">Compte à rebours avant déconnexion (minutes)</Label>
+                    <Input
+                      id="idleLogoutMinutes"
+                      type="number"
+                      min={1}
+                      value={config.security.idleLogoutMinutes}
+                      onChange={(e) =>
+                        setConfig({
+                          ...config,
+                          security: { ...config.security, idleLogoutMinutes: Number.parseInt(e.target.value) },
+                        })
+                      }
+                    />
+                    <p className="text-sm text-slate-500">
+                      Durée du compte à rebours affiché dans l'avertissement, avant déconnexion automatique
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <Separator />
 

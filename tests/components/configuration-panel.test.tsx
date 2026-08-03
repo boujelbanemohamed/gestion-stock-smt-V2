@@ -38,6 +38,7 @@ const baseConfig = {
   },
   display: { dateFormat: "DD/MM/YYYY", timeFormat: "24h", numberFormat: "fr-TN", itemsPerPage: 10, theme: "light" },
   security: {
+    idleSessionEnabled: true,
     idleWarningMinutes: 15,
     idleLogoutMinutes: 5,
     requireStrongPassword: true,
@@ -195,11 +196,12 @@ describe("ConfigurationPanel", () => {
     expect(screen.queryByLabelText("Nom de l'application")).not.toBeInTheDocument()
 
     const tabPanel = await screen.findByRole("tabpanel")
-    // Index 0 = "Exiger un mot de passe fort", index 1 = "Authentification à deux facteurs (2FA)".
-    // Ni l'un ni l'autre n'a de nom accessible lié via aria/htmlFor (Switch sans id), d'où la
-    // sélection par position, cohérente avec le reste de la suite pour les composants Radix.
+    // Index 0 = "Déconnexion automatique par inactivité", index 1 = "Exiger un mot de passe fort",
+    // index 2 = "Authentification à deux facteurs (2FA)". Aucun n'a de nom accessible lié via
+    // aria/htmlFor (Switch sans id), d'où la sélection par position, cohérente avec le reste de
+    // la suite pour les composants Radix.
     const switches = within(tabPanel).getAllByRole("switch")
-    await user.click(switches[1])
+    await user.click(switches[2])
 
     expect(await screen.findByLabelText("Nom de l'application")).toBeInTheDocument()
 
