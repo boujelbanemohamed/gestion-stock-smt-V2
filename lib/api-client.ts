@@ -3,6 +3,12 @@
  * Gère automatiquement les tokens d'accès et leur rafraîchissement
  */
 
+// Horodatage de la dernière activité, utilisé par useIdleSession() (hooks/use-idle-session.ts)
+// pour la déconnexion automatique. Défini ici, aux côtés des autres clés de
+// session, pour que login et logout puissent le remettre à zéro sans créer de
+// dépendance circulaire vers ce hook (qui importe déjà logout() d'ici).
+export const ACTIVITY_STORAGE_KEY = 'lastActivityAt'
+
 /**
  * Récupère le token d'accès depuis localStorage
  */
@@ -149,6 +155,11 @@ export function saveAuthTokens(accessToken: string, refreshToken: string, user: 
   localStorage.setItem('accessToken', accessToken)
   localStorage.setItem('refreshToken', refreshToken)
   localStorage.setItem('currentUser', JSON.stringify(user))
+  // Une session fraîchement ouverte ne doit jamais hériter de l'horodatage
+  // d'une session précédente : sinon, si assez de temps s'est écoulé depuis
+  // (session précédente restée ouverte, ou terminée par une déconnexion pour
+  // inactivité), useIdleSession() déconnecterait immédiatement au premier tick.
+  localStorage.setItem(ACTIVITY_STORAGE_KEY, String(Date.now()))
 }
 
 /**
@@ -161,6 +172,7 @@ export function clearAuthTokens() {
   localStorage.removeItem('accessToken')
   localStorage.removeItem('refreshToken')
   localStorage.removeItem('currentUser')
+  localStorage.removeItem(ACTIVITY_STORAGE_KEY)
 }
 
 /**

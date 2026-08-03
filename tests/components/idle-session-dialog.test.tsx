@@ -4,6 +4,7 @@ import { render, screen, fireEvent } from "@testing-library/react"
 const logoutMock = vi.fn()
 vi.mock("@/lib/api-client", () => ({
   logout: () => logoutMock(),
+  ACTIVITY_STORAGE_KEY: "lastActivityAt",
 }))
 
 import { IdleSessionDialog } from "@/components/dashboard/idle-session-dialog"

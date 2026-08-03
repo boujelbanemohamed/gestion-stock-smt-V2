@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { logout } from "@/lib/api-client"
+import { ACTIVITY_STORAGE_KEY, logout } from "@/lib/api-client"
 
 // Déconnexion automatique pour inactivité : après `warningMinutes` sans
 // activité réelle de l'utilisateur, un avertissement s'affiche avec un
@@ -28,7 +28,7 @@ import { logout } from "@/lib/api-client"
 //    (Une vraie activité dans un AUTRE onglet reste prise en compte : elle
 //    met à jour l'horodatage partagé, donc referme aussi l'avertissement ici.)
 
-const STORAGE_KEY = "lastActivityAt"
+const STORAGE_KEY = ACTIVITY_STORAGE_KEY
 const CHECK_INTERVAL_MS = 1000
 const ACTIVITY_WRITE_THROTTLE_MS = 5000
 const ACTIVITY_EVENTS = ["mousedown", "mousemove", "keydown", "scroll", "touchstart"] as const

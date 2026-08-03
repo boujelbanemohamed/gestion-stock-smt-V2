@@ -47,6 +47,25 @@ describe("saveAuthTokens / clearAuthTokens / isAuthenticated", () => {
     expect(localStorage.getItem("currentUser")).toBeNull()
     expect(isAuthenticated()).toBe(false)
   })
+
+  // Bug corrigé ici : une session qui commence hérite d'un horodatage
+  // d'activité laissé par une session précédente (déjà bien avancé, voire une
+  // déconnexion pour inactivité) faisait déconnecter useIdleSession() dès le
+  // premier tick après une connexion pourtant toute fraîche.
+  it("réinitialise l'horodatage d'activité à la connexion, même s'il en restait un ancien", () => {
+    const ilYAUneHeure = Date.now() - 60 * 60 * 1000
+    localStorage.setItem("lastActivityAt", String(ilYAUneHeure))
+
+    saveAuthTokens("access-1", "refresh-1", { id: "u1" })
+
+    expect(Number(localStorage.getItem("lastActivityAt"))).toBeGreaterThan(ilYAUneHeure)
+  })
+
+  it("efface aussi l'horodatage d'activité à la déconnexion", () => {
+    saveAuthTokens("access-1", "refresh-1", { id: "u1" })
+    clearAuthTokens()
+    expect(localStorage.getItem("lastActivityAt")).toBeNull()
+  })
 })
 
 describe("logout", () => {
