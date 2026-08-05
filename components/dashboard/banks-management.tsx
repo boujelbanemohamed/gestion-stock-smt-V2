@@ -28,9 +28,13 @@ import { authenticatedFetch } from "@/lib/api-client"
 import { toast } from "@/hooks/use-toast"
 import { useConfirmation } from "@/hooks/use-confirmation"
 import { parseCsvLine } from "@/lib/csv"
+import { usePermissions } from "@/hooks/use-permissions"
+import { documentImprimable, enteteHtml } from "@/lib/print-layout"
 
 export default function BanksManagement() {
   const { demanderConfirmation, dialogueConfirmation } = useConfirmation()
+  const { user: currentUser } = usePermissions()
+  const [logoPath, setLogoPath] = useState<string>('/placeholder-logo.png')
   const searchParams = useSearchParams()
   const [banks, setBanks] = useState<Bank[]>([])
   const [locations, setLocations] = useState<any[]>([])
@@ -78,6 +82,22 @@ export default function BanksManagement() {
   // arrivée après une plus récente écraserait le résultat affiché par un
   // résultat obsolète.
   const loadSeqRef = useRef(0)
+
+  const loadConfig = async () => {
+    try {
+      const configResponse = await authenticatedFetch('/api/config')
+      const configData = await configResponse.json()
+      if (configData.success && configData.data?.general?.logo) {
+        setLogoPath(configData.data.general.logo)
+      }
+    } catch (error) {
+      console.error('Error loading config:', error)
+    }
+  }
+
+  useEffect(() => {
+    loadConfig()
+  }, [])
 
   const loadBanks = async () => {
     const seq = ++loadSeqRef.current
@@ -453,158 +473,108 @@ export default function BanksManagement() {
     })
   }
 
+  const nomUtilisateurCourant = () =>
+    currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : "N/A"
+
+  const formatHorodatage = () =>
+    new Date().toLocaleString("fr-FR", {
+      day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+    })
+
+  const blocSignatures = `
+    <section>
+      <h3 class="section">Signatures</h3>
+      <div class="ligne-champs">
+        <div class="champ"><p>Signature 1 :</p><div class="trait"></div></div>
+        <div class="champ"><p>Signature 2 :</p><div class="trait"></div></div>
+        <div class="champ"><p>Signature 3 :</p><div class="trait"></div></div>
+      </div>
+    </section>`
+
+  // Détails d'une banque : un tableau court (une petite dizaine de lignes au
+  // plus), qui tient toujours sur une page — pas besoin de le laisser au
+  // paginateur, qui ne sait de toute façon découper qu'un <section> à une
+  // seule table (voir tableauCartesBanque ci-dessous pour celle qui peut
+  // vraiment déborder).
+  const tableauDetailsBanque = (bank: Bank, locationNames: string) => `
+    <table><tbody>
+      <tr><td class="libelle">Code</td><td>${bank.code}</td></tr>
+      <tr><td class="libelle">Pays</td><td>${displayValue(bank.country)}</td></tr>
+      <tr><td class="libelle">Code SWIFT</td><td>${displayValue(bank.swiftCode)}</td></tr>
+      <tr><td class="libelle">Adresse</td><td>${displayValue(bank.address)}</td></tr>
+      <tr><td class="libelle">Téléphone</td><td>${displayValue(bank.phone)}</td></tr>
+      <tr><td class="libelle">Email</td><td>${displayValue(bank.email)}</td></tr>
+      <tr><td class="libelle">Emplacements</td><td>${locationNames}</td></tr>
+      <tr><td class="libelle">Statut</td><td>${bank.isActive ? "Active" : "Inactive"}</td></tr>
+    </tbody></table>`
+
+  // Détail des cartes d'une banque : table à part (et non fusionnée avec les
+  // détails ci-dessus) pour que le paginateur puisse la découper ligne à
+  // ligne si elle dépasse une page — il ne sait le faire que sur un
+  // <section> ne contenant qu'une seule table.
+  const tableauCartesDeBanque = (bankCards: any[]) => {
+    const total = bankCards.reduce((somme, c) => somme + (c.quantity || 0), 0)
+    return `
+      <table>
+        <thead><tr>
+          <th>Nom</th><th>Type</th><th>Sous-type</th><th>Sous-sous-type</th>
+          <th class="num">Quantité</th><th>Statut</th>
+        </tr></thead>
+        <tbody>
+          ${bankCards.length > 0
+            ? bankCards.map((card) => `<tr>
+                <td>${card.name}</td>
+                <td>${card.type}</td>
+                <td>${displayValue(card.subType)}</td>
+                <td>${displayValue(card.subSubType)}</td>
+                <td class="num">${card.quantity || 0}</td>
+                <td>${card.isActive ? "Active" : "Inactive"}</td>
+              </tr>`).join("")
+            : '<tr><td colspan="6">Aucune carte</td></tr>'}
+          <tr class="ligne-total">
+            <td colspan="4">Total</td><td class="num">${total}</td><td></td>
+          </tr>
+        </tbody>
+      </table>`
+  }
+
   const handlePrint = () => {
     const printWindow = window.open("", "_blank")
     if (!printWindow) return
 
-    const banksContent = banks
+    const sections = banks
       .map((bank) => {
         const bankLocations = locations.filter((l) => l.bankId === bank.id)
-        const locationNames = bankLocations.length > 0 
-          ? bankLocations.map((l) => l.name).join(", ") 
+        const locationNames = bankLocations.length > 0
+          ? bankLocations.map((l) => l.name).join(", ")
           : "N/A"
-
         const bankCards = cards.filter((c) => c.bankId === bank.id)
-        
-        // Créer le tableau des détails des cartes
-        const cardsDetailsRows = bankCards.length > 0
-          ? bankCards.map((card) => `
-              <tr>
-                <td style="border: 1px solid #ddd; padding: 6px; font-size: 11px;">${card.name}</td>
-                <td style="border: 1px solid #ddd; padding: 6px; font-size: 11px;">${card.type}</td>
-                <td style="border: 1px solid #ddd; padding: 6px; font-size: 11px;">${card.subType || "N/A"}</td>
-                <td style="border: 1px solid #ddd; padding: 6px; font-size: 11px;">${card.subSubType || "N/A"}</td>
-                <td style="border: 1px solid #ddd; padding: 6px; font-size: 11px; text-align: center;">${card.quantity || 0}</td>
-                <td style="border: 1px solid #ddd; padding: 6px; font-size: 11px; text-align: center;">
-                  <span style="padding: 2px 6px; border-radius: 3px; background-color: ${card.isActive ? '#22c55e' : '#ef4444'}; color: white; font-size: 10px;">
-                    ${card.isActive ? "Active" : "Inactive"}
-                  </span>
-                </td>
-              </tr>
-            `).join("")
-          : `<tr><td colspan="6" style="border: 1px solid #ddd; padding: 6px; text-align: center; font-style: italic; color: #64748b;">Aucune carte</td></tr>`
 
         return `
-          <div class="bank-section" style="page-break-inside: avoid; margin-bottom: 30px;">
-            <h3 style="background-color: #1e293b; color: white; padding: 10px; margin: 0; font-size: 16px;">
-              ${bank.code} - ${bank.name}
-            </h3>
-            <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
-              <tr>
-                <td style="border: 1px solid #ddd; padding: 8px; background-color: #f1f5f9; font-weight: bold; width: 150px;">Pays</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${bank.country}</td>
-                <td style="border: 1px solid #ddd; padding: 8px; background-color: #f1f5f9; font-weight: bold; width: 150px;">Code SWIFT</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${bank.swiftCode}</td>
-              </tr>
-              <tr>
-                <td style="border: 1px solid #ddd; padding: 8px; background-color: #f1f5f9; font-weight: bold;">Adresse</td>
-                <td style="border: 1px solid #ddd; padding: 8px;" colspan="3">${bank.address || "N/A"}</td>
-              </tr>
-              <tr>
-                <td style="border: 1px solid #ddd; padding: 8px; background-color: #f1f5f9; font-weight: bold;">Téléphone</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${bank.phone || "N/A"}</td>
-                <td style="border: 1px solid #ddd; padding: 8px; background-color: #f1f5f9; font-weight: bold;">Email</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${bank.email || "N/A"}</td>
-              </tr>
-              <tr>
-                <td style="border: 1px solid #ddd; padding: 8px; background-color: #f1f5f9; font-weight: bold;">Emplacements</td>
-                <td style="border: 1px solid #ddd; padding: 8px;" colspan="3">${locationNames}</td>
-              </tr>
-              <tr>
-                <td style="border: 1px solid #ddd; padding: 8px; background-color: #f1f5f9; font-weight: bold;">Statut</td>
-                <td style="border: 1px solid #ddd; padding: 8px;" colspan="3">
-                  <span style="padding: 4px 8px; border-radius: 4px; background-color: ${bank.isActive ? '#22c55e' : '#ef4444'}; color: white; font-size: 12px;">
-                    ${bank.isActive ? "Active" : "Inactive"}
-                  </span>
-                </td>
-              </tr>
-            </table>
-            
-            <h4 style="color: #1e293b; margin: 10px 0; font-size: 14px; border-bottom: 2px solid #1e293b; padding-bottom: 5px;">
-              Détails des Cartes (${bankCards.length})
-            </h4>
-            <table style="width: 100%; border-collapse: collapse;">
-              <thead>
-                <tr style="background-color: #64748b;">
-                  <th style="border: 1px solid #ddd; padding: 8px; text-align: left; color: white; font-size: 12px;">Nom</th>
-                  <th style="border: 1px solid #ddd; padding: 8px; text-align: left; color: white; font-size: 12px;">Type</th>
-                  <th style="border: 1px solid #ddd; padding: 8px; text-align: left; color: white; font-size: 12px;">Sous-type</th>
-                  <th style="border: 1px solid #ddd; padding: 8px; text-align: left; color: white; font-size: 12px;">Sous-sous-type</th>
-                  <th style="border: 1px solid #ddd; padding: 8px; text-align: center; color: white; font-size: 12px;">Quantité</th>
-                  <th style="border: 1px solid #ddd; padding: 8px; text-align: center; color: white; font-size: 12px;">Statut</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${cardsDetailsRows}
-              </tbody>
-            </table>
-          </div>
-        `
+          <section>
+            <h3 class="section">${bank.code} - ${bank.name}</h3>
+            ${tableauDetailsBanque(bank, locationNames)}
+          </section>
+          <section>
+            <h3 class="section">Détail des cartes (${bankCards.length})</h3>
+            ${tableauCartesDeBanque(bankCards)}
+          </section>`
       })
       .join("")
 
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Liste des Banques</title>
-          <style>
-            body {
-              font-family: Arial, sans-serif;
-              padding: 20px;
-            }
-            h1 {
-              text-align: center;
-              color: #1e293b;
-              margin-bottom: 10px;
-            }
-            .header-info {
-              text-align: center;
-              margin-bottom: 30px;
-              color: #64748b;
-            }
-            table {
-              width: 100%;
-              border-collapse: collapse;
-            }
-            .footer {
-              margin-top: 30px;
-              text-align: center;
-              color: #64748b;
-              font-size: 12px;
-              page-break-inside: avoid;
-            }
-            @media print {
-              button {
-                display: none;
-              }
-              .bank-section {
-                page-break-inside: avoid;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <h1>Société Monétique Tunisie</h1>
-          <h2 style="text-align: center; color: #1e293b; margin-bottom: 20px;">Liste des Banques Partenaires et Détails des Cartes</h2>
-          <div class="header-info">
-            <p>Généré le ${new Date().toLocaleString("fr-FR")}</p>
-            <p>Total: ${banks.length} banque(s)</p>
-          </div>
-          ${banksContent}
-          <div class="footer">
-            <p>Adresse : Centre urbain Nord, Sana Center, bloc C – 1082, Tunis</p>
-          </div>
-          <script>
-            window.onload = function() {
-              window.print();
-            }
-          </script>
-        </body>
-      </html>
-    `
+    const blocs = `
+      ${enteteHtml(logoPath)}
+      <div class="titre-document"><h2>Liste des Banques Partenaires et Détail des Cartes</h2></div>
+      <div class="info-gauche">
+        <p>Généré le ${formatHorodatage()} par ${nomUtilisateurCourant()}</p>
+        <p><strong>Total :</strong> ${banks.length} banque${banks.length > 1 ? "s" : ""}</p>
+      </div>
+      ${sections || '<section><h3 class="section">Banques</h3><table><tbody><tr><td>Aucune banque à afficher</td></tr></tbody></table></section>'}
+      ${blocSignatures}`
 
-    printWindow.document.write(htmlContent)
+    printWindow.document.write(
+      documentImprimable({ titreOnglet: "Liste des Banques Partenaires et Détail des Cartes", blocs }),
+    )
     printWindow.document.close()
   }
 
