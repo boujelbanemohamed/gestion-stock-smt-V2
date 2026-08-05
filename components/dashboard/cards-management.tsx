@@ -28,6 +28,7 @@ import { toast } from "@/hooks/use-toast"
 import { useConfirmation } from "@/hooks/use-confirmation"
 import { usePermissions } from "@/hooks/use-permissions"
 import { documentImprimable, enteteHtml } from "@/lib/print-layout"
+import { parseCsvLine } from "@/lib/csv"
 
 export default function CardsManagement() {
   const { demanderConfirmation, dialogueConfirmation } = useConfirmation()
@@ -364,7 +365,7 @@ export default function CardsManagement() {
     // Nettoyer les guillemets éventuels
     const sanitizeCell = (value: string) => value.replace(/^\s*\"|\"\s*$/g, "").trim()
 
-    const headers = headerLine.split(delimiter).map((h) => sanitizeCell(h))
+    const headers = parseCsvLine(headerLine, delimiter).map((h) => sanitizeCell(h))
 
     // Valider la présence des en-têtes requis (ID est optionnel)
     const requiredHeaders = [
@@ -395,7 +396,7 @@ export default function CardsManagement() {
     for (let i = 1; i < lines.length; i++) {
       const line = (lines[i] || "").trim()
       if (!line) continue
-      const values = line.split(delimiter)
+      const values = parseCsvLine(line, delimiter)
       const card: any = {}
 
       headers.forEach((header, index) => {

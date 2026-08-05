@@ -31,6 +31,7 @@ import { toast } from "@/hooks/use-toast"
 import { useConfirmation } from "@/hooks/use-confirmation"
 import { usePermissions } from "@/hooks/use-permissions"
 import { documentImprimable, enteteHtml } from "@/lib/print-layout"
+import { parseCsvLine } from "@/lib/csv"
 
 export default function LocationsManagement() {
   const { demanderConfirmation, dialogueConfirmation } = useConfirmation()
@@ -417,7 +418,7 @@ export default function LocationsManagement() {
         return
       }
 
-      const headers = lines[0].split(";").map((h) => h.trim())
+      const headers = parseCsvLine(lines[0], ";").map((h) => h.trim())
       const expectedHeaders = ["Banque", "NomEmplacement", "Description"]
 
       if (!expectedHeaders.every((h) => headers.includes(h))) {
@@ -427,7 +428,7 @@ export default function LocationsManagement() {
 
       const rows: LocationImportRow[] = []
       for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(";").map((v) => v.trim())
+        const values = parseCsvLine(lines[i], ";").map((v) => v.trim())
         if (values.length >= 2) {
           rows.push({
             Banque: values[headers.indexOf("Banque")],

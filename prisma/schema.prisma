@@ -84,6 +84,12 @@ model Card {
   stockLevels    StockLevel[]
   inventoryLines InventoryLine[]
 
+  // Une même banque ne doit pas avoir deux fois la même carte (nom + type +
+  // sous-type + sous-sous-type identiques) : app/api/cards/import/route.ts
+  // dédupliquait déjà sur ce tuple exact pour décider créer/mettre à jour,
+  // mais rien ne l'empêchait via la création à l'unité dans l'interface.
+  @@unique([bankId, name, type, subType, subSubType])
+  @@index([bankId])
   @@map("cards")
 }
 
@@ -104,6 +110,7 @@ model Location {
   stockLevels    StockLevel[]
   inventoryLines InventoryLine[]
 
+  @@index([bankId])
   @@map("locations")
 }
 
@@ -132,6 +139,11 @@ model Movement {
   toLocation   Location? @relation("MovementTo", fields: [toLocationId], references: [id])
   user         User      @relation(fields: [userId], references: [id])
 
+  @@index([cardId])
+  @@index([fromLocationId])
+  @@index([toLocationId])
+  @@index([userId])
+  @@index([createdAt])
   @@map("movements")
 }
 
@@ -259,6 +271,8 @@ model AuditLog {
   // Relations
   user User @relation(fields: [userId], references: [id])
 
+  @@index([userId])
+  @@index([timestamp])
   @@map("audit_logs")
 }
 

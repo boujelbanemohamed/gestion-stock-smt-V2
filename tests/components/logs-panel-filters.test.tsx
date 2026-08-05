@@ -89,6 +89,21 @@ describe("LogsPanel - filtres", () => {
     expect(screen.getByText("2 logs trouvés")).toBeInTheDocument()
   })
 
+  // Corrigé ici : deux effets séparés appelaient chacun loadLogs() au
+  // montage (l'un explicitement, l'autre via ses dépendances startDate/
+  // endDate déjà présentes dès le premier rendu), doublant inutilement le
+  // chargement à chaque ouverture de la page.
+  it("ne charge les logs qu'une seule fois au montage", async () => {
+    const fetchMock = setupFetchMock()
+    render(<LogsPanel />)
+    await screen.findByText(logDelete.details)
+
+    const logsCalls = fetchMock.mock.calls.filter(
+      (c) => typeof c[0] === "string" && (c[0] as string).includes("/api/logs"),
+    )
+    expect(logsCalls).toHaveLength(1)
+  })
+
   it("filtre les logs par terme de recherche", async () => {
     const user = userEvent.setup()
     render(<LogsPanel />)

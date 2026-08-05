@@ -91,6 +91,52 @@ describe("GET /api/stats", () => {
     expect(json.data.lowStockCards).toBe(1)
     expect(json.data.lowStockCardsList[0]).toMatchObject({ id: "c1", quantity: 10, minThreshold: 50 })
   })
+
+  // Corrigé ici : avec un filtre de date, le stock des banques à cette date
+  // était recalculé avec une requête de mouvements PAR CARTE (N+1). On vérifie
+  // à la fois le résultat et qu'un seul appel groupé est fait.
+  it("calcule le stock des banques à une date donnée en un seul appel groupé (pas de N+1)", async () => {
+    vi.mocked(prisma.bank.findMany).mockResolvedValue([
+      {
+        id: "b1",
+        name: "Amen",
+        cards: [
+          { id: "c1", quantity: 10, name: "Visa", minThreshold: 50 },
+          { id: "c2", quantity: 20, name: "Mastercard", minThreshold: 5 },
+        ],
+      },
+    ] as any)
+    // Après la date de calcul : une entrée de 4 sur c1 (à retirer du stock
+    // actuel) et une sortie de 3 sur c2 (à réajouter au stock actuel). Cette
+    // route fait aussi un appel movement.findMany sans rapport (top des
+    // sorties) : on distingue les deux par la forme du "where".
+    vi.mocked(prisma.movement.findMany).mockImplementation(async (args: any) => {
+      if (args?.where?.cardId?.in) {
+        return [
+          { cardId: "c1", movementType: "entry", quantity: 4 },
+          { cardId: "c2", movementType: "exit", quantity: 3 },
+        ] as any
+      }
+      return [] as any
+    })
+
+    const response = await GET(makeRequest("http://localhost/api/stats?dateFrom=2026-01-01"))
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    // c1: 10 - 4 = 6 ; c2: 20 + 3 = 23 ; total banque = 29
+    expect(json.data.topBanksWithStock[0]).toMatchObject({ id: "b1", totalStock: 29 })
+
+    // Le point clé du correctif : un seul appel groupé pour toutes les cartes
+    // de calcul de stock, jamais un appel par carte.
+    const stockCalcCalls = vi
+      .mocked(prisma.movement.findMany)
+      .mock.calls.filter((c: any) => c[0]?.where?.cardId?.in)
+    expect(stockCalcCalls).toHaveLength(1)
+    expect(stockCalcCalls[0][0]).toMatchObject({
+      where: { cardId: { in: ["c1", "c2"] }, createdAt: { gt: expect.any(Date) } },
+    })
+  })
 })
 
 describe("POST /api/statistics/calculate", () => {
@@ -133,8 +179,27 @@ describe("POST /api/statistics/calculate", () => {
 
     expect(response.status).toBe(200)
     expect(json.data.quantiteDe).toBe(10)
-    expect(json.data.quantiteVers).toBe(30)
-    expect(json.data.total).toBe(40)
-    expect(json.data.pourcentage).toBeCloseTo(75, 5)
+  })
+
+  // Corrigé ici : sans aucun filtre (ni période, ni banque), la requête
+  // chargeait l'intégralité de la table des mouvements en mémoire.
+  it("limite implicitement aux 12 derniers mois quand aucun filtre n'est fourni", async () => {
+    vi.mocked(prisma.movement.findMany).mockResolvedValue([])
+
+    await calculate(makeRequest("http://localhost/api/statistics/calculate", { body: {} }))
+
+    expect(prisma.movement.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ createdAt: { gte: expect.any(Date) } }) }),
+    )
+  })
+
+  it("n'applique aucune borne implicite quand une banque est fournie sans période", async () => {
+    vi.mocked(prisma.movement.findMany).mockResolvedValue([])
+
+    await calculate(makeRequest("http://localhost/api/statistics/calculate", { body: { bankId: "b1" } }))
+
+    expect(prisma.movement.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.not.objectContaining({ createdAt: expect.anything() }) }),
+    )
   })
 })

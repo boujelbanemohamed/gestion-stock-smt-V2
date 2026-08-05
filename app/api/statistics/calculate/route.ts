@@ -38,6 +38,12 @@ export async function POST(request: NextRequest) {
         createdAtFilter.lte = toDate
       }
       where.createdAt = createdAtFilter
+    } else if (!bankId || bankId === "all") {
+      // Aucune période NI banque fournie : sans borne, cette requête chargerait
+      // l'intégralité de la table des mouvements en mémoire pour l'agrégation
+      // en JS ci-dessous. On limite alors implicitement aux 12 derniers mois,
+      // qui reste le cas d'usage normal de cet écran.
+      where.createdAt = { gte: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000) }
     }
 
     // Filtre par banque (via la carte)

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import NotificationsDropdown from "@/components/notifications"
+import { Toaster } from "@/components/ui/toaster"
 
 // jsdom n'implémente pas ces APIs de pointeur utilisées par les menus Radix,
 // ni ResizeObserver utilisé par le composant ScrollArea de la liste.
@@ -23,8 +24,8 @@ vi.mock("@/hooks/use-server-event", () => ({
   }),
 }))
 
-function jsonResponse(body: unknown) {
-  return Promise.resolve({ json: () => Promise.resolve(body) } as Response)
+function jsonResponse(body: unknown, ok = true) {
+  return Promise.resolve({ ok, json: () => Promise.resolve(body) } as Response)
 }
 
 const unreadNotification = {
@@ -156,6 +157,65 @@ describe("NotificationsDropdown", () => {
         expect.objectContaining({ method: "PUT", body: JSON.stringify({ isRead: true }) }),
       )
     })
+  })
+
+  // Corrigé ici : un échec serveur au marquage/à la suppression ne produisait
+  // auparavant qu'un console.error, sans aucun retour visible pour
+  // l'utilisateur — il ne pouvait pas savoir que son clic n'avait rien fait.
+  it("affiche une erreur si le marquage comme lu échoue côté serveur", async () => {
+    const fetchMock = vi.fn((url: string, options?: RequestInit) => {
+      if (url.startsWith("/api/notifications/") && options?.method === "PUT") {
+        return jsonResponse({ success: false }, false)
+      }
+      if (url.startsWith("/api/notifications")) {
+        return jsonResponse({ success: true, data: [unreadNotification, readNotification] })
+      }
+      throw new Error(`Unexpected fetch to ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const user = userEvent.setup()
+    render(
+      <>
+        <NotificationsDropdown />
+        <Toaster />
+      </>,
+    )
+    await screen.findByText("1")
+
+    await user.click(screen.getByRole("button"))
+    await screen.findByText("Stock faible")
+    await user.click(screen.getByRole("button", { name: "Marquer comme lu" }))
+
+    expect(await screen.findByText("Impossible de marquer la notification comme lue")).toBeInTheDocument()
+  })
+
+  it("affiche une erreur si la suppression échoue côté serveur", async () => {
+    const fetchMock = vi.fn((url: string, options?: RequestInit) => {
+      if (url.startsWith("/api/notifications/") && options?.method === "DELETE") {
+        return jsonResponse({ success: false }, false)
+      }
+      if (url.startsWith("/api/notifications")) {
+        return jsonResponse({ success: true, data: [unreadNotification, readNotification] })
+      }
+      throw new Error(`Unexpected fetch to ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const user = userEvent.setup()
+    render(
+      <>
+        <NotificationsDropdown />
+        <Toaster />
+      </>,
+    )
+    await screen.findByText("1")
+
+    await user.click(screen.getByRole("button"))
+    await screen.findByText("Stock faible")
+    await user.click(screen.getAllByRole("button", { name: /supprimer/i })[0])
+
+    expect(await screen.findByText("Impossible de supprimer la notification")).toBeInTheDocument()
   })
 
   it("recharge les notifications à la réception d'un évènement temps réel", async () => {

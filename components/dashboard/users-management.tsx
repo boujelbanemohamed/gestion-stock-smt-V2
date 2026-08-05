@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useSearchParams } from "next/navigation"
 import { useDataSync, useAutoRefresh } from "@/hooks/use-data-sync"
 import { usePermissions } from "@/hooks/use-permissions"
@@ -107,20 +107,33 @@ export default function UsersManagement() {
     permissions: [] as Permission[],
   })
 
+  // Compteur de séquence : protège contre le cas où deux requêtes se
+  // chevauchent (ex. réseau lent) — sans lui, une réponse plus ancienne
+  // arrivée après une plus récente écraserait le résultat affiché par un
+  // résultat obsolète.
+  const loadSeqRef = useRef(0)
+
+  // Retardé (300 ms) pour ne pas déclencher un appel réseau à chaque frappe
+  // dans le champ de recherche — sauf quand la recherche redevient vide, où
+  // on recharge immédiatement. Un changement de filtre pendant le délai
+  // annule l'appel encore programmé (cleanup), avant même qu'il ne parte.
   useEffect(() => {
-    loadData()
-  }, [filters])
+    const timer = setTimeout(loadData, filters.searchTerm ? 300 : 0)
+    return () => clearTimeout(timer)
+  }, [filters.role, filters.status, filters.searchTerm])
 
   const loadData = async () => {
+    const seq = ++loadSeqRef.current
     try {
       // Charger les utilisateurs
       const params = new URLSearchParams()
       if (filters.role && filters.role !== 'all') params.append('role', filters.role)
       if (filters.status && filters.status !== 'all') params.append('status', filters.status)
       if (filters.searchTerm) params.append('search', filters.searchTerm)
-      
+
       const usersResponse = await authenticatedFetch(`/api/users?${params.toString()}`)
       const usersData = await usersResponse.json()
+      if (seq !== loadSeqRef.current) return // une requête plus récente a déjà démarré
       if (usersData.success) {
         setUsers(usersData.data || [])
       }
@@ -128,6 +141,7 @@ export default function UsersManagement() {
       // Charger les rôles
       const rolesResponse = await authenticatedFetch('/api/roles')
       const rolesData = await rolesResponse.json()
+      if (seq !== loadSeqRef.current) return
       if (rolesData.success) {
         setRolePermissions(rolesData.data || [])
       }
@@ -384,10 +398,11 @@ export default function UsersManagement() {
   }
 
   const handleToggleStatus = async (userId: string) => {
-    try {
-      const user = users.find(u => u.id === userId)
-      if (!user) return
+    const user = users.find(u => u.id === userId)
+    if (!user) return
+    const action = user.isActive ? "désactiver" : "activer"
 
+    try {
       const response = await authenticatedFetch(`/api/users/${userId}`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -397,10 +412,26 @@ export default function UsersManagement() {
 
       const data = await response.json()
       if (data.success) {
+        toast({
+          title: user.isActive ? "Utilisateur désactivé" : "Utilisateur activé",
+          description: `${user.firstName} ${user.lastName}`,
+          variant: "success",
+        })
         await loadData()
+      } else {
+        toast({
+          title: `Impossible de ${action} l'utilisateur`,
+          description: data.error,
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error('Error toggling user status:', error)
+      toast({
+        title: `Impossible de ${action} l'utilisateur`,
+        description: "Une erreur est survenue pendant la mise à jour du statut.",
+        variant: "destructive",
+      })
     }
   }
 

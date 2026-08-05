@@ -188,10 +188,15 @@ describe("UsersManagement - création, édition et statut", () => {
     expect(await screen.findByText("Utilisateur mis à jour")).toBeInTheDocument()
   })
 
-  it("désactive un utilisateur actif", async () => {
+  it("désactive un utilisateur actif et affiche une confirmation", async () => {
     const fetchMock = setupFetchMock()
     const user = userEvent.setup()
-    render(<UsersManagement />)
+    render(
+      <>
+        <UsersManagement />
+        <Toaster />
+      </>,
+    )
 
     await user.click(await screen.findByRole("button", { name: /désactiver/i }))
 
@@ -206,6 +211,38 @@ describe("UsersManagement - création, édition et statut", () => {
     )!
     const body = JSON.parse((putCall[1] as RequestInit).body as string)
     expect(body).toEqual({ isActive: false })
+
+    // Corrigé ici : cette action n'affichait auparavant aucun retour, ni en
+    // cas de succès ni en cas d'échec (contrairement à l'équivalent pour les
+    // banques) — l'utilisateur ne savait pas si son clic avait eu un effet.
+    expect(await screen.findByText("Utilisateur désactivé")).toBeInTheDocument()
+  })
+
+  // Corrigé ici : un échec serveur (ex. droits insuffisants, contrainte
+  // métier) ne produisait auparavant qu'un console.error, sans que
+  // l'utilisateur ne soit informé que rien ne s'est passé.
+  it("affiche une erreur si la désactivation échoue côté serveur", async () => {
+    const fetchMock = vi.fn((url: string, options?: RequestInit) => {
+      if (url.startsWith(`/api/users/${targetUser.id}`) && options?.method === "PUT") {
+        return jsonResponse({ success: false, error: "Impossible de modifier ce compte" })
+      }
+      if (url.startsWith("/api/users")) return jsonResponse({ success: true, data: [targetUser] })
+      if (url.startsWith("/api/roles")) return jsonResponse({ success: true, data: roles })
+      throw new Error(`Unexpected fetch to ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const user = userEvent.setup()
+    render(
+      <>
+        <UsersManagement />
+        <Toaster />
+      </>,
+    )
+
+    await user.click(await screen.findByRole("button", { name: /désactiver/i }))
+
+    expect(await screen.findByText("Impossible de désactiver l'utilisateur")).toBeInTheDocument()
   })
 
   it("masque les actions de création/modification si l'utilisateur n'a pas la permission", async () => {

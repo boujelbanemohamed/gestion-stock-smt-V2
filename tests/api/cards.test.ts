@@ -7,6 +7,7 @@ vi.mock("@/lib/db", () => ({
     card: {
       findMany: vi.fn(),
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
     },
@@ -127,6 +128,7 @@ describe("POST /api/cards", () => {
   })
 
   it("crée une carte valide et journalise l'action", async () => {
+    vi.mocked(prisma.card.findFirst).mockResolvedValue(null)
     vi.mocked(prisma.card.create).mockResolvedValue(card as any)
 
     const response = await POST(
@@ -141,6 +143,23 @@ describe("POST /api/cards", () => {
     expect(prisma.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: "create", module: "cards" }) }),
     )
+  })
+
+  // Corrigé ici : cette combinaison est désormais protégée par une contrainte
+  // d'unicité en base (bankId+name+type+subType+subSubType), sur laquelle
+  // l'import CSV s'appuyait déjà pour dédupliquer, mais que la création à
+  // l'unité ne vérifiait pas.
+  it("refuse une carte identique à une carte existante (même banque, nom, type, sous-type, sous-sous-type)", async () => {
+    vi.mocked(prisma.card.findFirst).mockResolvedValue(card as any)
+
+    const response = await POST(
+      makeRequest("http://localhost/api/cards", {
+        body: { name: "Visa Classique", type: "Carte débit", subType: "Visa", subSubType: "National", bankId: "bank-1" },
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    expect(prisma.card.create).not.toHaveBeenCalled()
   })
 })
 

@@ -144,6 +144,12 @@ export default function MovementsManagement() {
   const [totalPages, setTotalPages] = useState(1)
   const movementsPerPage = 30
 
+  // Compteur de séquence : protège contre le cas où deux requêtes se
+  // chevauchent (ex. réseau lent) — sans lui, une réponse plus ancienne
+  // arrivée après une plus récente écraserait la liste affichée par un
+  // résultat obsolète.
+  const loadMovementsSeqRef = useRef(0)
+
   useEffect(() => {
     loadCurrentUser()
     // Charger les cartes, emplacements et banques une seule fois
@@ -178,10 +184,20 @@ export default function MovementsManagement() {
     }
   }
 
-  // Recharger les mouvements quand les filtres ou la page changent
+  // Recharger les mouvements quand les filtres ou la page changent. Retardé
+  // (300 ms) pour ne pas déclencher un appel réseau à chaque frappe dans le
+  // champ de recherche — sauf quand la recherche redevient vide (ex. clic
+  // sur Réinitialiser), où on recharge immédiatement : l'utilisateur
+  // s'attend à un effet instantané pour cette action-là. Un changement de
+  // filtre pendant le délai annule l'appel encore programmé (cleanup),
+  // avant même qu'il ne parte.
   useEffect(() => {
-    loadMovements()
-  }, [filters, currentPage])
+    const timer = setTimeout(loadMovements, filters.searchTerm ? 300 : 0)
+    return () => clearTimeout(timer)
+  }, [
+    filters.bankId, filters.cardId, filters.movementType, filters.fromLocationId,
+    filters.toLocationId, filters.dateFrom, filters.dateTo, filters.searchTerm, currentPage,
+  ])
 
   // Pré-remplir et ouvrir le formulaire "Nouveau mouvement" quand on arrive depuis
   // la fiche détaillée d'une carte (lien "Nouveau mouvement" avec ?cardId=...)
@@ -227,10 +243,11 @@ export default function MovementsManagement() {
   }
 
   const loadMovements = async () => {
+    const seq = ++loadMovementsSeqRef.current
     try {
       // Construire les paramètres de requête avec filtres et pagination
       const params = new URLSearchParams()
-      
+
       // Ajouter les filtres
       if (filters.bankId && filters.bankId !== "all") {
         params.append('bankId', filters.bankId)
@@ -256,7 +273,7 @@ export default function MovementsManagement() {
       if (filters.searchTerm) {
         params.append('searchTerm', filters.searchTerm)
       }
-      
+
       // Ajouter la pagination
       params.append('page', currentPage.toString())
       params.append('limit', movementsPerPage.toString())
@@ -264,10 +281,11 @@ export default function MovementsManagement() {
       // Charger les mouvements avec filtres et pagination
       const movementsResponse = await authenticatedFetch(`/api/movements?${params.toString()}`)
       const movementsData = await movementsResponse.json()
+      if (seq !== loadMovementsSeqRef.current) return // une requête plus récente a déjà démarré
       if (movementsData.success && movementsData.data) {
         // S'assurer que movements est toujours un tableau
-        const movementsArray = Array.isArray(movementsData.data.movements) 
-          ? movementsData.data.movements 
+        const movementsArray = Array.isArray(movementsData.data.movements)
+          ? movementsData.data.movements
           : (Array.isArray(movementsData.data) ? movementsData.data : [])
         setMovements(movementsArray)
         setTotalMovements(movementsData.data.total || 0)
@@ -277,6 +295,7 @@ export default function MovementsManagement() {
         setMovements([])
       }
     } catch (error) {
+      if (seq !== loadMovementsSeqRef.current) return
       console.error('Error loading movements:', error)
       // En cas d'erreur, s'assurer que movements reste un tableau vide
       setMovements([])

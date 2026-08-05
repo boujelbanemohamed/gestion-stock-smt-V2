@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import BanksManagement from "@/components/dashboard/banks-management"
 import { annulerConfirmation, repondreConfirmation } from "../helpers/dialogue-confirmation"
@@ -74,6 +74,99 @@ describe("BanksManagement", () => {
 
     expect(await screen.findByText("Banque Centrale")).toBeInTheDocument()
     expect(screen.getByText(/1 banque trouvée/)).toBeInTheDocument()
+  })
+
+  // Corrigé ici : la recherche déclenchait un appel à chaque frappe, sans
+  // annulation ni séquencement — une réponse plus ancienne arrivée après une
+  // plus récente pouvait réafficher un résultat obsolète.
+  it("ignore la réponse d'une recherche devenue obsolète si une plus récente est déjà arrivée", async () => {
+    const bankB = { ...bankA, id: "bank-2", name: "Banque BIAT" }
+    let resolveStaleSearch: ((value: unknown) => void) | undefined
+
+    const fetchMock = vi.fn((url: string, options?: RequestInit) => {
+      if (url.startsWith("/api/banks?") && url.includes("search=Cen")) {
+        // Cette requête (déclenchée par "Cen") reste volontairement en
+        // attente : elle ne se résout qu'après celle de "BIAT" ci-dessous.
+        return new Promise((resolve) => { resolveStaleSearch = resolve })
+      }
+      if (url.startsWith("/api/banks?") && url.includes("search=BIAT")) {
+        return jsonResponse({ success: true, data: [bankB] })
+      }
+      if (url.startsWith("/api/banks")) {
+        return jsonResponse({ success: true, data: [bankA] })
+      }
+      if (url.startsWith("/api/locations")) {
+        return jsonResponse({ success: true, data: [] })
+      }
+      if (url.startsWith("/api/cards")) {
+        return jsonResponse({ success: true, data: [] })
+      }
+      throw new Error(`Unexpected fetch to ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const user = userEvent.setup()
+    render(<BanksManagement />)
+    expect(await screen.findByText("Banque Centrale")).toBeInTheDocument()
+
+    const search = screen.getByLabelText("Recherche")
+    await user.type(search, "Cen")
+    // Laisser le débounce de "Cen" se déclencher avant de taper la suite,
+    // pour bien avoir deux requêtes réseau distinctes en vol.
+    await waitFor(() => expect(fetchMock.mock.calls.some(c => String(c[0]).includes("search=Cen"))).toBe(true))
+
+    await user.clear(search)
+    await user.type(search, "BIAT")
+    await screen.findByText("Banque BIAT")
+
+    // La requête "Cen", partie AVANT "BIAT" mais qui se résout APRÈS, ne doit
+    // plus pouvoir écraser l'affichage une fois qu'elle répond enfin.
+    resolveStaleSearch?.(await jsonResponse({ success: true, data: [bankA] }))
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(screen.getByText("Banque BIAT")).toBeInTheDocument()
+    expect(screen.queryByText("Banque Centrale")).not.toBeInTheDocument()
+  })
+
+  // La recherche est retardée (300 ms), mais vider la recherche via
+  // Réinitialiser doit rester instantané : un utilisateur qui clique sur ce
+  // bouton s'attend à un effet immédiat, pas à un délai de recherche.
+  it("recharge immédiatement (sans le délai de recherche) au clic sur Réinitialiser", async () => {
+    const fetchMock = setupFetchMock()
+    const user = userEvent.setup()
+    render(<BanksManagement />)
+    await screen.findByText("Banque Centrale")
+
+    await user.type(screen.getByLabelText("Recherche"), "xyz")
+    fetchMock.mockClear()
+
+    await user.click(screen.getByRole("button", { name: /^réinitialiser$/i }))
+
+    // Pas d'attente explicite de 300ms : si Réinitialiser passait par le
+    // même délai que la frappe, cette assertion échouerait par timeout.
+    await waitFor(() => {
+      const calledUrls = fetchMock.mock.calls.map((c) => String(c[0]))
+      expect(calledUrls.some((u) => u.startsWith("/api/banks?") && !u.includes("search="))).toBe(true)
+    })
+  })
+
+  // Corrigé ici : le contrôle qui déplie le détail d'une banque n'était
+  // atteignable qu'à la souris (div avec un simple onClick), inutilisable
+  // au clavier — contrairement aux boutons d'action qu'il contient, qui
+  // restent de vrais <button>.
+  it("déplie le détail d'une banque au clavier (Entrée sur l'en-tête)", async () => {
+    setupFetchMock()
+    render(<BanksManagement />)
+    await screen.findByText("Banque Centrale")
+
+    const header = screen.getByText("Banque Centrale").closest('[role="button"]')
+    expect(header).not.toBeNull()
+    expect(header).toHaveAttribute("tabindex", "0")
+    expect(header).toHaveAttribute("aria-expanded", "false")
+
+    fireEvent.keyDown(header!, { key: "Enter" })
+
+    await waitFor(() => expect(header).toHaveAttribute("aria-expanded", "true"))
   })
 
   it("affiche un message quand aucune banque ne correspond", async () => {

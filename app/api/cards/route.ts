@@ -53,7 +53,13 @@ export async function GET(request: NextRequest) {
           }
         }
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      // Filet de sécurité : cet endpoint renvoie tout le catalogue en un seul
+      // appel (utilisé partout pour du filtrage et des listes déroulantes
+      // côté client), pas de vraie pagination. Ce plafond protège contre une
+      // dérive mémoire si le catalogue grossissait au-delà de ce qui est
+      // réaliste pour cette application, sans changer le contrat de l'API.
+      take: 5000,
     })
 
     // Harmoniser la quantité: somme des stocks par emplacement
@@ -122,6 +128,29 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error: "Les seuils doivent être positifs",
+        },
+        { status: 400 },
+      )
+    }
+
+    // Cette combinaison est protégée par une contrainte d'unicité en base
+    // (voir prisma/schema.prisma) : on la vérifie ici d'abord pour renvoyer
+    // un message clair plutôt qu'une erreur 500 brute sur la contrainte.
+    const existingCard = await prisma.card.findFirst({
+      where: {
+        bankId: body.bankId,
+        name: body.name,
+        type: body.type,
+        subType: body.subType,
+        subSubType: body.subSubType,
+      },
+    })
+
+    if (existingCard) {
+      return NextResponse.json<ApiResponse>(
+        {
+          success: false,
+          error: "Une carte identique (même banque, nom, type, sous-type et sous-sous-type) existe déjà",
         },
         { status: 400 },
       )

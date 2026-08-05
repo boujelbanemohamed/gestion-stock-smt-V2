@@ -14,6 +14,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { authenticatedFetch } from "@/lib/api-client"
 import { useServerEvent } from "@/hooks/use-server-event"
+import { toast } from "@/hooks/use-toast"
 
 export default function NotificationsDropdown() {
   const [notifications, setNotifications] = useState<Notification[]>([])
@@ -64,45 +65,55 @@ export default function NotificationsDropdown() {
 
       if (response.ok) {
         await loadNotifications()
+      } else {
+        toast({
+          title: "Impossible de marquer la notification comme lue",
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error('Error marking notification as read:', error)
+      toast({
+        title: "Impossible de marquer la notification comme lue",
+        description: "Une erreur est survenue.",
+        variant: "destructive",
+      })
     }
   }
 
   const handleMarkAllAsRead = async () => {
     try {
-      console.log('handleMarkAllAsRead called')
       const currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null')
-      console.log('currentUser:', currentUser)
-      
-      if (currentUser) {
-        // Marquer toutes les notifications non lues comme lues
-        const unreadNotifications = notifications.filter(n => !n.isRead)
-        console.log('unreadNotifications count:', unreadNotifications.length)
-        
-        if (unreadNotifications.length === 0) {
-          console.log('No unread notifications to mark')
-          return
-        }
-        
-        const promises = unreadNotifications.map(notification => 
+      if (!currentUser) return
+
+      // Marquer toutes les notifications non lues comme lues
+      const unreadNotifications = notifications.filter(n => !n.isRead)
+      if (unreadNotifications.length === 0) return
+
+      const responses = await Promise.all(
+        unreadNotifications.map(notification =>
           authenticatedFetch(`/api/notifications/${notification.id}`, {
             method: 'PUT',
             body: JSON.stringify({ isRead: true })
           })
         )
-        
-        const results = await Promise.all(promises)
-        console.log('Mark as read results:', results.map(r => r.ok))
-        
-        await loadNotifications()
-        console.log('Notifications reloaded')
-      } else {
-        console.log('No current user found')
+      )
+
+      await loadNotifications()
+
+      if (responses.some(r => !r.ok)) {
+        toast({
+          title: "Certaines notifications n'ont pas pu être marquées comme lues",
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error('Error marking all notifications as read:', error)
+      toast({
+        title: "Impossible de marquer les notifications comme lues",
+        description: "Une erreur est survenue.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -111,12 +122,22 @@ export default function NotificationsDropdown() {
       const response = await authenticatedFetch(`/api/notifications/${id}`, {
         method: 'DELETE',
       })
-      
+
       if (response.ok) {
         await loadNotifications()
+      } else {
+        toast({
+          title: "Impossible de supprimer la notification",
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error('Error deleting notification:', error)
+      toast({
+        title: "Impossible de supprimer la notification",
+        description: "Une erreur est survenue.",
+        variant: "destructive",
+      })
     }
   }
 

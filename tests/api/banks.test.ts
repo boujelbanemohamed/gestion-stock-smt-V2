@@ -265,7 +265,7 @@ describe("POST /api/banks/import", () => {
   })
 
   it("crée les nouvelles banques et rejette les lignes incomplètes", async () => {
-    vi.mocked(prisma.bank.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.bank.findMany).mockResolvedValue([])
     vi.mocked(prisma.bank.create).mockResolvedValue(bank as any)
 
     const response = await importBanks(
@@ -283,5 +283,30 @@ describe("POST /api/banks/import", () => {
     expect(json.created).toBe(1)
     expect(json.rejected).toBe(1)
     expect(json.errors).toHaveLength(1)
+  })
+
+  // Corrigé ici : la résolution des banques existantes se faisait avant par
+  // une requête PAR LIGNE (N+1). On vérifie qu'une seule lecture est faite,
+  // quel que soit le nombre de lignes importées.
+  it("résout les banques existantes en une seule lecture, sans requête par ligne", async () => {
+    vi.mocked(prisma.bank.findMany).mockResolvedValue([bank] as any)
+    vi.mocked(prisma.bank.update).mockResolvedValue({ ...bank, name: "Amen Bank SA" } as any)
+    vi.mocked(prisma.bank.create).mockResolvedValue({ ...bank, id: "bank-2", code: "BIAT" } as any)
+
+    const response = await importBanks(
+      makeRequest("http://localhost/api/banks/import", {
+        body: {
+          data: [
+            { ID: "bank-1", CodeBanque: "AMEN", NomBanque: "Amen Bank SA", Pays: "Tunisie", SwiftCode: "AMENTNTT" },
+            { CodeBanque: "BIAT", NomBanque: "BIAT", Pays: "Tunisie", SwiftCode: "BIATTNTT" },
+          ],
+        },
+      }),
+    )
+    const json = await response.json()
+
+    expect(json.updated).toBe(1)
+    expect(json.created).toBe(1)
+    expect(prisma.bank.findMany).toHaveBeenCalledTimes(1)
   })
 })

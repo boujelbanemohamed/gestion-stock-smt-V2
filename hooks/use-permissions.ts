@@ -12,6 +12,17 @@ interface UserPermissions {
   isLoading: boolean
 }
 
+// Dernier recours si /api/roles est injoignable après tentative de
+// rafraîchissement du token : les rôles sont en réalité configurables
+// librement par un admin (table RolePermission, isCustom), donc aucune table
+// figée par nom de rôle ne peut réellement les représenter. On se limite
+// volontairement à des permissions de lecture de base plutôt que de deviner
+// des droits par rôle (l'ancienne table incluait même "expedition", qui ne
+// correspond à aucun rôle réellement initialisé).
+const FALLBACK_PERMISSIONS: Permission[] = [
+  'dashboard:view', 'banks:view', 'cards:view', 'locations:view', 'movements:view',
+]
+
 export function usePermissions(): UserPermissions {
   const [user, setUser] = useState<User | null>(null)
   const [permissions, setPermissions] = useState<Permission[]>([])
@@ -93,13 +104,8 @@ export function usePermissions(): UserPermissions {
         }
         // Récupérer les permissions depuis la base de données
         try {
-          const response = await fetch('/api/roles', {
-            headers: {
-              'Authorization': `Bearer ${localStorage.getItem('accessToken') || ''}`,
-              'Content-Type': 'application/json'
-            }
-          })
-          
+          const response = await authenticatedFetch('/api/roles')
+
           if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`)
           }
@@ -130,67 +136,16 @@ export function usePermissions(): UserPermissions {
             } else {
               // Si le rôle n'est pas trouvé, utiliser des permissions par défaut
               console.warn('[usePermissions] Rôle non trouvé dans /api/roles, utilisation des permissions par défaut')
-              const defaultPermissions: { [key: string]: Permission[] } = {
-                admin: [
-                  'dashboard:view', 'banks:view', 'cards:view', 'locations:view', 
-                  'movements:view', 'users:view', 'logs:view', 'config:view'
-                ],
-                expedition: [
-                  'dashboard:view', 'banks:view', 'movements:view'
-                ],
-                manager: [
-                  'dashboard:view', 'banks:view', 'cards:view', 'locations:view', 
-                  'movements:view', 'users:view'
-                ],
-                user: [
-                  'dashboard:view', 'banks:view', 'cards:view', 'locations:view', 'movements:view'
-                ]
-              }
-              const userRoleKey = userData?.role?.toLowerCase() || ''
-              setPermissions(defaultPermissions[userRoleKey] || [])
+              setPermissions(FALLBACK_PERMISSIONS)
             }
           } else {
             console.warn('[usePermissions] Réponse invalide de /api/roles, utilisation des permissions par défaut')
-            const defaultPermissions: { [key: string]: Permission[] } = {
-              admin: [
-                'dashboard:view', 'banks:view', 'cards:view', 'locations:view', 
-                'movements:view', 'users:view', 'logs:view', 'config:view'
-              ],
-              expedition: [
-                'dashboard:view', 'banks:view', 'movements:view'
-              ],
-              manager: [
-                'dashboard:view', 'banks:view', 'cards:view', 'locations:view', 
-                'movements:view', 'users:view'
-              ],
-              user: [
-                'dashboard:view', 'banks:view', 'cards:view', 'locations:view', 'movements:view'
-              ]
-            }
-            const userRoleKey = userData?.role?.toLowerCase() || ''
-            setPermissions(defaultPermissions[userRoleKey] || [])
+            setPermissions(FALLBACK_PERMISSIONS)
           }
         } catch (apiError) {
           console.error('[usePermissions] Erreur lors de la récupération des permissions:', apiError)
           // En cas d'erreur API, utiliser des permissions par défaut
-          const defaultPermissions: { [key: string]: Permission[] } = {
-            admin: [
-              'dashboard:view', 'banks:view', 'cards:view', 'locations:view', 
-              'movements:view', 'users:view', 'logs:view', 'config:view'
-            ],
-            expedition: [
-              'dashboard:view', 'banks:view', 'movements:view'
-            ],
-            manager: [
-              'dashboard:view', 'banks:view', 'cards:view', 'locations:view', 
-              'movements:view', 'users:view'
-            ],
-            user: [
-              'dashboard:view', 'banks:view', 'cards:view', 'locations:view', 'movements:view'
-            ]
-          }
-          const userRoleKey = userData?.role?.toLowerCase() || ''
-          setPermissions(defaultPermissions[userRoleKey] || [])
+          setPermissions(FALLBACK_PERMISSIONS)
         }
         
           setIsLoading(false)

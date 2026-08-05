@@ -33,10 +33,12 @@ export default function LogsPanel() {
   useEffect(() => {
     loadCurrentUser()
     loadUsers()
-    loadLogs()
+    // Pas de loadLogs() ici : l'effet ci-dessous s'en charge déjà au montage
+    // (startDate/endDate ont une valeur initiale), un appel ici doublait
+    // inutilement le chargement des logs à chaque ouverture de la page.
   }, [])
 
-  // Recharger les logs quand les dates changent
+  // Recharger les logs quand les dates changent (et au montage, une seule fois)
   useEffect(() => {
     loadLogs()
   }, [startDate, endDate])

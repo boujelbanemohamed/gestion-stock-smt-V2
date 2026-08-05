@@ -41,9 +41,35 @@ export async function POST(request: NextRequest) {
     let updated = 0
     let rejected = 0
 
+    // Résolution des banques et cartes en mémoire (une seule lecture de
+    // chacune des deux tables au démarrage) au lieu d'aller chercher chaque
+    // banque et chaque carte en base à chaque ligne : la version précédente
+    // émettait jusqu'à 2-6 requêtes séquentielles par ligne. On ne remplace
+    // pas les écritures (create/update) par un traitement en masse : chaque
+    // ligne doit pouvoir échouer indépendamment sans faire échouer les
+    // autres (import CSV = succès partiel attendu), ce qui empêche aussi de
+    // tout envelopper dans une seule transaction Postgres (une erreur y
+    // rendrait toutes les lignes suivantes invalides).
+    const allBanks = await prisma.bank.findMany()
+    const bankById = new Map(allBanks.map(b => [b.id, b]))
+    const bankByCodeOrName = new Map<string, typeof allBanks[number]>()
+    allBanks.forEach(b => {
+      bankByCodeOrName.set(b.code, b)
+      bankByCodeOrName.set(b.name, b)
+    })
+
+    const tupleKey = (bankId: string, name: string, type: string, subType: string, subSubType: string) =>
+      `${bankId}::${name}::${type}::${subType}::${subSubType}`
+
+    const existingCards = await prisma.card.findMany()
+    const cardById = new Map(existingCards.map(c => [c.id, c]))
+    const cardByTuple = new Map(
+      existingCards.map(c => [tupleKey(c.bankId, c.name, c.type, c.subType, c.subSubType), c]),
+    )
+
     for (let i = 0; i < data.length; i++) {
       const row = data[i]
-      
+
       try {
         // Validation
         if (!row.BanqueEmettrice || !row.NomCarte || !row.Type || !row.SousType || !row.SousSousType) {
@@ -57,17 +83,17 @@ export async function POST(request: NextRequest) {
         // 1) Si BankID présent, l'utiliser
         const bankIdCandidate = (row as any).BankID || (row as any).BanqueID || (row as any).bankId
         if (bankIdCandidate && bankIdCandidate.trim() !== '') {
-          const bankById = await prisma.bank.findUnique({ where: { id: bankIdCandidate } })
-          if (!bankById) {
+          const bankByIdMatch = bankById.get(bankIdCandidate)
+          if (!bankByIdMatch) {
             errors.push(`Ligne ${i + 1}: Banque avec ID ${bankIdCandidate} non trouvée`)
             continue
           }
-          bankIdToUse = bankById.id
+          bankIdToUse = bankByIdMatch.id
         }
 
         // 2) Si pas de BankID, et si row.ID correspond à une banque (cas où l'utilisateur met l'ID banque dans ID)
         if (!bankIdToUse && row.ID && row.ID.trim() !== '') {
-          const maybeBank = await prisma.bank.findUnique({ where: { id: row.ID } })
+          const maybeBank = bankById.get(row.ID)
           if (maybeBank) {
             bankIdToUse = maybeBank.id
           }
@@ -75,14 +101,7 @@ export async function POST(request: NextRequest) {
 
         // 3) Si toujours pas de bankId, chercher par code/nom BanqueEmettrice
         if (!bankIdToUse) {
-          const bank = await prisma.bank.findFirst({
-            where: { 
-              OR: [
-                { code: row.BanqueEmettrice },
-                { name: row.BanqueEmettrice }
-              ]
-            }
-          })
+          const bank = bankByCodeOrName.get(row.BanqueEmettrice)
           if (!bank) {
             errors.push(`Ligne ${i + 1}: Banque ${row.BanqueEmettrice} non trouvée`)
             continue
@@ -92,10 +111,10 @@ export async function POST(request: NextRequest) {
 
         // Si un ID est fourni et non vide, tenter de mettre à jour la carte existante
         if (row.ID && row.ID.trim() !== '') {
-          const existingCard = await prisma.card.findUnique({ where: { id: row.ID } })
+          const existingCard = cardById.get(row.ID)
 
           if (existingCard) {
-            await prisma.card.update({
+            const updatedCard = await prisma.card.update({
               where: { id: row.ID },
               data: {
                 name: row.NomCarte,
@@ -105,10 +124,15 @@ export async function POST(request: NextRequest) {
                 bankId: bankIdToUse!,
               }
             })
+            cardById.set(updatedCard.id, updatedCard)
+            cardByTuple.set(
+              tupleKey(updatedCard.bankId, updatedCard.name, updatedCard.type, updatedCard.subType, updatedCard.subSubType),
+              updatedCard,
+            )
             updated++
           } else {
             // L'ID fourni ne correspond pas à une carte: si c'est un ID banque (géré plus haut), on crée une nouvelle carte
-            await prisma.card.create({
+            const newCard = await prisma.card.create({
               data: {
                 name: row.NomCarte,
                 type: row.Type,
@@ -121,23 +145,22 @@ export async function POST(request: NextRequest) {
                 isActive: true,
               }
             })
+            cardById.set(newCard.id, newCard)
+            cardByTuple.set(
+              tupleKey(newCard.bankId, newCard.name, newCard.type, newCard.subType, newCard.subSubType),
+              newCard,
+            )
             created++
           }
         } else {
           // Pas d'ID carte fourni: tenter d'abord de trouver une carte existante avec
           // même (bankId, name, type, subType, subSubType), sinon créer
-          const existingByFields = await prisma.card.findFirst({
-            where: {
-              bankId: bankIdToUse!,
-              name: row.NomCarte,
-              type: row.Type,
-              subType: row.SousType,
-              subSubType: row.SousSousType,
-            }
-          })
+          const existingByFields = cardByTuple.get(
+            tupleKey(bankIdToUse!, row.NomCarte, row.Type, row.SousType, row.SousSousType),
+          )
 
           if (existingByFields) {
-            await prisma.card.update({
+            const updatedCard = await prisma.card.update({
               where: { id: existingByFields.id },
               data: {
                 // On met à jour les mêmes champs (utile si casse/espaces diffèrent)
@@ -148,10 +171,15 @@ export async function POST(request: NextRequest) {
                 bankId: bankIdToUse!,
               }
             })
+            cardById.set(updatedCard.id, updatedCard)
+            cardByTuple.set(
+              tupleKey(updatedCard.bankId, updatedCard.name, updatedCard.type, updatedCard.subType, updatedCard.subSubType),
+              updatedCard,
+            )
             updated++
           } else {
             // Créer une nouvelle carte
-            await prisma.card.create({
+            const newCard = await prisma.card.create({
               data: {
                 name: row.NomCarte,
                 type: row.Type,
@@ -164,6 +192,11 @@ export async function POST(request: NextRequest) {
                 isActive: true,
               }
             })
+            cardById.set(newCard.id, newCard)
+            cardByTuple.set(
+              tupleKey(newCard.bankId, newCard.name, newCard.type, newCard.subType, newCard.subSubType),
+              newCard,
+            )
             created++
           }
         }

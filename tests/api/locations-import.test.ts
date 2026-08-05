@@ -1,16 +1,16 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { signAccessToken } from "@/lib/auth"
 
 vi.mock("@/lib/db", () => ({
   prisma: {
     location: {
-      findFirst: vi.fn(),
+      findMany: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
     },
     bank: {
-      findFirst: vi.fn(),
+      findMany: vi.fn(),
     },
     auditLog: {
       create: vi.fn(),
@@ -48,7 +48,11 @@ function makeRequest(url: string, options: { body?: unknown; token?: string | nu
   return new NextRequest(url, { method: "POST", headers, body: JSON.stringify(options.body ?? { data: [] }) })
 }
 
+const bankAmen = { id: "bank-1", code: "AMEN", name: "Amen Bank" }
+
 describe("POST /api/locations/import", () => {
+  beforeEach(() => vi.clearAllMocks())
+
   // Corrigé ici : l'import en masse n'était réservé à personne (requireAuth
   // seul), permettant à n'importe quel utilisateur connecté de créer ou
   // d'écraser des emplacements en masse.
@@ -63,5 +67,73 @@ describe("POST /api/locations/import", () => {
     )
     expect(response.status).toBe(403)
     expect(prisma.location.create).not.toHaveBeenCalled()
+  })
+
+  // Corrigé ici : la résolution de banque/emplacement se faisait avant par
+  // une requête PAR LIGNE (N+1). On vérifie qu'une seule lecture de chaque
+  // table est faite, quel que soit le nombre de lignes importées.
+  it("résout banque et emplacements existants en une seule lecture chacun", async () => {
+    vi.mocked(prisma.bank.findMany).mockResolvedValue([bankAmen] as any)
+    vi.mocked(prisma.location.findMany).mockResolvedValue([])
+    vi.mocked(prisma.location.create).mockImplementation(async ({ data }: any) => ({ id: "loc-new", ...data }) as any)
+
+    const response = await importLocations(
+      makeRequest("http://localhost/api/locations/import", {
+        body: {
+          data: [
+            { Banque: "AMEN", NomEmplacement: "Coffre principal" },
+            { Banque: "AMEN", NomEmplacement: "Coffre secondaire" },
+          ],
+        },
+      }),
+    )
+    const json = await response.json()
+
+    expect(json.created).toBe(2)
+    expect(prisma.bank.findMany).toHaveBeenCalledTimes(1)
+    expect(prisma.location.findMany).toHaveBeenCalledTimes(1)
+    expect(prisma.location.create).toHaveBeenCalledTimes(2)
+  })
+
+  it("met à jour un emplacement existant (même nom + même banque)", async () => {
+    const existing = { id: "loc-1", bankId: "bank-1", name: "Coffre principal", description: "Ancien" }
+    vi.mocked(prisma.bank.findMany).mockResolvedValue([bankAmen] as any)
+    vi.mocked(prisma.location.findMany).mockResolvedValue([existing] as any)
+    vi.mocked(prisma.location.update).mockResolvedValue({ ...existing, description: "Nouveau" } as any)
+
+    const response = await importLocations(
+      makeRequest("http://localhost/api/locations/import", {
+        body: { data: [{ Banque: "AMEN", NomEmplacement: "Coffre principal", Description: "Nouveau" }] },
+      }),
+    )
+    const json = await response.json()
+
+    expect(json.updated).toBe(1)
+    expect(prisma.location.update).toHaveBeenCalledWith({
+      where: { id: "loc-1" },
+      data: { description: "Nouveau" },
+    })
+  })
+
+  it("rejette une ligne dont la banque est introuvable, sans bloquer les autres lignes", async () => {
+    vi.mocked(prisma.bank.findMany).mockResolvedValue([bankAmen] as any)
+    vi.mocked(prisma.location.findMany).mockResolvedValue([])
+    vi.mocked(prisma.location.create).mockImplementation(async ({ data }: any) => ({ id: "loc-new", ...data }) as any)
+
+    const response = await importLocations(
+      makeRequest("http://localhost/api/locations/import", {
+        body: {
+          data: [
+            { Banque: "INCONNUE", NomEmplacement: "Coffre X" },
+            { Banque: "AMEN", NomEmplacement: "Coffre Y" },
+          ],
+        },
+      }),
+    )
+    const json = await response.json()
+
+    expect(json.created).toBe(1)
+    expect(json.rejected).toBe(1)
+    expect(json.errors[0]).toContain("INCONNUE")
   })
 })

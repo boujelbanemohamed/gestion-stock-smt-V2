@@ -27,6 +27,7 @@ import { ChevronDown, ChevronRight, Download, Upload, Search, Filter, Printer } 
 import { authenticatedFetch } from "@/lib/api-client"
 import { toast } from "@/hooks/use-toast"
 import { useConfirmation } from "@/hooks/use-confirmation"
+import { parseCsvLine } from "@/lib/csv"
 
 export default function BanksManagement() {
   const { demanderConfirmation, dialogueConfirmation } = useConfirmation()
@@ -72,7 +73,14 @@ export default function BanksManagement() {
     swiftCode?: string
   }>({})
 
+  // Compteur de séquence : protège contre le cas où deux requêtes se
+  // chevauchent (ex. réseau lent) — sans lui, une réponse plus ancienne
+  // arrivée après une plus récente écraserait le résultat affiché par un
+  // résultat obsolète.
+  const loadSeqRef = useRef(0)
+
   const loadBanks = async () => {
+    const seq = ++loadSeqRef.current
     setIsLoading(true)
     try {
       // Construire l'URL avec les filtres
@@ -80,9 +88,10 @@ export default function BanksManagement() {
       if (filters.country) params.append('country', filters.country)
       if (filters.status && filters.status !== 'all') params.append('status', filters.status)
       if (filters.searchTerm) params.append('search', filters.searchTerm)
-      
+
       const response = await authenticatedFetch(`/api/banks?${params.toString()}`)
       const data = await response.json()
+      if (seq !== loadSeqRef.current) return // une requête plus récente a déjà démarré
 
       if (data.success) {
         setBanks(data.data || [])
@@ -95,19 +104,21 @@ export default function BanksManagement() {
       // Charger aussi les locations et cartes pour l'affichage des détails
       const locationsResponse = await authenticatedFetch('/api/locations')
       const locationsData = await locationsResponse.json()
+      if (seq !== loadSeqRef.current) return
       if (locationsData.success) {
         setLocations(locationsData.data || [])
       }
 
       const cardsResponse = await authenticatedFetch('/api/cards')
       const cardsData = await cardsResponse.json()
+      if (seq !== loadSeqRef.current) return
       if (cardsData.success) {
         setCards(cardsData.data || [])
       }
     } catch (error) {
       console.error('Error loading banks:', error)
     }
-    setIsLoading(false)
+    if (seq === loadSeqRef.current) setIsLoading(false)
   }
 
   const { isRefreshing: isSyncRefreshing } = useDataSync(["banks"], loadBanks)
@@ -115,9 +126,15 @@ export default function BanksManagement() {
 
   const isRefreshing = isSyncRefreshing || isAutoRefreshing
 
+  // Retardé (300 ms) pour ne pas déclencher un appel réseau à chaque frappe
+  // dans le champ de recherche — sauf quand la recherche redevient vide
+  // (ex. clic sur Réinitialiser), où on recharge immédiatement. Un
+  // changement de filtre pendant le délai annule l'appel encore programmé
+  // (cleanup), avant même qu'il ne parte.
   useEffect(() => {
-    loadBanks()
-  }, [filters])
+    const timer = setTimeout(loadBanks, filters.searchTerm ? 300 : 0)
+    return () => clearTimeout(timer)
+  }, [filters.country, filters.status, filters.searchTerm])
 
   // Gestion de la soumission du formulaire (async pour les appels API)
   const handleSubmit = async (e: React.FormEvent) => {
@@ -386,12 +403,12 @@ export default function BanksManagement() {
     try {
       const text = await importFile.text()
       const lines = text.split("\n").filter((line) => line.trim())
-      const headers = lines[0].split(";")
+      const headers = parseCsvLine(lines[0], ";")
 
       const banks: BankImportRow[] = []
 
       for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(";")
+        const values = parseCsvLine(lines[i], ";")
         const bank: any = {}
 
         headers.forEach((header, index) => {
@@ -891,7 +908,24 @@ export default function BanksManagement() {
                 return (
                   <Card key={bank.id} className="border-l-4 border-l-blue-500">
                     <Collapsible open={expandedBanks.has(bank.id)} onOpenChange={() => toggleBankExpansion(bank.id)}>
-                      <CardHeader className="hover:bg-slate-50 cursor-pointer" onClick={() => toggleBankExpansion(bank.id)}>
+                      {/* Pas de CollapsibleTrigger (bouton natif) ici : cet en-tête contient déjà
+                          des boutons d'action (activer/modifier/supprimer), et un bouton ne peut
+                          pas légalement en contenir d'autres. On rend donc ce div accessible au
+                          clavier nous-mêmes (role, tabIndex, Entrée/Espace). */}
+                      <CardHeader
+                        className="hover:bg-slate-50 cursor-pointer"
+                        onClick={() => toggleBankExpansion(bank.id)}
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={expandedBanks.has(bank.id)}
+                        aria-label={`Afficher le détail de ${bank.name}`}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault()
+                            toggleBankExpansion(bank.id)
+                          }
+                        }}
+                      >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-4">
                             {expandedBanks.has(bank.id) ? (

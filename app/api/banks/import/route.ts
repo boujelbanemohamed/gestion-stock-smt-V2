@@ -41,9 +41,19 @@ export async function POST(request: NextRequest) {
     let updated = 0
     let rejected = 0
 
+    // Une seule lecture de toutes les banques au démarrage, résolues ensuite
+    // en mémoire, au lieu d'une requête par ligne (N+1). On garde les
+    // écritures ligne par ligne : chaque ligne doit pouvoir échouer
+    // indépendamment (succès partiel attendu sur un import CSV), ce qui
+    // empêche aussi de tout envelopper dans une seule transaction Postgres
+    // (une erreur y rendrait toutes les lignes suivantes invalides).
+    const allBanks = await prisma.bank.findMany()
+    const bankById = new Map(allBanks.map(b => [b.id, b]))
+    const bankByCode = new Map(allBanks.map(b => [b.code, b]))
+
     for (let i = 0; i < data.length; i++) {
       const row = data[i]
-      
+
       try {
         // Validation
         if (!row.CodeBanque || !row.NomBanque || !row.Pays || !row.SwiftCode) {
@@ -54,9 +64,7 @@ export async function POST(request: NextRequest) {
 
         // Si un ID est fourni et non vide, mettre à jour la banque existante
         if (row.ID && row.ID.trim() !== '') {
-          const existing = await prisma.bank.findUnique({
-            where: { id: row.ID }
-          })
+          const existing = bankById.get(row.ID)
 
           if (!existing) {
             errors.push(`Ligne ${i + 1}: Banque avec ID ${row.ID} non trouvée`)
@@ -65,7 +73,7 @@ export async function POST(request: NextRequest) {
           }
 
           // Mettre à jour la banque existante
-          await prisma.bank.update({
+          const updatedBank = await prisma.bank.update({
             where: { id: row.ID },
             data: {
               code: row.CodeBanque,
@@ -77,13 +85,13 @@ export async function POST(request: NextRequest) {
               email: row.Email || "",
             }
           })
+          bankById.set(updatedBank.id, updatedBank)
+          bankByCode.set(updatedBank.code, updatedBank)
           updated++
           imported++
         } else {
           // Vérifier si la banque existe déjà par code
-          const existing = await prisma.bank.findUnique({
-            where: { code: row.CodeBanque }
-          })
+          const existing = bankByCode.get(row.CodeBanque)
 
           if (existing) {
             errors.push(`Ligne ${i + 1}: Banque ${row.CodeBanque} existe déjà`)
@@ -92,7 +100,7 @@ export async function POST(request: NextRequest) {
           }
 
           // Créer une nouvelle banque
-          await prisma.bank.create({
+          const newBank = await prisma.bank.create({
             data: {
               code: row.CodeBanque,
               name: row.NomBanque,
@@ -104,6 +112,8 @@ export async function POST(request: NextRequest) {
               isActive: true,
             }
           })
+          bankById.set(newBank.id, newBank)
+          bankByCode.set(newBank.code, newBank)
           created++
           imported++
         }

@@ -154,57 +154,54 @@ export async function GET(request: NextRequest) {
         include: {
           cards: {
             where: { isActive: true },
-            select: { 
+            select: {
               id: true,
-              quantity: true 
+              quantity: true
             }
           }
         }
       })
 
-      // Pour chaque banque, calculer le stock à la date de fin
-      banksWithStockCalculated = await Promise.all(allBanks.map(async (bank) => {
-        let totalStock = 0
-        
-        for (const card of bank.cards) {
-          // Partir du stock actuel
-          let cardStock = card.quantity
-          
-          // Récupérer tous les mouvements de cette carte après la date de calcul
-          const movementsAfterDate = await prisma.movement.findMany({
+      // Un seul aller-retour pour tous les mouvements après la date de calcul,
+      // au lieu d'une requête par carte : avec B banques et C cartes par
+      // banque, la version précédente émettait jusqu'à B*C requêtes.
+      const allCardIds = allBanks.flatMap(bank => bank.cards.map(card => card.id))
+      const movementsAfterDate = allCardIds.length > 0
+        ? await prisma.movement.findMany({
             where: {
-              cardId: card.id,
-              createdAt: {
-                gt: stockCalculationDate
-              }
+              cardId: { in: allCardIds },
+              createdAt: { gt: stockCalculationDate }
             },
             select: {
+              cardId: true,
               movementType: true,
               quantity: true
             }
           })
-          
-          // Ajuster le stock en retirant les mouvements après la date
-          // Si c'est une entrée après la date, on la retire du stock
-          // Si c'est une sortie après la date, on l'ajoute au stock (car elle n'avait pas encore eu lieu)
-          movementsAfterDate.forEach(m => {
-            if (m.movementType === 'entry') {
-              cardStock -= m.quantity
-            } else if (m.movementType === 'exit') {
-              cardStock += m.quantity
-            }
-            // Pour les transferts, on ne les compte pas car ils ne changent pas le stock total
-          })
-          
-          totalStock += Math.max(0, cardStock)
-        }
-        
+        : []
+
+      // Ajuster le stock en retirant les mouvements après la date : une entrée
+      // après la date se retire du stock, une sortie après la date s'y ajoute
+      // (elle n'avait pas encore eu lieu). Les transferts ne changent pas le
+      // stock total, donc ne comptent pas.
+      const adjustmentByCard = new Map<string, number>()
+      movementsAfterDate.forEach(m => {
+        const delta = m.movementType === 'entry' ? -m.quantity : m.movementType === 'exit' ? m.quantity : 0
+        adjustmentByCard.set(m.cardId, (adjustmentByCard.get(m.cardId) || 0) + delta)
+      })
+
+      banksWithStockCalculated = allBanks.map(bank => {
+        const totalStock = bank.cards.reduce((sum, card) => {
+          const cardStock = card.quantity + (adjustmentByCard.get(card.id) || 0)
+          return sum + Math.max(0, cardStock)
+        }, 0)
+
         return {
           id: bank.id,
           name: bank.name,
           totalStock
         }
-      }))
+      })
     } else {
       // Utiliser le stock actuel des cartes
       const allBanksWithStock = await prisma.bank.findMany({

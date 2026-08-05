@@ -41,9 +41,27 @@ export async function POST(request: NextRequest) {
     let updated = 0
     let rejected = 0
 
+    // Résolution des banques et emplacements en mémoire (une seule lecture de
+    // chacune des deux tables au démarrage) au lieu d'une requête par ligne
+    // (N+1). On garde les écritures ligne par ligne : chaque ligne doit
+    // pouvoir échouer indépendamment (succès partiel attendu sur un import
+    // CSV), ce qui empêche aussi de tout envelopper dans une seule
+    // transaction Postgres (une erreur y rendrait toutes les lignes
+    // suivantes invalides).
+    const allBanks = await prisma.bank.findMany()
+    const bankByCodeOrName = new Map<string, typeof allBanks[number]>()
+    allBanks.forEach(b => {
+      bankByCodeOrName.set(b.code, b)
+      bankByCodeOrName.set(b.name, b)
+    })
+
+    const locationKey = (bankId: string, name: string) => `${bankId}::${name}`
+    const allLocations = await prisma.location.findMany()
+    const locationByKey = new Map(allLocations.map(l => [locationKey(l.bankId, l.name), l]))
+
     for (let i = 0; i < data.length; i++) {
       const row = data[i]
-      
+
       try {
         // Validation
         if (!row.Banque || !row.NomEmplacement) {
@@ -53,14 +71,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Trouver la banque par code OU nom
-        const bank = await prisma.bank.findFirst({
-          where: { 
-            OR: [
-              { code: row.Banque },
-              { name: row.Banque }
-            ]
-          }
-        })
+        const bank = bankByCodeOrName.get(row.Banque)
 
         if (!bank) {
           errors.push(`Ligne ${i + 1}: Banque ${row.Banque} non trouvée`)
@@ -69,25 +80,21 @@ export async function POST(request: NextRequest) {
         }
 
         // Vérifier si l'emplacement existe déjà (même nom + même banque)
-        const existing = await prisma.location.findFirst({
-          where: {
-            name: row.NomEmplacement,
-            bankId: bank.id
-          }
-        })
+        const existing = locationByKey.get(locationKey(bank.id, row.NomEmplacement))
 
         if (existing) {
           // Mettre à jour l'emplacement existant
-          await prisma.location.update({
+          const updatedLocation = await prisma.location.update({
             where: { id: existing.id },
             data: {
               description: row.Description || null,
             }
           })
+          locationByKey.set(locationKey(updatedLocation.bankId, updatedLocation.name), updatedLocation)
           updated++
         } else {
           // Créer un nouvel emplacement
-          await prisma.location.create({
+          const newLocation = await prisma.location.create({
             data: {
               name: row.NomEmplacement,
               description: row.Description || null,
@@ -95,6 +102,7 @@ export async function POST(request: NextRequest) {
               isActive: true,
             }
           })
+          locationByKey.set(locationKey(newLocation.bankId, newLocation.name), newLocation)
           created++
         }
 
