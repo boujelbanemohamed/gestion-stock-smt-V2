@@ -16,6 +16,18 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
   try {
     const body = await request.json()
 
+    // Une notification ciblée (userId non nul) n'appartient qu'à son
+    // destinataire ; les notifications globales (userId null) restent
+    // partagées entre tous. On renvoie 404 plutôt que 403 pour ne pas
+    // confirmer l'existence de la notification d'un autre utilisateur.
+    const existing = await prisma.notification.findUnique({ where: { id: params.id } })
+    if (!existing || (existing.userId && existing.userId !== auth.user.id)) {
+      return NextResponse.json<ApiResponse>(
+        { success: false, error: "Notification non trouvée" },
+        { status: 404 },
+      )
+    }
+
     const updatedNotification = await prisma.notification.update({
       where: { id: params.id },
       data: {
@@ -46,6 +58,14 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   if (!auth.authorized) return auth.response
 
   try {
+    const existing = await prisma.notification.findUnique({ where: { id: params.id } })
+    if (!existing || (existing.userId && existing.userId !== auth.user.id)) {
+      return NextResponse.json<ApiResponse>(
+        { success: false, error: "Notification non trouvée" },
+        { status: 404 },
+      )
+    }
+
     await prisma.notification.delete({
       where: { id: params.id }
     })

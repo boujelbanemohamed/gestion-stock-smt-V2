@@ -82,6 +82,13 @@ describe("GET /api/users", () => {
     expect(response.status).toBe(401)
   })
 
+  // Corrigé ici : l'annuaire complet (email, rôle, statut de tous les
+  // comptes) n'était réservé à personne (requireAuth seul).
+  it("refuse un utilisateur non-admin (403)", async () => {
+    const response = await GET(makeRequest("http://localhost/api/users", { token: otherUserToken }))
+    expect(response.status).toBe(403)
+  })
+
   it("retourne les utilisateurs sans les champs sensibles", async () => {
     vi.mocked(prisma.user.findMany).mockResolvedValue([targetUser] as any)
     const response = await GET(makeRequest("http://localhost/api/users"))

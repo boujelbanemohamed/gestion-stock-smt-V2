@@ -17,21 +17,17 @@ export async function GET(request: NextRequest) {
 
   try {
     const searchParams = request.nextUrl.searchParams
-    const userId = searchParams.get("userId")
     const unreadOnly = searchParams.get("unreadOnly") === "true"
 
-    // Construction de la clause where
-    const where: any = {}
-    
-    // Notifications globales (userId null) OU notifications spécifiques à l'utilisateur
-    if (userId) {
-      where.OR = [
-        { userId: null },  // Notifications pour tous
-        { userId: userId }  // Notifications spécifiques à cet utilisateur
-      ]
-    } else {
-      // Si pas d'userId spécifié, retourner seulement les notifications globales
-      where.userId = null
+    // Notifications globales (userId null) + notifications de l'utilisateur
+    // authentifié. L'identité vient toujours du token vérifié, jamais d'un
+    // paramètre de requête qu'un client pourrait forger pour lire les
+    // notifications ciblées d'un autre utilisateur.
+    const where: any = {
+      OR: [
+        { userId: null },
+        { userId: auth.user.id },
+      ],
     }
 
     // Filtrer les notifications non lues si demandé

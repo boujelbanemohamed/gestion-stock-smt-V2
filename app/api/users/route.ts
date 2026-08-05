@@ -4,7 +4,7 @@ import * as bcrypt from "bcryptjs"
 import type { ApiResponse } from "@/lib/api-types"
 import type { User } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
-import { requireAuth, requireAdmin } from "@/lib/auth-middleware"
+import { requireAdmin } from "@/lib/auth-middleware"
 import { sanitizeUser } from "@/lib/sanitize-user"
 
 // GET /api/users - Récupérer tous les utilisateurs avec filtres optionnels
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = requireAdmin(request)
   if (!auth.authorized) return auth.response
 
   try {

@@ -27,6 +27,14 @@ const token = signAccessToken({
   role: "admin",
 })
 
+const nonAdminToken = signAccessToken({
+  userId: "user-2",
+  email: "operator@example.com",
+  firstName: "Sam",
+  lastName: "Operator",
+  role: "user",
+})
+
 function makeRequest(url: string, options: { method?: string; body?: unknown; token?: string | null } = {}) {
   const headers = new Headers({ "content-type": "application/json" })
   const tok = options.token === undefined ? token : options.token
@@ -56,6 +64,13 @@ describe("GET /api/logs", () => {
   it("refuse une requête non authentifiée (401)", async () => {
     const response = await GET(makeRequest("http://localhost/api/logs", { token: null }))
     expect(response.status).toBe(401)
+  })
+
+  // Corrigé ici : la piste d'audit complète (connexions, IP, modifications de
+  // tous les utilisateurs) n'était réservée à personne (requireAuth seul).
+  it("refuse un utilisateur non-admin (403)", async () => {
+    const response = await GET(makeRequest("http://localhost/api/logs", { token: nonAdminToken }))
+    expect(response.status).toBe(403)
   })
 
   it("retourne les logs paginés", async () => {
@@ -103,5 +118,31 @@ describe("POST /api/logs", () => {
 
     expect(response.status).toBe(201)
     expect(prisma.auditLog.create).toHaveBeenCalled()
+  })
+
+  // Corrigé ici : userId/userEmail venaient du corps de la requête tel quel,
+  // permettant à n'importe quel utilisateur connecté de fabriquer une entrée
+  // d'audit attribuée à quelqu'un d'autre (ex. un faux "admin a supprimé X").
+  it("ignore un userId/userEmail forgé dans le corps et utilise l'identité du token", async () => {
+    vi.mocked(prisma.auditLog.create).mockResolvedValue(logEntry as any)
+
+    await POST(
+      makeRequest("http://localhost/api/logs", {
+        body: {
+          userId: "admin-victime",
+          userEmail: "admin.victime@example.com",
+          action: "delete",
+          module: "users",
+          entityType: "user",
+          details: "Tentative de log forgé",
+        },
+      }),
+    )
+
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ userId: "user-1", userEmail: "user@example.com" }),
+      }),
+    )
   })
 })

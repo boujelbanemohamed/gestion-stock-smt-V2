@@ -6,6 +6,7 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     notification: {
       findMany: vi.fn(),
+      findUnique: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
@@ -70,6 +71,20 @@ describe("GET /api/notifications", () => {
     expect(response.status).toBe(200)
     expect(json.data).toHaveLength(1)
   })
+
+  // IDOR corrigé ici : un userId de requête forgé (celui d'un AUTRE
+  // utilisateur) ne doit jamais influencer le filtre — seule l'identité du
+  // token vérifié compte.
+  it("ignore un userId d'un autre utilisateur passé dans la requête", async () => {
+    vi.mocked(prisma.notification.findMany).mockResolvedValue([])
+    await GET(makeRequest("http://localhost/api/notifications?userId=user-2"))
+
+    expect(prisma.notification.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { OR: [{ userId: null }, { userId: "user-1" }] },
+      }),
+    )
+  })
 })
 
 describe("POST /api/notifications", () => {
@@ -94,7 +109,8 @@ describe("POST /api/notifications", () => {
 describe("PUT /api/notifications/[id]", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("marque une notification comme lue", async () => {
+  it("marque une notification globale comme lue", async () => {
+    vi.mocked(prisma.notification.findUnique).mockResolvedValue(notification as any)
     vi.mocked(prisma.notification.update).mockResolvedValue({ ...notification, isRead: true } as any)
     const response = await updateById(
       makeRequest("http://localhost/api/notifications/notif-1", { method: "PUT", body: { isRead: true } }),
@@ -104,12 +120,46 @@ describe("PUT /api/notifications/[id]", () => {
     expect(response.status).toBe(200)
     expect(json.data.isRead).toBe(true)
   })
+
+  it("marque sa propre notification ciblée comme lue", async () => {
+    const own = { ...notification, id: "notif-2", userId: "user-1" }
+    vi.mocked(prisma.notification.findUnique).mockResolvedValue(own as any)
+    vi.mocked(prisma.notification.update).mockResolvedValue({ ...own, isRead: true } as any)
+    const response = await updateById(
+      makeRequest("http://localhost/api/notifications/notif-2", { method: "PUT", body: { isRead: true } }),
+      { params: { id: "notif-2" } },
+    )
+    expect(response.status).toBe(200)
+  })
+
+  // IDOR corrigé ici : marquer comme lue la notification ciblée d'un AUTRE
+  // utilisateur ne doit plus être possible, même en connaissant son id.
+  it("refuse de marquer comme lue la notification ciblée d'un autre utilisateur (404)", async () => {
+    const dautrui = { ...notification, id: "notif-3", userId: "user-2" }
+    vi.mocked(prisma.notification.findUnique).mockResolvedValue(dautrui as any)
+    const response = await updateById(
+      makeRequest("http://localhost/api/notifications/notif-3", { method: "PUT", body: { isRead: true } }),
+      { params: { id: "notif-3" } },
+    )
+    expect(response.status).toBe(404)
+    expect(prisma.notification.update).not.toHaveBeenCalled()
+  })
+
+  it("renvoie 404 si la notification n'existe pas", async () => {
+    vi.mocked(prisma.notification.findUnique).mockResolvedValue(null)
+    const response = await updateById(
+      makeRequest("http://localhost/api/notifications/inconnue", { method: "PUT", body: { isRead: true } }),
+      { params: { id: "inconnue" } },
+    )
+    expect(response.status).toBe(404)
+  })
 })
 
 describe("DELETE /api/notifications/[id]", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("supprime une notification", async () => {
+  it("supprime une notification globale", async () => {
+    vi.mocked(prisma.notification.findUnique).mockResolvedValue(notification as any)
     vi.mocked(prisma.notification.delete).mockResolvedValue(notification as any)
     const response = await deleteById(
       makeRequest("http://localhost/api/notifications/notif-1", { method: "DELETE" }),
@@ -118,5 +168,18 @@ describe("DELETE /api/notifications/[id]", () => {
     const json = await response.json()
     expect(response.status).toBe(200)
     expect(json.success).toBe(true)
+  })
+
+  // IDOR corrigé ici : supprimer la notification ciblée d'un AUTRE
+  // utilisateur ne doit plus être possible, même en connaissant son id.
+  it("refuse de supprimer la notification ciblée d'un autre utilisateur (404)", async () => {
+    const dautrui = { ...notification, id: "notif-3", userId: "user-2" }
+    vi.mocked(prisma.notification.findUnique).mockResolvedValue(dautrui as any)
+    const response = await deleteById(
+      makeRequest("http://localhost/api/notifications/notif-3", { method: "DELETE" }),
+      { params: { id: "notif-3" } },
+    )
+    expect(response.status).toBe(404)
+    expect(prisma.notification.delete).not.toHaveBeenCalled()
   })
 })

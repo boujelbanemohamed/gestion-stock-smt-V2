@@ -11,6 +11,15 @@ vi.mock("@/lib/db", () => ({
       update: vi.fn(),
       delete: vi.fn(),
     },
+    card: {
+      count: vi.fn().mockResolvedValue(0),
+    },
+    location: {
+      count: vi.fn().mockResolvedValue(0),
+    },
+    inventory: {
+      count: vi.fn().mockResolvedValue(0),
+    },
     auditLog: {
       create: vi.fn(),
     },
@@ -32,6 +41,14 @@ const token = signAccessToken({
   firstName: "Jane",
   lastName: "Doe",
   role: "admin",
+})
+
+const nonAdminToken = signAccessToken({
+  userId: "user-2",
+  email: "operator@example.com",
+  firstName: "Sam",
+  lastName: "Operator",
+  role: "user",
 })
 
 function makeRequest(url: string, options: { method?: string; body?: unknown; token?: string | null } = {}) {
@@ -162,7 +179,15 @@ describe("PUT /api/banks/[id]", () => {
 })
 
 describe("DELETE /api/banks/[id]", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // clearAllMocks() ne réinitialise pas les implémentations posées par un
+    // test précédent (seulement l'historique des appels) : on refixe donc
+    // explicitement le cas par défaut "aucune dépendance" ici.
+    vi.mocked(prisma.card.count).mockResolvedValue(0)
+    vi.mocked(prisma.location.count).mockResolvedValue(0)
+    vi.mocked(prisma.inventory.count).mockResolvedValue(0)
+  })
 
   it("supprime une banque et journalise l'action", async () => {
     vi.mocked(prisma.bank.findUnique).mockResolvedValue(bank as any)
@@ -179,10 +204,60 @@ describe("DELETE /api/banks/[id]", () => {
       expect.objectContaining({ data: expect.objectContaining({ action: "delete", module: "banks" }) }),
     )
   })
+
+  // Corrigé ici : la suppression n'était réservée à personne (requireAuth
+  // seul), alors que cards/[id] et locations/[id] réservent déjà leur propre
+  // suppression aux administrateurs pour des actions bien moins destructrices.
+  it("refuse un utilisateur non-admin (403)", async () => {
+    const response = await deleteById(
+      makeRequest("http://localhost/api/banks/bank-1", { method: "DELETE", token: nonAdminToken }),
+      { params: { id: "bank-1" } },
+    )
+    expect(response.status).toBe(403)
+    expect(prisma.bank.delete).not.toHaveBeenCalled()
+  })
+
+  it("renvoie 404 si la banque n'existe pas", async () => {
+    vi.mocked(prisma.bank.findUnique).mockResolvedValue(null)
+    const response = await deleteById(
+      makeRequest("http://localhost/api/banks/x", { method: "DELETE" }),
+      { params: { id: "x" } },
+    )
+    expect(response.status).toBe(404)
+  })
+
+  // Corrigé ici : cards/locations/inventories sont en cascade sur la banque
+  // au niveau du schéma — sans ce contrôle, cette suppression effaçait
+  // silencieusement tout leur historique (mouvements inclus).
+  it("refuse de supprimer une banque encore associée à des cartes (400)", async () => {
+    vi.mocked(prisma.bank.findUnique).mockResolvedValue(bank as any)
+    vi.mocked(prisma.card.count).mockResolvedValue(3)
+
+    const response = await deleteById(
+      makeRequest("http://localhost/api/banks/bank-1", { method: "DELETE" }),
+      { params: { id: "bank-1" } },
+    )
+    const json = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(json.error).toContain("3 carte")
+    expect(prisma.bank.delete).not.toHaveBeenCalled()
+  })
 })
 
 describe("POST /api/banks/import", () => {
   beforeEach(() => vi.clearAllMocks())
+
+  // Corrigé ici : l'import en masse n'était réservé à personne (requireAuth
+  // seul), permettant à n'importe quel utilisateur connecté de créer ou
+  // d'écraser des banques en masse.
+  it("refuse un utilisateur non-admin (403)", async () => {
+    const response = await importBanks(
+      makeRequest("http://localhost/api/banks/import", { body: { data: [] }, token: nonAdminToken }),
+    )
+    expect(response.status).toBe(403)
+    expect(prisma.bank.create).not.toHaveBeenCalled()
+  })
 
   it("refuse un format de données invalide (400)", async () => {
     const response = await importBanks(makeRequest("http://localhost/api/banks/import", { body: { data: "x" } }))

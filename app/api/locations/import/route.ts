@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db"
 import type { ImportResponse } from "@/lib/api-types"
 import type { LocationImportRow } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
-import { requireAuth } from "@/lib/auth-middleware"
+import { requireAdmin } from "@/lib/auth-middleware"
 
 // POST /api/locations/import - Importer des emplacements depuis CSV
 
@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = requireAdmin(request)
   if (!auth.authorized) return auth.response
 
   try {

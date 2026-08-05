@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { Bank } from "@/lib/types"
 import { logAudit } from "@/lib/audit-logger"
-import { requireAuth } from "@/lib/auth-middleware"
+import { requireAuth, requireAdmin } from "@/lib/auth-middleware"
 
 // GET /api/banks/[id] - Récupérer une banque spécifique
 // PUT /api/banks/[id] - Mettre à jour une banque
@@ -131,7 +131,7 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const auth = requireAuth(request)
+  const auth = requireAdmin(request)
   if (!auth.authorized) return auth.response
 
   try {
@@ -144,24 +144,53 @@ export async function DELETE(
       where: { id }
     })
 
+    if (!bank) {
+      return NextResponse.json<ApiResponse>(
+        {
+          success: false,
+          error: "Banque non trouvée",
+        },
+        { status: 404 },
+      )
+    }
+
+    // Cartes, emplacements et inventaires sont en cascade sur la banque au
+    // niveau du schéma : sans ce contrôle, une seule suppression effacerait
+    // silencieusement tout leur historique (y compris les mouvements, en
+    // cascade sur la carte). cards/[id] et locations/[id] bloquent déjà leur
+    // propre suppression tant qu'ils contiennent du stock ou des mouvements ;
+    // on applique la même règle ici, au niveau de la banque.
+    const [cardsCount, locationsCount, inventoriesCount] = await Promise.all([
+      prisma.card.count({ where: { bankId: id } }),
+      prisma.location.count({ where: { bankId: id } }),
+      prisma.inventory.count({ where: { bankId: id } }),
+    ])
+
+    if (cardsCount > 0 || locationsCount > 0 || inventoriesCount > 0) {
+      return NextResponse.json<ApiResponse>(
+        {
+          success: false,
+          error: `Impossible de supprimer cette banque : elle est encore associée à ${cardsCount} carte(s), ${locationsCount} emplacement(s) et ${inventoriesCount} inventaire(s). Veuillez d'abord les supprimer.`,
+        },
+        { status: 400 },
+      )
+    }
+
     await prisma.bank.delete({
       where: { id }
     })
 
-    // Logger l'action (toujours créer un log si la banque existe)
-    if (bank) {
-      await logAudit({
-        userId: userData?.id || "system",
-        userEmail: userData?.email || "system@monetique.tn",
-        action: "delete",
-        module: "banks",
-        entityType: "bank",
-        entityId: id,
-        entityName: bank.name,
-        details: `Suppression de la banque ${bank.name} (${bank.code})${userData ? ` par ${userData.email}` : ' (utilisateur non identifié)'}`,
-        status: "success"
-      }, request)
-    }
+    await logAudit({
+      userId: userData?.id || "system",
+      userEmail: userData?.email || "system@monetique.tn",
+      action: "delete",
+      module: "banks",
+      entityType: "bank",
+      entityId: id,
+      entityName: bank.name,
+      details: `Suppression de la banque ${bank.name} (${bank.code})${userData ? ` par ${userData.email}` : ' (utilisateur non identifié)'}`,
+      status: "success"
+    }, request)
 
     return NextResponse.json<ApiResponse>({
       success: true,

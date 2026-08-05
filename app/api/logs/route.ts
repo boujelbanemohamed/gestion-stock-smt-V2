@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db"
 import type { ApiResponse } from "@/lib/api-types"
 import type { AuditLog } from "@/lib/types"
 import { logAudit, type LogEntry } from "@/lib/audit-logger"
-import { requireAuth } from "@/lib/auth-middleware"
+import { requireAuth, requireAdmin } from "@/lib/auth-middleware"
 
 // GET /api/logs - Récupérer les logs d'audit avec filtres optionnels
 
@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = requireAdmin(request)
   if (!auth.authorized) return auth.response
 
   try {
@@ -127,10 +127,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    
+
+    // userId/userEmail viennent toujours du token vérifié, jamais du corps de
+    // la requête : sinon n'importe quel utilisateur authentifié pourrait
+    // fabriquer de fausses entrées d'audit attribuées à quelqu'un d'autre.
     const logEntry: LogEntry = {
-      userId: body.userId,
-      userEmail: body.userEmail,
+      userId: auth.user.id,
+      userEmail: auth.user.email,
       action: body.action,
       module: body.module,
       entityType: body.entityType,
