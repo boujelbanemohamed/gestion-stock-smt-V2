@@ -289,6 +289,35 @@ sql() {  # sql "requête"  -> lignes brutes
     fi
 }
 
+# La table cards a reçu une contrainte d'unicité sur (bankId, name, type,
+# subType, subSubType) : si des doublons existent déjà en base, la création
+# de cet index unique échoue au moment de « prisma db push » (étape 6). On le
+# détecte ici, avant toute modification, pour arrêter proprement avec un
+# message actionnable plutôt que de laisser échouer l'étape d'application du
+# schéma. Coût négligeable : une fois la contrainte en place, ces doublons
+# deviennent structurellement impossibles, donc ce contrôle ne coûte plus
+# rien lors des déploiements suivants.
+verifier_doublons_cartes() {
+    local doublons
+    doublons="$(sql "
+      SELECT \"bankId\" || ' / ' || name || ' / ' || type || ' / ' || \"subType\" || ' / ' || \"subSubType\"
+             || ' : ' || count(*) || ' occurrences'
+      FROM cards
+      GROUP BY \"bankId\", name, type, \"subType\", \"subSubType\"
+      HAVING count(*) > 1;
+    " 2>/dev/null || true)"
+    if [[ -n "$doublons" ]]; then
+        echo
+        erreur "Cartes en double détectées (même banque, nom, type, sous-type, sous-sous-type) :"
+        printf '%s\n' "$doublons" | sed 's/^/      /'
+        echo
+        info "La nouvelle contrainte d'unicité sur la table cards échouerait tant que ces"
+        info "doublons ne sont pas fusionnés ou renommés. Rien n'a été modifié."
+        return 1
+    fi
+    return 0
+}
+
 # --- Process PM2 ----------------------------------------------------------
 # L'application tourne sous le nom « gstock ». Le dépôt contient deux autres
 # noms hérités : « stock-management » (deploy.sh) et « stock-app »
@@ -578,6 +607,15 @@ else
         fi
     else
         ok "Delta purement additif : aucune instruction destructrice"
+    fi
+
+    # Vérification indépendante des instructions détectées ci-dessus : porte
+    # spécifiquement sur les données actuelles, pas sur le texte du SQL généré.
+    if verifier_doublons_cartes; then
+        ok "Aucun doublon de carte ne bloquerait la nouvelle contrainte d'unicité"
+    else
+        erreur "Déploiement interrompu avant toute modification de la base."
+        rollback "$LINENO"
     fi
 fi
 
