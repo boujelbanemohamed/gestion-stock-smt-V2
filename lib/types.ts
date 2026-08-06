@@ -255,6 +255,7 @@ export interface CardFilters {
   subSubType?: string
   lowStock?: boolean
   searchTerm?: string
+  status?: "all" | "active" | "inactive"
 }
 
 export interface CardDetails {

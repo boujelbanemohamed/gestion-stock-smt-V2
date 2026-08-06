@@ -127,7 +127,7 @@ export default function CardDetailPage() {
 
   const stockLevels = card.stockLevels || []
   const totalStock = stockLevels.reduce((sum, sl) => sum + sl.quantity, 0)
-  const isLowStock = totalStock <= card.minThreshold
+  const isLowStock = card.isActive && totalStock <= card.minThreshold
 
   return (
     <div className="space-y-6">
@@ -140,17 +140,24 @@ export default function CardDetailPage() {
             <ArrowLeft className="h-4 w-4" />
             Retour aux cartes
           </Link>
-          <h2 className="text-2xl font-bold text-slate-900">{card.name}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-2xl font-bold text-slate-900">{card.name}</h2>
+            <Badge variant={card.isActive ? "default" : "secondary"} className={card.isActive ? "bg-green-600" : ""}>
+              {card.isActive ? "Active" : "Inactive"}
+            </Badge>
+          </div>
           <p className="text-xs text-[#008DA8]">
             {card.type} → {card.subType} → {card.subSubType}
           </p>
         </div>
-        <Link href={`/dashboard/movements?cardId=${card.id}`}>
-          <Button className="gap-2">
-            <Plus className="h-4 w-4" />
-            Nouveau mouvement
-          </Button>
-        </Link>
+        {card.isActive && (
+          <Link href={`/dashboard/movements?cardId=${card.id}`}>
+            <Button className="gap-2">
+              <Plus className="h-4 w-4" />
+              Nouveau mouvement
+            </Button>
+          </Link>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">

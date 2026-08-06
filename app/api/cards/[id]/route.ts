@@ -62,6 +62,24 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     const userData = auth.user
 
+    // Désactivation : refusée tant qu'il reste du stock, pour la même raison
+    // que la suppression (DELETE ci-dessous) — une carte encore approvisionnée
+    // ne doit jamais devenir inactive silencieusement.
+    if (body.isActive === false) {
+      const stockLevels = await prisma.stockLevel.findMany({ where: { cardId: params.id } })
+      const totalStock = stockLevels.reduce((sum, level) => sum + level.quantity, 0)
+
+      if (totalStock > 0) {
+        return NextResponse.json<ApiResponse>(
+          {
+            success: false,
+            error: `Impossible de désactiver cette carte. Elle contient encore ${totalStock} unité(s) en stock dans les emplacements. Veuillez d'abord transférer ou sortir ce stock.`,
+          },
+          { status: 400 },
+        )
+      }
+    }
+
     const updatedCard = await prisma.card.update({
       where: { id: params.id },
       data: {

@@ -264,6 +264,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json<ApiResponse>({ success: false, error: "Carte introuvable" }, { status: 404 })
     }
 
+    // Une carte inactive n'a plus de stock et n'est plus censée en recevoir :
+    // aucun mouvement (entrée, sortie ou transfert) n'est autorisé tant
+    // qu'elle n'a pas été réactivée.
+    if (card.isActive === false) {
+      return NextResponse.json<ApiResponse>(
+        { success: false, error: "Cette carte est inactive : aucun mouvement ne peut être enregistré. Réactivez-la d'abord." },
+        { status: 400 },
+      )
+    }
+
     // Vérifier cohérence banque: la carte appartient à une seule banque
     if (body.bankId && card.bankId !== body.bankId) {
       return NextResponse.json<ApiResponse>({ success: false, error: "La carte n'appartient pas à cette banque" }, { status: 400 })

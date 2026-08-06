@@ -42,6 +42,7 @@ export default function CardsManagement() {
   const [expandedBanks, setExpandedBanks] = useState<Set<string>>(new Set())
   const [filters, setFilters] = useState<CardFilters>({
     searchTerm: "",
+    status: "all",
   })
   const [cardTypes, setCardTypes] = useState<string[]>([])
   const [cardSubTypes, setCardSubTypes] = useState<string[]>([])
@@ -67,8 +68,10 @@ export default function CardsManagement() {
   const loadData = async () => {
     setIsLoading(true)
     try {
-      // Charger TOUTES les cartes pour extraire les types/sous-types (sans filtres)
-      const allCardsResponse = await authenticatedFetch('/api/cards')
+      // Charger TOUTES les cartes (actives et inactives) pour extraire les
+      // types/sous-types, afin de ne pas perdre les valeurs qui n'existent
+      // plus que sur des cartes désactivées.
+      const allCardsResponse = await authenticatedFetch('/api/cards?status=all')
       const allCardsData = await allCardsResponse.json()
       if (allCardsData.success) {
         // Extraire les types uniques de TOUTES les cartes
@@ -88,6 +91,7 @@ export default function CardsManagement() {
       if (filters.subSubType) params.append('subSubType', filters.subSubType)
       if (filters.lowStock) params.append('lowStock', 'true')
       if (filters.searchTerm) params.append('search', filters.searchTerm)
+      params.append('status', filters.status || 'all')
 
       const cardsResponse = await authenticatedFetch(`/api/cards?${params.toString()}`)
       const cardsData = await cardsResponse.json()
@@ -299,6 +303,64 @@ export default function CardsManagement() {
     }
   }
 
+  const handleToggleStatus = async (card: CardData) => {
+    // Une carte ne peut passer inactive que si son stock est nul : on le
+    // vérifie côté client pour éviter une boîte de confirmation qui échouera
+    // de toute façon (l'API applique la même règle).
+    if (card.isActive) {
+      const stockLevels = (card as any).stockLevels || []
+      const totalStock = stockLevels.reduce((sum: number, level: any) => sum + level.quantity, 0)
+
+      if (totalStock > 0) {
+        toast({
+          title: "Impossible de désactiver cette carte",
+          description: `Elle contient encore ${totalStock} unité(s) en stock dans les emplacements. Transférez ou sortez ce stock avant de la désactiver.`,
+          variant: "destructive",
+        })
+        return
+      }
+    }
+
+    const confirme = await demanderConfirmation({
+      title: card.isActive ? "Désactiver cette carte ?" : "Activer cette carte ?",
+      description: card.isActive
+        ? `${card.name} sera marquée comme inactive. Elle ne pourra plus recevoir de mouvements et n'apparaîtra plus par défaut dans les listes et rapports.`
+        : `${card.name} sera de nouveau active et pourra recevoir des mouvements.`,
+      confirmLabel: card.isActive ? "Désactiver" : "Activer",
+      variant: card.isActive ? "danger" : "default",
+    })
+    if (!confirme) return
+
+    try {
+      const response = await authenticatedFetch(`/api/cards/${card.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ isActive: !card.isActive }),
+      })
+      const data = await response.json()
+      if (data.success) {
+        toast({
+          title: card.isActive ? "Carte désactivée" : "Carte activée",
+          description: card.name,
+          variant: "success",
+        })
+        await loadData()
+      } else {
+        toast({
+          title: card.isActive ? "Désactivation impossible" : "Activation impossible",
+          description: data.error,
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error('Error toggling card status:', error)
+      toast({
+        title: card.isActive ? "Désactivation impossible" : "Activation impossible",
+        description: "Une erreur est survenue pendant la mise à jour du statut.",
+        variant: "destructive",
+      })
+    }
+  }
+
   const downloadTemplate = () => {
     const csvContent =
       "ID;BanqueEmettrice;NomCarte;Type;SousType;SousSousType\n;Banque Internationale;Carte Débit Jeune;Carte débit;Mastercard;National\n;Banque Internationale;Carte Débit Gold;Carte débit;Mastercard;International\n;Banque Centrale;Carte Débit Standard;Carte débit;Visa;National"
@@ -445,6 +507,7 @@ export default function CardsManagement() {
       subType: undefined,
       subSubType: undefined,
       lowStock: false,
+      status: "all",
     })
   }
 
@@ -541,7 +604,7 @@ export default function CardsManagement() {
   const handlePrintInventory = () => {
     const inventoryData = Object.entries(groupedCards).map(([bankName, bankCards]) => {
       const totalQuantity = bankCards.reduce((sum, cd) => sum + cd.card.quantity, 0)
-      const lowStockCount = bankCards.filter((cd) => cd.card.quantity <= cd.card.minThreshold).length
+      const lowStockCount = bankCards.filter((cd) => cd.card.isActive && cd.card.quantity <= cd.card.minThreshold).length
       const typeBreakdown: { [type: string]: number } = {}
 
       bankCards.forEach((cd) => {
@@ -558,7 +621,7 @@ export default function CardsManagement() {
         0,
       ),
       lowStockCount: Object.values(groupedCards).reduce(
-        (sum, cards) => sum + cards.filter((cd) => cd.card.quantity <= cd.card.minThreshold).length,
+        (sum, cards) => sum + cards.filter((cd) => cd.card.isActive && cd.card.quantity <= cd.card.minThreshold).length,
         0,
       ),
     }
@@ -836,7 +899,7 @@ export default function CardsManagement() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
             <div>
               <Label htmlFor="search">Recherche</Label>
               <Input
@@ -918,6 +981,22 @@ export default function CardsManagement() {
                 </SelectContent>
               </Select>
             </div>
+            <div>
+              <Label htmlFor="statusFilter">Statut</Label>
+              <Select
+                value={filters.status || "all"}
+                onValueChange={(value) => setFilters({ ...filters, status: value as CardFilters["status"] })}
+              >
+                <SelectTrigger className="w-full" id="statusFilter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Toutes</SelectItem>
+                  <SelectItem value="active">Actives</SelectItem>
+                  <SelectItem value="inactive">Inactives</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="flex items-end">
               <Button variant="outline" onClick={resetFilters}>
                 <Filter className="h-4 w-4 mr-2" />
@@ -951,7 +1030,9 @@ export default function CardsManagement() {
               <tbody>
                 {Object.entries(groupedCards).map(([bankName, bankCards]) => {
                   const totalQuantity = bankCards.reduce((sum, cd) => sum + cd.card.quantity, 0)
-                  const lowStockCount = bankCards.filter(cd => cd.card.quantity <= cd.card.minThreshold).length
+                  // Une carte inactive a un stock nul par construction : la compter comme
+                  // "stock faible" ne ferait que remonter une alerte permanente sans intérêt.
+                  const lowStockCount = bankCards.filter(cd => cd.card.isActive && cd.card.quantity <= cd.card.minThreshold).length
                   return (
                     <tr key={bankName} className="border-b border-slate-200 hover:bg-slate-50">
                       <td className="p-3 font-medium text-slate-900">{bankName}</td>
@@ -987,8 +1068,8 @@ export default function CardsManagement() {
                     )}
                   </td>
                   <td className="p-3 text-center text-slate-900">
-                    {Object.values(groupedCards).reduce((total, cards) => 
-                      total + cards.filter(cd => cd.card.quantity <= cd.card.minThreshold).length, 0
+                    {Object.values(groupedCards).reduce((total, cards) =>
+                      total + cards.filter(cd => cd.card.isActive && cd.card.quantity <= cd.card.minThreshold).length, 0
                     )}
                   </td>
                   <td className="p-3 text-center"></td>
@@ -1079,12 +1160,20 @@ export default function CardsManagement() {
                               )}
                                 </div>
                                 <div className="flex items-center gap-3">
-                                  <Badge variant={card.quantity <= card.minThreshold ? "destructive" : "default"}>
+                                  <Badge
+                                    variant={card.isActive && card.quantity <= card.minThreshold ? "destructive" : "default"}
+                                  >
                                     {card.quantity} restantes
+                                  </Badge>
+                                  <Badge variant={card.isActive ? "default" : "secondary"} className={card.isActive ? "bg-green-600" : ""}>
+                                    {card.isActive ? "Active" : "Inactive"}
                                   </Badge>
                                   <div className="flex space-x-2">
                                     <Button variant="outline" size="sm" onClick={() => handleEdit(card)}>
                                       Modifier
+                                    </Button>
+                                    <Button variant="outline" size="sm" onClick={() => handleToggleStatus(card)}>
+                                      {card.isActive ? "Désactiver" : "Activer"}
                                     </Button>
                                     <Button variant="outline" size="sm" onClick={() => handleDelete(card.id)}>
                                       Supprimer

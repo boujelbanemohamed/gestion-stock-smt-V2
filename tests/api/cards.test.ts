@@ -87,6 +87,26 @@ describe("GET /api/cards", () => {
     expect(json.data[0].quantity).toBe(30)
   })
 
+  it("ne filtre pas par isActive quand status=all", async () => {
+    vi.mocked(prisma.card.findMany).mockResolvedValue([card] as any)
+
+    await GET(makeRequest("http://localhost/api/cards?status=all"))
+
+    expect(prisma.card.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.not.objectContaining({ isActive: expect.anything() }) }),
+    )
+  })
+
+  it("filtre isActive:false quand status=inactive", async () => {
+    vi.mocked(prisma.card.findMany).mockResolvedValue([{ ...card, isActive: false }] as any)
+
+    await GET(makeRequest("http://localhost/api/cards?status=inactive"))
+
+    expect(prisma.card.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ isActive: false }) }),
+    )
+  })
+
   it("filtre les cartes en stock faible quand lowStock=true", async () => {
     vi.mocked(prisma.card.findMany).mockResolvedValue([
       { ...card, id: "low", minThreshold: 50, stockLevels: [{ quantity: 5 }] },
@@ -185,6 +205,43 @@ describe("PUT /api/cards/[id]", () => {
     const json = await response.json()
     expect(response.status).toBe(200)
     expect(json.data.name).toBe("Visa Gold")
+  })
+
+  it("refuse de désactiver une carte qui a encore du stock (400)", async () => {
+    vi.mocked(prisma.stockLevel.findMany).mockResolvedValue([{ quantity: 7 }] as any)
+
+    const response = await updateById(
+      makeRequest("http://localhost/api/cards/card-1", { method: "PUT", body: { isActive: false } }),
+      { params: { id: "card-1" } },
+    )
+    const json = await response.json()
+    expect(response.status).toBe(400)
+    expect(json.error).toContain("7 unité")
+    expect(prisma.card.update).not.toHaveBeenCalled()
+  })
+
+  it("désactive une carte sans stock", async () => {
+    vi.mocked(prisma.stockLevel.findMany).mockResolvedValue([] as any)
+    vi.mocked(prisma.card.update).mockResolvedValue({ ...card, isActive: false } as any)
+
+    const response = await updateById(
+      makeRequest("http://localhost/api/cards/card-1", { method: "PUT", body: { isActive: false } }),
+      { params: { id: "card-1" } },
+    )
+    const json = await response.json()
+    expect(response.status).toBe(200)
+    expect(json.data.isActive).toBe(false)
+  })
+
+  it("réactive une carte sans vérifier le stock", async () => {
+    vi.mocked(prisma.card.update).mockResolvedValue({ ...card, isActive: true } as any)
+
+    const response = await updateById(
+      makeRequest("http://localhost/api/cards/card-1", { method: "PUT", body: { isActive: true } }),
+      { params: { id: "card-1" } },
+    )
+    expect(response.status).toBe(200)
+    expect(prisma.stockLevel.findMany).not.toHaveBeenCalled()
   })
 })
 

@@ -217,8 +217,11 @@ export default function MovementsManagement() {
 
   const loadCardsLocationsBanks = async () => {
     try {
-      // Charger les cartes
-      const cardsResponse = await authenticatedFetch('/api/cards')
+      // Charger les cartes, actives et inactives : le filtre de recherche des
+      // mouvements doit pouvoir cibler l'historique d'une carte désactivée,
+      // même si elle ne peut plus être choisie pour un nouveau mouvement
+      // (voir getFilteredCards, qui exclut les cartes inactives).
+      const cardsResponse = await authenticatedFetch('/api/cards?status=all')
       const cardsData = await cardsResponse.json()
       if (cardsData.success) {
         setCards(cardsData.data || [])
@@ -1353,10 +1356,12 @@ export default function MovementsManagement() {
     }
   }
 
-  // Filtrer les cartes par banque sélectionnée
+  // Filtrer les cartes par banque sélectionnée. Une carte inactive n'a plus
+  // de stock et ne doit plus recevoir de mouvement (voir la même règle côté
+  // API dans POST /api/movements) : on l'exclut donc de la sélection.
   const getFilteredCards = () => {
     if (!formData.bankId) return []
-    return cards.filter(card => card.bankId === formData.bankId)
+    return cards.filter(card => card.bankId === formData.bankId && card.isActive !== false)
   }
 
   // Vérifier si le stock est suffisant pour toutes les cartes
@@ -1982,7 +1987,7 @@ export default function MovementsManagement() {
                     <SelectItem value="all">Toutes les cartes</SelectItem>
                     {getCardsForFilter().map((card) => (
                       <SelectItem key={card.id} value={card.id}>
-                        {card.name}
+                        {card.name}{!card.isActive ? " (inactive)" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>

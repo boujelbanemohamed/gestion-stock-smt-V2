@@ -108,10 +108,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Une carte inactive a par construction un stock nul (voir la garde sur
+    // PUT/DELETE /api/cards/[id]) : la ligne de stockLevel à 0 qui subsiste
+    // parfois ne mérite pas de figurer dans un nouveau comptage.
     const niveaux = await prisma.stockLevel.findMany({
       where: {
         locationId: { in: locations.map((l) => l.id) },
-        card: { bankId: body.bankId },
+        card: { bankId: body.bankId, isActive: true },
       },
       select: { cardId: true, locationId: true, quantity: true },
     })

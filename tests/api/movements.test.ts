@@ -223,6 +223,21 @@ describe("POST /api/movements", () => {
     expect(json.success).toBe(false)
   })
 
+  it("refuse un mouvement sur une carte inactive", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(userRecord as any)
+    vi.mocked(prisma.card.findUnique).mockResolvedValue({ ...cardRecord, isActive: false } as any)
+
+    const response = await POST(
+      makeRequest("http://localhost/api/movements", {
+        body: { cardId: "card-1", movementType: "entry", quantity: 10, reason: "x", toLocationId: "loc-1" },
+      }),
+    )
+    const json = await response.json()
+    expect(response.status).toBe(400)
+    expect(json.error).toContain("inactive")
+    expect(prisma.movement.create).not.toHaveBeenCalled()
+  })
+
   it("crée un mouvement d'entrée valide et journalise l'action", async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(userRecord as any)
     vi.mocked(prisma.card.findUnique).mockResolvedValue(cardRecord as any).mockResolvedValueOnce(cardRecord as any)

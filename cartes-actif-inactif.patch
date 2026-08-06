@@ -1,0 +1,791 @@
+From 6a6729f8e4d060624ff70cf4f63a83b00a36b969 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 5 Aug 2026 11:33:53 +0000
+Subject: [PATCH] Ajouter la desactivation/reactivation des cartes obsoletes
+
+- API : PUT /api/cards/[id] refuse de desactiver une carte tant qu'elle a
+  du stock (meme regle que la suppression), et la reactivation reste
+  toujours libre. GET /api/cards accepte status=active|inactive|all.
+- API : POST /api/movements refuse tout mouvement (entree, sortie,
+  transfert) sur une carte inactive. POST /api/inventories exclut les
+  cartes inactives du perimetre d'un nouvel inventaire.
+- Cartes : bouton Actif/Inactif (en plus de Supprimer) avec verification
+  du stock et confirmation, filtre Toutes/Actives/Inactives, et exclusion
+  des cartes inactives des alertes de stock faible.
+- Mouvements : les cartes inactives sont exclues de la selection pour un
+  nouveau mouvement mais restent visibles dans le filtre de recherche des
+  rapports (marquees "(inactive)"), pour retrouver leur historique.
+- Fiche carte : badge de statut et bouton "Nouveau mouvement" masque si
+  la carte est inactive.
+- Corrige au passage un test preexistant instable (mouvement supprime) :
+  l'assertion cherchait le texte du toast sur toute la page au lieu de le
+  restreindre a la zone d'affichage, ce qui le faisait echouer par
+  intermittence a cause de la copie masquee que Radix ajoute pour les
+  lecteurs d'ecran.
+---
+ app/api/cards/[id]/route.ts                   |  18 +++
+ app/api/cards/route.ts                        |  12 +-
+ app/api/inventories/route.ts                  |   5 +-
+ app/api/movements/route.ts                    |  10 ++
+ app/dashboard/cards/[id]/page.tsx             |  23 ++--
+ components/dashboard/cards-management.tsx     | 107 ++++++++++++++++--
+ components/dashboard/movements-management.tsx |  15 ++-
+ lib/types.ts                                  |   1 +
+ tests/api/cards.test.ts                       |  57 ++++++++++
+ tests/api/inventories.test.ts                 |  24 ++++
+ tests/api/movements.test.ts                   |  15 +++
+ tests/components/card-detail-page.test.tsx    |  61 ++++++++++
+ tests/components/cards-management.test.tsx    |  58 ++++++++++
+ .../components/movements-management.test.tsx  |  43 ++++++-
+ 14 files changed, 420 insertions(+), 29 deletions(-)
+ create mode 100644 tests/components/card-detail-page.test.tsx
+
+diff --git a/app/api/cards/[id]/route.ts b/app/api/cards/[id]/route.ts
+index dff7864..78a5fad 100644
+--- a/app/api/cards/[id]/route.ts
++++ b/app/api/cards/[id]/route.ts
+@@ -62,6 +62,24 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
+ 
+     const userData = auth.user
+ 
++    // Désactivation : refusée tant qu'il reste du stock, pour la même raison
++    // que la suppression (DELETE ci-dessous) — une carte encore approvisionnée
++    // ne doit jamais devenir inactive silencieusement.
++    if (body.isActive === false) {
++      const stockLevels = await prisma.stockLevel.findMany({ where: { cardId: params.id } })
++      const totalStock = stockLevels.reduce((sum, level) => sum + level.quantity, 0)
++
++      if (totalStock > 0) {
++        return NextResponse.json<ApiResponse>(
++          {
++            success: false,
++            error: `Impossible de désactiver cette carte. Elle contient encore ${totalStock} unité(s) en stock dans les emplacements. Veuillez d'abord transférer ou sortir ce stock.`,
++          },
++          { status: 400 },
++        )
++      }
++    }
++
+     const updatedCard = await prisma.card.update({
+       where: { id: params.id },
+       data: {
+diff --git a/app/api/cards/route.ts b/app/api/cards/route.ts
+index 374e628..8b5a6ee 100644
+--- a/app/api/cards/route.ts
++++ b/app/api/cards/route.ts
+@@ -23,10 +23,14 @@ export async function GET(request: NextRequest) {
+     const subSubType = searchParams.get("subSubType")
+     const lowStock = searchParams.get("lowStock")
+     const searchTerm = searchParams.get("search")
+-
+-    const where: any = {
+-      isActive: true // Par défaut, afficher uniquement les cartes actives
+-    }
++    const status = searchParams.get("status")
++
++    const where: any = {}
++    // Par défaut (paramètre absent), n'afficher que les cartes actives : c'est
++    // le comportement historique dont dépendent les listes déroulantes et les
++    // rapports qui n'ont pas encore été adaptés aux cartes inactives.
++    if (status === "inactive") where.isActive = false
++    else if (status !== "all") where.isActive = true
+ 
+     if (bankId) where.bankId = bankId
+     if (type) where.type = type
+diff --git a/app/api/inventories/route.ts b/app/api/inventories/route.ts
+index 74ce8ab..2a15a92 100644
+--- a/app/api/inventories/route.ts
++++ b/app/api/inventories/route.ts
+@@ -108,10 +108,13 @@ export async function POST(request: NextRequest) {
+       )
+     }
+ 
++    // Une carte inactive a par construction un stock nul (voir la garde sur
++    // PUT/DELETE /api/cards/[id]) : la ligne de stockLevel à 0 qui subsiste
++    // parfois ne mérite pas de figurer dans un nouveau comptage.
+     const niveaux = await prisma.stockLevel.findMany({
+       where: {
+         locationId: { in: locations.map((l) => l.id) },
+-        card: { bankId: body.bankId },
++        card: { bankId: body.bankId, isActive: true },
+       },
+       select: { cardId: true, locationId: true, quantity: true },
+     })
+diff --git a/app/api/movements/route.ts b/app/api/movements/route.ts
+index 9ddaef5..eab5f77 100644
+--- a/app/api/movements/route.ts
++++ b/app/api/movements/route.ts
+@@ -264,6 +264,16 @@ export async function POST(request: NextRequest) {
+       return NextResponse.json<ApiResponse>({ success: false, error: "Carte introuvable" }, { status: 404 })
+     }
+ 
++    // Une carte inactive n'a plus de stock et n'est plus censée en recevoir :
++    // aucun mouvement (entrée, sortie ou transfert) n'est autorisé tant
++    // qu'elle n'a pas été réactivée.
++    if (card.isActive === false) {
++      return NextResponse.json<ApiResponse>(
++        { success: false, error: "Cette carte est inactive : aucun mouvement ne peut être enregistré. Réactivez-la d'abord." },
++        { status: 400 },
++      )
++    }
++
+     // Vérifier cohérence banque: la carte appartient à une seule banque
+     if (body.bankId && card.bankId !== body.bankId) {
+       return NextResponse.json<ApiResponse>({ success: false, error: "La carte n'appartient pas à cette banque" }, { status: 400 })
+diff --git a/app/dashboard/cards/[id]/page.tsx b/app/dashboard/cards/[id]/page.tsx
+index 2e54fc0..cb2a2ca 100644
+--- a/app/dashboard/cards/[id]/page.tsx
++++ b/app/dashboard/cards/[id]/page.tsx
+@@ -127,7 +127,7 @@ export default function CardDetailPage() {
+ 
+   const stockLevels = card.stockLevels || []
+   const totalStock = stockLevels.reduce((sum, sl) => sum + sl.quantity, 0)
+-  const isLowStock = totalStock <= card.minThreshold
++  const isLowStock = card.isActive && totalStock <= card.minThreshold
+ 
+   return (
+     <div className="space-y-6">
+@@ -140,17 +140,24 @@ export default function CardDetailPage() {
+             <ArrowLeft className="h-4 w-4" />
+             Retour aux cartes
+           </Link>
+-          <h2 className="text-2xl font-bold text-slate-900">{card.name}</h2>
++          <div className="flex items-center gap-2">
++            <h2 className="text-2xl font-bold text-slate-900">{card.name}</h2>
++            <Badge variant={card.isActive ? "default" : "secondary"} className={card.isActive ? "bg-green-600" : ""}>
++              {card.isActive ? "Active" : "Inactive"}
++            </Badge>
++          </div>
+           <p className="text-xs text-[#008DA8]">
+             {card.type} → {card.subType} → {card.subSubType}
+           </p>
+         </div>
+-        <Link href={`/dashboard/movements?cardId=${card.id}`}>
+-          <Button className="gap-2">
+-            <Plus className="h-4 w-4" />
+-            Nouveau mouvement
+-          </Button>
+-        </Link>
++        {card.isActive && (
++          <Link href={`/dashboard/movements?cardId=${card.id}`}>
++            <Button className="gap-2">
++              <Plus className="h-4 w-4" />
++              Nouveau mouvement
++            </Button>
++          </Link>
++        )}
+       </div>
+ 
+       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+diff --git a/components/dashboard/cards-management.tsx b/components/dashboard/cards-management.tsx
+index 593fd83..125518d 100644
+--- a/components/dashboard/cards-management.tsx
++++ b/components/dashboard/cards-management.tsx
+@@ -42,6 +42,7 @@ export default function CardsManagement() {
+   const [expandedBanks, setExpandedBanks] = useState<Set<string>>(new Set())
+   const [filters, setFilters] = useState<CardFilters>({
+     searchTerm: "",
++    status: "all",
+   })
+   const [cardTypes, setCardTypes] = useState<string[]>([])
+   const [cardSubTypes, setCardSubTypes] = useState<string[]>([])
+@@ -67,8 +68,10 @@ export default function CardsManagement() {
+   const loadData = async () => {
+     setIsLoading(true)
+     try {
+-      // Charger TOUTES les cartes pour extraire les types/sous-types (sans filtres)
+-      const allCardsResponse = await authenticatedFetch('/api/cards')
++      // Charger TOUTES les cartes (actives et inactives) pour extraire les
++      // types/sous-types, afin de ne pas perdre les valeurs qui n'existent
++      // plus que sur des cartes désactivées.
++      const allCardsResponse = await authenticatedFetch('/api/cards?status=all')
+       const allCardsData = await allCardsResponse.json()
+       if (allCardsData.success) {
+         // Extraire les types uniques de TOUTES les cartes
+@@ -88,6 +91,7 @@ export default function CardsManagement() {
+       if (filters.subSubType) params.append('subSubType', filters.subSubType)
+       if (filters.lowStock) params.append('lowStock', 'true')
+       if (filters.searchTerm) params.append('search', filters.searchTerm)
++      params.append('status', filters.status || 'all')
+ 
+       const cardsResponse = await authenticatedFetch(`/api/cards?${params.toString()}`)
+       const cardsData = await cardsResponse.json()
+@@ -299,6 +303,64 @@ export default function CardsManagement() {
+     }
+   }
+ 
++  const handleToggleStatus = async (card: CardData) => {
++    // Une carte ne peut passer inactive que si son stock est nul : on le
++    // vérifie côté client pour éviter une boîte de confirmation qui échouera
++    // de toute façon (l'API applique la même règle).
++    if (card.isActive) {
++      const stockLevels = (card as any).stockLevels || []
++      const totalStock = stockLevels.reduce((sum: number, level: any) => sum + level.quantity, 0)
++
++      if (totalStock > 0) {
++        toast({
++          title: "Impossible de désactiver cette carte",
++          description: `Elle contient encore ${totalStock} unité(s) en stock dans les emplacements. Transférez ou sortez ce stock avant de la désactiver.`,
++          variant: "destructive",
++        })
++        return
++      }
++    }
++
++    const confirme = await demanderConfirmation({
++      title: card.isActive ? "Désactiver cette carte ?" : "Activer cette carte ?",
++      description: card.isActive
++        ? `${card.name} sera marquée comme inactive. Elle ne pourra plus recevoir de mouvements et n'apparaîtra plus par défaut dans les listes et rapports.`
++        : `${card.name} sera de nouveau active et pourra recevoir des mouvements.`,
++      confirmLabel: card.isActive ? "Désactiver" : "Activer",
++      variant: card.isActive ? "danger" : "default",
++    })
++    if (!confirme) return
++
++    try {
++      const response = await authenticatedFetch(`/api/cards/${card.id}`, {
++        method: 'PUT',
++        body: JSON.stringify({ isActive: !card.isActive }),
++      })
++      const data = await response.json()
++      if (data.success) {
++        toast({
++          title: card.isActive ? "Carte désactivée" : "Carte activée",
++          description: card.name,
++          variant: "success",
++        })
++        await loadData()
++      } else {
++        toast({
++          title: card.isActive ? "Désactivation impossible" : "Activation impossible",
++          description: data.error,
++          variant: "destructive",
++        })
++      }
++    } catch (error) {
++      console.error('Error toggling card status:', error)
++      toast({
++        title: card.isActive ? "Désactivation impossible" : "Activation impossible",
++        description: "Une erreur est survenue pendant la mise à jour du statut.",
++        variant: "destructive",
++      })
++    }
++  }
++
+   const downloadTemplate = () => {
+     const csvContent =
+       "ID;BanqueEmettrice;NomCarte;Type;SousType;SousSousType\n;Banque Internationale;Carte Débit Jeune;Carte débit;Mastercard;National\n;Banque Internationale;Carte Débit Gold;Carte débit;Mastercard;International\n;Banque Centrale;Carte Débit Standard;Carte débit;Visa;National"
+@@ -445,6 +507,7 @@ export default function CardsManagement() {
+       subType: undefined,
+       subSubType: undefined,
+       lowStock: false,
++      status: "all",
+     })
+   }
+ 
+@@ -541,7 +604,7 @@ export default function CardsManagement() {
+   const handlePrintInventory = () => {
+     const inventoryData = Object.entries(groupedCards).map(([bankName, bankCards]) => {
+       const totalQuantity = bankCards.reduce((sum, cd) => sum + cd.card.quantity, 0)
+-      const lowStockCount = bankCards.filter((cd) => cd.card.quantity <= cd.card.minThreshold).length
++      const lowStockCount = bankCards.filter((cd) => cd.card.isActive && cd.card.quantity <= cd.card.minThreshold).length
+       const typeBreakdown: { [type: string]: number } = {}
+ 
+       bankCards.forEach((cd) => {
+@@ -558,7 +621,7 @@ export default function CardsManagement() {
+         0,
+       ),
+       lowStockCount: Object.values(groupedCards).reduce(
+-        (sum, cards) => sum + cards.filter((cd) => cd.card.quantity <= cd.card.minThreshold).length,
++        (sum, cards) => sum + cards.filter((cd) => cd.card.isActive && cd.card.quantity <= cd.card.minThreshold).length,
+         0,
+       ),
+     }
+@@ -836,7 +899,7 @@ export default function CardsManagement() {
+           </CardTitle>
+         </CardHeader>
+         <CardContent>
+-          <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
++          <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
+             <div>
+               <Label htmlFor="search">Recherche</Label>
+               <Input
+@@ -918,6 +981,22 @@ export default function CardsManagement() {
+                 </SelectContent>
+               </Select>
+             </div>
++            <div>
++              <Label htmlFor="statusFilter">Statut</Label>
++              <Select
++                value={filters.status || "all"}
++                onValueChange={(value) => setFilters({ ...filters, status: value as CardFilters["status"] })}
++              >
++                <SelectTrigger className="w-full" id="statusFilter">
++                  <SelectValue />
++                </SelectTrigger>
++                <SelectContent>
++                  <SelectItem value="all">Toutes</SelectItem>
++                  <SelectItem value="active">Actives</SelectItem>
++                  <SelectItem value="inactive">Inactives</SelectItem>
++                </SelectContent>
++              </Select>
++            </div>
+             <div className="flex items-end">
+               <Button variant="outline" onClick={resetFilters}>
+                 <Filter className="h-4 w-4 mr-2" />
+@@ -951,7 +1030,9 @@ export default function CardsManagement() {
+               <tbody>
+                 {Object.entries(groupedCards).map(([bankName, bankCards]) => {
+                   const totalQuantity = bankCards.reduce((sum, cd) => sum + cd.card.quantity, 0)
+-                  const lowStockCount = bankCards.filter(cd => cd.card.quantity <= cd.card.minThreshold).length
++                  // Une carte inactive a un stock nul par construction : la compter comme
++                  // "stock faible" ne ferait que remonter une alerte permanente sans intérêt.
++                  const lowStockCount = bankCards.filter(cd => cd.card.isActive && cd.card.quantity <= cd.card.minThreshold).length
+                   return (
+                     <tr key={bankName} className="border-b border-slate-200 hover:bg-slate-50">
+                       <td className="p-3 font-medium text-slate-900">{bankName}</td>
+@@ -987,8 +1068,8 @@ export default function CardsManagement() {
+                     )}
+                   </td>
+                   <td className="p-3 text-center text-slate-900">
+-                    {Object.values(groupedCards).reduce((total, cards) => 
+-                      total + cards.filter(cd => cd.card.quantity <= cd.card.minThreshold).length, 0
++                    {Object.values(groupedCards).reduce((total, cards) =>
++                      total + cards.filter(cd => cd.card.isActive && cd.card.quantity <= cd.card.minThreshold).length, 0
+                     )}
+                   </td>
+                   <td className="p-3 text-center"></td>
+@@ -1079,13 +1160,21 @@ export default function CardsManagement() {
+                               )}
+                                 </div>
+                                 <div className="flex items-center gap-3">
+-                                  <Badge variant={card.quantity <= card.minThreshold ? "destructive" : "default"}>
++                                  <Badge
++                                    variant={card.isActive && card.quantity <= card.minThreshold ? "destructive" : "default"}
++                                  >
+                                     {card.quantity} restantes
+                                   </Badge>
++                                  <Badge variant={card.isActive ? "default" : "secondary"} className={card.isActive ? "bg-green-600" : ""}>
++                                    {card.isActive ? "Active" : "Inactive"}
++                                  </Badge>
+                                   <div className="flex space-x-2">
+                                     <Button variant="outline" size="sm" onClick={() => handleEdit(card)}>
+                                       Modifier
+                                     </Button>
++                                    <Button variant="outline" size="sm" onClick={() => handleToggleStatus(card)}>
++                                      {card.isActive ? "Désactiver" : "Activer"}
++                                    </Button>
+                                     <Button variant="outline" size="sm" onClick={() => handleDelete(card.id)}>
+                                       Supprimer
+                                     </Button>
+diff --git a/components/dashboard/movements-management.tsx b/components/dashboard/movements-management.tsx
+index 53b7a09..ed87301 100644
+--- a/components/dashboard/movements-management.tsx
++++ b/components/dashboard/movements-management.tsx
+@@ -217,8 +217,11 @@ export default function MovementsManagement() {
+ 
+   const loadCardsLocationsBanks = async () => {
+     try {
+-      // Charger les cartes
+-      const cardsResponse = await authenticatedFetch('/api/cards')
++      // Charger les cartes, actives et inactives : le filtre de recherche des
++      // mouvements doit pouvoir cibler l'historique d'une carte désactivée,
++      // même si elle ne peut plus être choisie pour un nouveau mouvement
++      // (voir getFilteredCards, qui exclut les cartes inactives).
++      const cardsResponse = await authenticatedFetch('/api/cards?status=all')
+       const cardsData = await cardsResponse.json()
+       if (cardsData.success) {
+         setCards(cardsData.data || [])
+@@ -1353,10 +1356,12 @@ export default function MovementsManagement() {
+     }
+   }
+ 
+-  // Filtrer les cartes par banque sélectionnée
++  // Filtrer les cartes par banque sélectionnée. Une carte inactive n'a plus
++  // de stock et ne doit plus recevoir de mouvement (voir la même règle côté
++  // API dans POST /api/movements) : on l'exclut donc de la sélection.
+   const getFilteredCards = () => {
+     if (!formData.bankId) return []
+-    return cards.filter(card => card.bankId === formData.bankId)
++    return cards.filter(card => card.bankId === formData.bankId && card.isActive !== false)
+   }
+ 
+   // Vérifier si le stock est suffisant pour toutes les cartes
+@@ -1982,7 +1987,7 @@ export default function MovementsManagement() {
+                     <SelectItem value="all">Toutes les cartes</SelectItem>
+                     {getCardsForFilter().map((card) => (
+                       <SelectItem key={card.id} value={card.id}>
+-                        {card.name}
++                        {card.name}{!card.isActive ? " (inactive)" : ""}
+                       </SelectItem>
+                     ))}
+                   </SelectContent>
+diff --git a/lib/types.ts b/lib/types.ts
+index fb25101..e679168 100644
+--- a/lib/types.ts
++++ b/lib/types.ts
+@@ -255,6 +255,7 @@ export interface CardFilters {
+   subSubType?: string
+   lowStock?: boolean
+   searchTerm?: string
++  status?: "all" | "active" | "inactive"
+ }
+ 
+ export interface CardDetails {
+diff --git a/tests/api/cards.test.ts b/tests/api/cards.test.ts
+index a316039..64e9d5d 100644
+--- a/tests/api/cards.test.ts
++++ b/tests/api/cards.test.ts
+@@ -87,6 +87,26 @@ describe("GET /api/cards", () => {
+     expect(json.data[0].quantity).toBe(30)
+   })
+ 
++  it("ne filtre pas par isActive quand status=all", async () => {
++    vi.mocked(prisma.card.findMany).mockResolvedValue([card] as any)
++
++    await GET(makeRequest("http://localhost/api/cards?status=all"))
++
++    expect(prisma.card.findMany).toHaveBeenCalledWith(
++      expect.objectContaining({ where: expect.not.objectContaining({ isActive: expect.anything() }) }),
++    )
++  })
++
++  it("filtre isActive:false quand status=inactive", async () => {
++    vi.mocked(prisma.card.findMany).mockResolvedValue([{ ...card, isActive: false }] as any)
++
++    await GET(makeRequest("http://localhost/api/cards?status=inactive"))
++
++    expect(prisma.card.findMany).toHaveBeenCalledWith(
++      expect.objectContaining({ where: expect.objectContaining({ isActive: false }) }),
++    )
++  })
++
+   it("filtre les cartes en stock faible quand lowStock=true", async () => {
+     vi.mocked(prisma.card.findMany).mockResolvedValue([
+       { ...card, id: "low", minThreshold: 50, stockLevels: [{ quantity: 5 }] },
+@@ -186,6 +206,43 @@ describe("PUT /api/cards/[id]", () => {
+     expect(response.status).toBe(200)
+     expect(json.data.name).toBe("Visa Gold")
+   })
++
++  it("refuse de désactiver une carte qui a encore du stock (400)", async () => {
++    vi.mocked(prisma.stockLevel.findMany).mockResolvedValue([{ quantity: 7 }] as any)
++
++    const response = await updateById(
++      makeRequest("http://localhost/api/cards/card-1", { method: "PUT", body: { isActive: false } }),
++      { params: { id: "card-1" } },
++    )
++    const json = await response.json()
++    expect(response.status).toBe(400)
++    expect(json.error).toContain("7 unité")
++    expect(prisma.card.update).not.toHaveBeenCalled()
++  })
++
++  it("désactive une carte sans stock", async () => {
++    vi.mocked(prisma.stockLevel.findMany).mockResolvedValue([] as any)
++    vi.mocked(prisma.card.update).mockResolvedValue({ ...card, isActive: false } as any)
++
++    const response = await updateById(
++      makeRequest("http://localhost/api/cards/card-1", { method: "PUT", body: { isActive: false } }),
++      { params: { id: "card-1" } },
++    )
++    const json = await response.json()
++    expect(response.status).toBe(200)
++    expect(json.data.isActive).toBe(false)
++  })
++
++  it("réactive une carte sans vérifier le stock", async () => {
++    vi.mocked(prisma.card.update).mockResolvedValue({ ...card, isActive: true } as any)
++
++    const response = await updateById(
++      makeRequest("http://localhost/api/cards/card-1", { method: "PUT", body: { isActive: true } }),
++      { params: { id: "card-1" } },
++    )
++    expect(response.status).toBe(200)
++    expect(prisma.stockLevel.findMany).not.toHaveBeenCalled()
++  })
+ })
+ 
+ describe("DELETE /api/cards/[id]", () => {
+diff --git a/tests/api/inventories.test.ts b/tests/api/inventories.test.ts
+index 3d9a990..a46eadf 100644
+--- a/tests/api/inventories.test.ts
++++ b/tests/api/inventories.test.ts
+@@ -163,6 +163,30 @@ describe("POST /api/inventories", () => {
+     expect(json.data.countedLines).toBe(0)
+     expect(json.data.totalExpected).toBe(371)
+   })
++
++  // Une carte inactive a toujours un stock nul : lui réserver une ligne de
++  // comptage n'aurait aucun sens et polluerait l'inventaire.
++  it("n'inclut que les cartes actives dans le périmètre du comptage", async () => {
++    vi.mocked(prisma.bank.findUnique).mockResolvedValue(banque as any)
++    vi.mocked(prisma.inventory.findFirst).mockResolvedValue(null)
++    vi.mocked(prisma.location.findMany).mockResolvedValue([{ id: "loc-1" }] as any)
++    vi.mocked(prisma.stockLevel.findMany).mockResolvedValue([
++      { cardId: "card-1", locationId: "loc-1", quantity: 10 },
++    ] as any)
++    vi.mocked(prisma.inventory.create).mockResolvedValue({
++      id: "inv-1",
++      reference: "INV-X",
++      lines: [{ expectedQuantity: 10, countedQuantity: null }],
++    } as any)
++
++    await createInventory(requete("http://localhost/api/inventories", { body: { bankId: "bank-1" } }))
++
++    expect(prisma.stockLevel.findMany).toHaveBeenCalledWith(
++      expect.objectContaining({
++        where: expect.objectContaining({ card: expect.objectContaining({ isActive: true }) }),
++      }),
++    )
++  })
+ })
+ 
+ describe("POST /api/inventories/[id]/complete", () => {
+diff --git a/tests/api/movements.test.ts b/tests/api/movements.test.ts
+index 28be3fe..e3dc81f 100644
+--- a/tests/api/movements.test.ts
++++ b/tests/api/movements.test.ts
+@@ -223,6 +223,21 @@ describe("POST /api/movements", () => {
+     expect(json.success).toBe(false)
+   })
+ 
++  it("refuse un mouvement sur une carte inactive", async () => {
++    vi.mocked(prisma.user.findUnique).mockResolvedValue(userRecord as any)
++    vi.mocked(prisma.card.findUnique).mockResolvedValue({ ...cardRecord, isActive: false } as any)
++
++    const response = await POST(
++      makeRequest("http://localhost/api/movements", {
++        body: { cardId: "card-1", movementType: "entry", quantity: 10, reason: "x", toLocationId: "loc-1" },
++      }),
++    )
++    const json = await response.json()
++    expect(response.status).toBe(400)
++    expect(json.error).toContain("inactive")
++    expect(prisma.movement.create).not.toHaveBeenCalled()
++  })
++
+   it("crée un mouvement d'entrée valide et journalise l'action", async () => {
+     vi.mocked(prisma.user.findUnique).mockResolvedValue(userRecord as any)
+     vi.mocked(prisma.card.findUnique).mockResolvedValue(cardRecord as any).mockResolvedValueOnce(cardRecord as any)
+diff --git a/tests/components/card-detail-page.test.tsx b/tests/components/card-detail-page.test.tsx
+new file mode 100644
+index 0000000..4d086a2
+--- /dev/null
++++ b/tests/components/card-detail-page.test.tsx
+@@ -0,0 +1,61 @@
++import { afterEach, describe, expect, it, vi } from "vitest"
++import { render, screen } from "@testing-library/react"
++import CardDetailPage from "@/app/dashboard/cards/[id]/page"
++
++vi.mock("next/navigation", () => ({
++  useParams: () => ({ id: "card-1" }),
++}))
++
++function jsonResponse(body: unknown) {
++  return Promise.resolve({ json: () => Promise.resolve(body) } as Response)
++}
++
++const baseCard = {
++  id: "card-1",
++  name: "Carte Débit Standard",
++  type: "Débit",
++  subType: "Standard",
++  subSubType: "National",
++  bankId: "bank-1",
++  bank: { name: "Banque Centrale" },
++  minThreshold: 50,
++  maxThreshold: 1000,
++  isActive: true,
++  stockLevels: [],
++}
++
++function setupFetchMock(card: any) {
++  const fetchMock = vi.fn((url: string) => {
++    if (url.startsWith("/api/cards/")) return jsonResponse({ success: true, data: card })
++    if (url.startsWith("/api/movements")) {
++      return jsonResponse({ success: true, data: { movements: [], total: 0, totalPages: 1 } })
++    }
++    throw new Error(`Unexpected fetch to ${url}`)
++  })
++  vi.stubGlobal("fetch", fetchMock)
++  return fetchMock
++}
++
++describe("CardDetailPage", () => {
++  afterEach(() => {
++    vi.unstubAllGlobals()
++    vi.restoreAllMocks()
++  })
++
++  it("affiche le bouton Nouveau mouvement et le badge Active pour une carte active", async () => {
++    setupFetchMock(baseCard)
++    render(<CardDetailPage />)
++
++    expect(await screen.findByText("Active")).toBeInTheDocument()
++    expect(screen.getByRole("link", { name: /nouveau mouvement/i })).toBeInTheDocument()
++  })
++
++  it("masque le bouton Nouveau mouvement et n'affiche pas d'alerte de stock bas pour une carte inactive", async () => {
++    setupFetchMock({ ...baseCard, isActive: false })
++    render(<CardDetailPage />)
++
++    expect(await screen.findByText("Inactive")).toBeInTheDocument()
++    expect(screen.queryByRole("link", { name: /nouveau mouvement/i })).not.toBeInTheDocument()
++    expect(screen.queryByText("Stock bas")).not.toBeInTheDocument()
++  })
++})
+diff --git a/tests/components/cards-management.test.tsx b/tests/components/cards-management.test.tsx
+index fb6f0b0..71d1124 100644
+--- a/tests/components/cards-management.test.tsx
++++ b/tests/components/cards-management.test.tsx
+@@ -201,4 +201,62 @@ describe("CardsManagement", () => {
+       )
+     })
+   })
++
++  it("empêche la désactivation d'une carte qui a encore du stock", async () => {
++    const fetchMock = setupFetchMock([{ ...cardA, stockLevels: [{ id: "sl1", locationId: "loc-1", quantity: 5 }] }])
++    const user = userEvent.setup()
++    render(
++      <>
++        <CardsManagement />
++        <Toaster />
++      </>,
++    )
++    await screen.findByText(/carte\(s\) au total/)
++
++    await expandBankGroup(user, "Banque Centrale")
++    await user.click(await screen.findByRole("button", { name: /désactiver/i }))
++
++    expect(await notifications().findByText("Impossible de désactiver cette carte")).toBeInTheDocument()
++    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
++    expect(fetchMock).not.toHaveBeenCalledWith(
++      `/api/cards/${cardA.id}`,
++      expect.objectContaining({ method: "PUT" }),
++    )
++  })
++
++  it("désactive une carte sans stock après confirmation", async () => {
++    const fetchMock = setupFetchMock()
++    const user = userEvent.setup()
++    render(<CardsManagement />)
++    await screen.findByText(/carte\(s\) au total/)
++
++    await expandBankGroup(user, "Banque Centrale")
++    await user.click(await screen.findByRole("button", { name: /désactiver/i }))
++    await repondreConfirmation(user, /^désactiver$/i)
++
++    await waitFor(() => {
++      expect(fetchMock).toHaveBeenCalledWith(
++        `/api/cards/${cardA.id}`,
++        expect.objectContaining({ method: "PUT", body: JSON.stringify({ isActive: false }) }),
++      )
++    })
++  })
++
++  it("réactive une carte inactive après confirmation", async () => {
++    const fetchMock = setupFetchMock([{ ...cardA, isActive: false }])
++    const user = userEvent.setup()
++    render(<CardsManagement />)
++    await screen.findByText(/carte\(s\) au total/)
++
++    await expandBankGroup(user, "Banque Centrale")
++    await user.click(await screen.findByRole("button", { name: /^activer$/i }))
++    await repondreConfirmation(user, /^activer$/i)
++
++    await waitFor(() => {
++      expect(fetchMock).toHaveBeenCalledWith(
++        `/api/cards/${cardA.id}`,
++        expect.objectContaining({ method: "PUT", body: JSON.stringify({ isActive: true }) }),
++      )
++    })
++  })
+ })
+diff --git a/tests/components/movements-management.test.tsx b/tests/components/movements-management.test.tsx
+index 05cf821..c651e3a 100644
+--- a/tests/components/movements-management.test.tsx
++++ b/tests/components/movements-management.test.tsx
+@@ -29,8 +29,20 @@ const cardA = {
+   subType: "Standard",
+   minThreshold: 50,
+   maxThreshold: 1000,
++  isActive: true,
+   stockLevels: [{ locationId: "loc-1", quantity: 20 }],
+ }
++const cardB = {
++  id: "card-2",
++  name: "Carte Obsolète",
++  bankId: "bank-1",
++  type: "Débit",
++  subType: "Standard",
++  minThreshold: 50,
++  maxThreshold: 1000,
++  isActive: false,
++  stockLevels: [],
++}
+ const movementReasonEntry = { id: "reason-entry", label: "Entrée en stock", isOther: false, isActive: true }
+ const movementReasonExit = { id: "reason-exit", label: "Expedition Sortie", isOther: false, isActive: true }
+ const movementReasonOther = { id: "reason-other", label: "Autre", isOther: true, isActive: true }
+@@ -58,6 +70,7 @@ function setupFetchMock(
+     postResponse?: unknown
+     deleteResponse?: unknown
+     reasons?: unknown[]
++    cards?: unknown[]
+   } = {},
+ ) {
+   const fetchMock = vi.fn((url: string, options?: RequestInit) => {
+@@ -80,7 +93,7 @@ function setupFetchMock(
+         },
+       })
+     }
+-    if (url.startsWith("/api/cards")) return jsonResponse({ success: true, data: [cardA] })
++    if (url.startsWith("/api/cards")) return jsonResponse({ success: true, data: extra.cards ?? [cardA] })
+     if (url.startsWith("/api/locations")) return jsonResponse({ success: true, data: [locationA, locationB] })
+     if (url.startsWith("/api/banks")) return jsonResponse({ success: true, data: [bankA] })
+     if (url.startsWith("/api/movement-reasons")) {
+@@ -276,7 +289,7 @@ describe("MovementsManagement", () => {
+     })
+ 
+     expect(await notifications().findByText("Mouvement supprimé")).toBeInTheDocument()
+-    expect(screen.getByText(/stock a été réajusté/i)).toBeInTheDocument()
++    expect(notifications().getByText(/stock a été réajusté/i)).toBeInTheDocument()
+   })
+ 
+   it("affiche le refus du serveur quand l'annulation rendrait le stock négatif", async () => {
+@@ -323,6 +336,32 @@ describe("MovementsManagement", () => {
+     expect(await screen.findByText("Veuillez sélectionner au moins une carte")).toBeInTheDocument()
+   })
+ 
++  it("exclut les cartes inactives de la sélection pour un nouveau mouvement", async () => {
++    setupFetchMock([movementA], { cards: [cardA, cardB] })
++    const user = userEvent.setup()
++    render(<MovementsManagement />)
++    await screen.findByText("Carte Débit Standard")
++
++    const dialog = await openNewMovementDialog(user)
++    await selectBank(user, dialog)
++
++    expect(within(dialog).getByLabelText(new RegExp(cardA.name))).toBeInTheDocument()
++    expect(within(dialog).queryByLabelText(new RegExp(cardB.name))).not.toBeInTheDocument()
++  })
++
++  it("marque les cartes inactives dans le filtre de recherche des mouvements", async () => {
++    setupFetchMock([movementA], { cards: [cardA, cardB] })
++    const user = userEvent.setup()
++    render(<MovementsManagement />)
++    await screen.findByText("Carte Débit Standard")
++
++    await user.click(screen.getByLabelText("Banque"))
++    await user.click(await screen.findByRole("option", { name: bankA.name }))
++    await user.click(screen.getByLabelText("Carte"))
++
++    expect(await screen.findByRole("option", { name: `${cardB.name} (inactive)` })).toBeInTheDocument()
++  })
++
+   it("désactive le bouton d'enregistrement quand le stock est insuffisant pour une sortie", async () => {
+     setupFetchMock()
+     const user = userEvent.setup()
+-- 
+2.43.0
+

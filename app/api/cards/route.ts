@@ -23,10 +23,14 @@ export async function GET(request: NextRequest) {
     const subSubType = searchParams.get("subSubType")
     const lowStock = searchParams.get("lowStock")
     const searchTerm = searchParams.get("search")
+    const status = searchParams.get("status")
 
-    const where: any = {
-      isActive: true // Par défaut, afficher uniquement les cartes actives
-    }
+    const where: any = {}
+    // Par défaut (paramètre absent), n'afficher que les cartes actives : c'est
+    // le comportement historique dont dépendent les listes déroulantes et les
+    // rapports qui n'ont pas encore été adaptés aux cartes inactives.
+    if (status === "inactive") where.isActive = false
+    else if (status !== "all") where.isActive = true
 
     if (bankId) where.bankId = bankId
     if (type) where.type = type

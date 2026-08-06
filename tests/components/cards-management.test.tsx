@@ -201,4 +201,62 @@ describe("CardsManagement", () => {
       )
     })
   })
+
+  it("empêche la désactivation d'une carte qui a encore du stock", async () => {
+    const fetchMock = setupFetchMock([{ ...cardA, stockLevels: [{ id: "sl1", locationId: "loc-1", quantity: 5 }] }])
+    const user = userEvent.setup()
+    render(
+      <>
+        <CardsManagement />
+        <Toaster />
+      </>,
+    )
+    await screen.findByText(/carte\(s\) au total/)
+
+    await expandBankGroup(user, "Banque Centrale")
+    await user.click(await screen.findByRole("button", { name: /désactiver/i }))
+
+    expect(await notifications().findByText("Impossible de désactiver cette carte")).toBeInTheDocument()
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      `/api/cards/${cardA.id}`,
+      expect.objectContaining({ method: "PUT" }),
+    )
+  })
+
+  it("désactive une carte sans stock après confirmation", async () => {
+    const fetchMock = setupFetchMock()
+    const user = userEvent.setup()
+    render(<CardsManagement />)
+    await screen.findByText(/carte\(s\) au total/)
+
+    await expandBankGroup(user, "Banque Centrale")
+    await user.click(await screen.findByRole("button", { name: /désactiver/i }))
+    await repondreConfirmation(user, /^désactiver$/i)
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/cards/${cardA.id}`,
+        expect.objectContaining({ method: "PUT", body: JSON.stringify({ isActive: false }) }),
+      )
+    })
+  })
+
+  it("réactive une carte inactive après confirmation", async () => {
+    const fetchMock = setupFetchMock([{ ...cardA, isActive: false }])
+    const user = userEvent.setup()
+    render(<CardsManagement />)
+    await screen.findByText(/carte\(s\) au total/)
+
+    await expandBankGroup(user, "Banque Centrale")
+    await user.click(await screen.findByRole("button", { name: /^activer$/i }))
+    await repondreConfirmation(user, /^activer$/i)
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/cards/${cardA.id}`,
+        expect.objectContaining({ method: "PUT", body: JSON.stringify({ isActive: true }) }),
+      )
+    })
+  })
 })

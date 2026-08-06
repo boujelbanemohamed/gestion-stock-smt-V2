@@ -29,7 +29,19 @@ const cardA = {
   subType: "Standard",
   minThreshold: 50,
   maxThreshold: 1000,
+  isActive: true,
   stockLevels: [{ locationId: "loc-1", quantity: 20 }],
+}
+const cardB = {
+  id: "card-2",
+  name: "Carte Obsolète",
+  bankId: "bank-1",
+  type: "Débit",
+  subType: "Standard",
+  minThreshold: 50,
+  maxThreshold: 1000,
+  isActive: false,
+  stockLevels: [],
 }
 const movementReasonEntry = { id: "reason-entry", label: "Entrée en stock", isOther: false, isActive: true }
 const movementReasonExit = { id: "reason-exit", label: "Expedition Sortie", isOther: false, isActive: true }
@@ -58,6 +70,7 @@ function setupFetchMock(
     postResponse?: unknown
     deleteResponse?: unknown
     reasons?: unknown[]
+    cards?: unknown[]
   } = {},
 ) {
   const fetchMock = vi.fn((url: string, options?: RequestInit) => {
@@ -80,7 +93,7 @@ function setupFetchMock(
         },
       })
     }
-    if (url.startsWith("/api/cards")) return jsonResponse({ success: true, data: [cardA] })
+    if (url.startsWith("/api/cards")) return jsonResponse({ success: true, data: extra.cards ?? [cardA] })
     if (url.startsWith("/api/locations")) return jsonResponse({ success: true, data: [locationA, locationB] })
     if (url.startsWith("/api/banks")) return jsonResponse({ success: true, data: [bankA] })
     if (url.startsWith("/api/movement-reasons")) {
@@ -276,7 +289,7 @@ describe("MovementsManagement", () => {
     })
 
     expect(await notifications().findByText("Mouvement supprimé")).toBeInTheDocument()
-    expect(screen.getByText(/stock a été réajusté/i)).toBeInTheDocument()
+    expect(notifications().getByText(/stock a été réajusté/i)).toBeInTheDocument()
   })
 
   it("affiche le refus du serveur quand l'annulation rendrait le stock négatif", async () => {
@@ -321,6 +334,32 @@ describe("MovementsManagement", () => {
     await user.click(within(dialog).getByRole("button", { name: "Enregistrer" }))
 
     expect(await screen.findByText("Veuillez sélectionner au moins une carte")).toBeInTheDocument()
+  })
+
+  it("exclut les cartes inactives de la sélection pour un nouveau mouvement", async () => {
+    setupFetchMock([movementA], { cards: [cardA, cardB] })
+    const user = userEvent.setup()
+    render(<MovementsManagement />)
+    await screen.findByText("Carte Débit Standard")
+
+    const dialog = await openNewMovementDialog(user)
+    await selectBank(user, dialog)
+
+    expect(within(dialog).getByLabelText(new RegExp(cardA.name))).toBeInTheDocument()
+    expect(within(dialog).queryByLabelText(new RegExp(cardB.name))).not.toBeInTheDocument()
+  })
+
+  it("marque les cartes inactives dans le filtre de recherche des mouvements", async () => {
+    setupFetchMock([movementA], { cards: [cardA, cardB] })
+    const user = userEvent.setup()
+    render(<MovementsManagement />)
+    await screen.findByText("Carte Débit Standard")
+
+    await user.click(screen.getByLabelText("Banque"))
+    await user.click(await screen.findByRole("option", { name: bankA.name }))
+    await user.click(screen.getByLabelText("Carte"))
+
+    expect(await screen.findByRole("option", { name: `${cardB.name} (inactive)` })).toBeInTheDocument()
   })
 
   it("désactive le bouton d'enregistrement quand le stock est insuffisant pour une sortie", async () => {

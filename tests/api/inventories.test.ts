@@ -163,6 +163,30 @@ describe("POST /api/inventories", () => {
     expect(json.data.countedLines).toBe(0)
     expect(json.data.totalExpected).toBe(371)
   })
+
+  // Une carte inactive a toujours un stock nul : lui réserver une ligne de
+  // comptage n'aurait aucun sens et polluerait l'inventaire.
+  it("n'inclut que les cartes actives dans le périmètre du comptage", async () => {
+    vi.mocked(prisma.bank.findUnique).mockResolvedValue(banque as any)
+    vi.mocked(prisma.inventory.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.location.findMany).mockResolvedValue([{ id: "loc-1" }] as any)
+    vi.mocked(prisma.stockLevel.findMany).mockResolvedValue([
+      { cardId: "card-1", locationId: "loc-1", quantity: 10 },
+    ] as any)
+    vi.mocked(prisma.inventory.create).mockResolvedValue({
+      id: "inv-1",
+      reference: "INV-X",
+      lines: [{ expectedQuantity: 10, countedQuantity: null }],
+    } as any)
+
+    await createInventory(requete("http://localhost/api/inventories", { body: { bankId: "bank-1" } }))
+
+    expect(prisma.stockLevel.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ card: expect.objectContaining({ isActive: true }) }),
+      }),
+    )
+  })
 })
 
 describe("POST /api/inventories/[id]/complete", () => {
